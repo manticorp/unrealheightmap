@@ -225,7 +225,7 @@ export default class App {
       type: 'number',
       min: '-90',
       max: '90',
-      value: '0'
+      value: '27.994401411046148'
     });
     this.inputs.longitude = App.createInput({
       name: 'longitude',
@@ -233,7 +233,7 @@ export default class App {
       type: 'number',
       min: '-180',
       max: '180',
-      value: '0'
+      value: '86.92520141601562'
     });
     this.inputs.zoom = App.createInput({
       name: 'zoom',
@@ -421,11 +421,19 @@ export default class App {
 
     this.inputs.latitude.on('change input', debounce(() => {
       this.storeValue('latitude', this.inputs.latitude.val().toString());
+      this.map.setView({
+        lat: parseFloat(this.inputs.latitude.val().toString()),
+        lng: parseFloat(this.inputs.longitude.val().toString())
+      });
       this.redrawRect();
     }, 60));
 
     this.inputs.longitude.on('change input', debounce(() => {
       this.storeValue('longitude', this.inputs.longitude.val().toString());
+      this.map.setView({
+        lat: parseFloat(this.inputs.latitude.val().toString()),
+        lng: parseFloat(this.inputs.longitude.val().toString())
+      });
       this.redrawRect();
     }, 60));
 
