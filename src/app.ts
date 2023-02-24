@@ -9,7 +9,7 @@ import {format} from "./helpers";
 
 import * as Comlink from 'comlink';
 
-const worker = new Worker("dist/js/processor.js");
+const worker = new Worker("public/dist/js/processor.js");
 const processor = Comlink.wrap(worker);
 
 type AppArgs = {
@@ -171,7 +171,7 @@ export default class App {
     this.layers.topo.layer.addTo(this.map);
 
     const icon = L.icon({
-      iconUrl: '/im/marker.png',
+      iconUrl: 'public/im/marker.png',
       iconSize: [25, 41],
       iconAnchor: [12, 41],
     });
