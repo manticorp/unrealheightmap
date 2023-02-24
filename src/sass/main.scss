@@ -36,3 +36,10 @@ $primary-invert: $pink-invert;
 	overflow-y: auto;
     z-index: 999999;
 }
+.faq details {
+	margin-bottom: 1rem;
+	summary {
+		font-style: italic;
+		cursor: pointer;
+	}
+}

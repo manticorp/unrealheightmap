@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>16 Bit Grayscale PNG Heightmap Generator for Unreal Engine</title>
+    <link rel="stylesheet" href="public/dist/css/main.css">
+  </head>
+  <body>
+    <header class="container">
+      <nav class="navbar" role="navigation" aria-label="main navigation">
+        <div class="navbar-brand">
+          <a class="navbar-item has-text-weight-bold" href="/">
+            Unreal PNG Heightmap
+          </a>
+
+          <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarBasicExample">
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+          </a>
+        </div>
+
+        <div id="navbarBasicExample" class="navbar-menu">
+          <div class="navbar-start">
+            <a class="navbar-item" href="index.html">
+              Home
+            </a>
+
+            <a class="navbar-item" href="instructions.html">
+              Documentation
+            </a>
+          </div>
+        </div>
+      </nav>
+    </header>
+    <main>
+      <article class="container content">
+        <h1>16 Bit PNG Heightmap Generator</h1>
+      </article>
+      <article class="container content">
+        <h2>Aim</h2>
+        <p>The aim of this project is to generate 16 bit heightmap data for use in software such as Unreal Engine 5</p>
+        <p>High quality height data is available from <a href="https://www.mapzen.com/blog/elevation/">Mapzen's global elevation service</a>.</p>
+      </article>
+      <article class="container content">
+        <h2>How to Export</h2>
+        <p>Using the map at the top of the screen, choose a location. You can also manually type in a latitude and longitude.</p>
+        <p>The orange rectangle shows the size of the exported image, and what will be included.</p>
+        <p>The size of the exported area depends on the <strong>output zoom</strong> and the <strong>output size in pixels</strong>.</p>
+        <p>After clicking 'Generate' a 16 bit PNG should await you.</p>
+      </article>
+      <article class="container content faq">
+        <h2>FAQs</h2>
+        <details>
+          <summary>There is a weird artefact in my image - why is that?</summary>
+          Unfortunately there are some errors in the source data - please check the 'Terrarium' preview type at the same zoom level and see if the artefacts are also present.
+        </details>
+        <details>
+          <summary>How do I use these images?</summary>
+          You can find <a href="https://docs.unrealengine.com/5.1/en-US/creating-and-using-custom-heightmaps-and-layers-in-unreal-engine/">information how to use the 16 bit png images for landscapes on the Unreal Engine website</a>
+        </details>
+        <details>
+          <summary>Why wouldn't I use the <a href="http://tangrams.github.io/heightmapper" target="_blank">heightmapper</a> website output?</summary>
+          Unfortunately, because of the way it generates images, the output from heightmapper is 1) noisy, 2) only 8 bit, resulting in poor quality landscapes and jagged areas.
+        </details>
+      </article>
+    </main>
+    <footer class="footer">
+      <div class="content has-text-centered">
+        <p>
+          <strong>Unreal Engine 16 Bit Grayscale PNG Heightmap Generator</strong>
+        </p>
+        <p>by <a href="https://github.com/manticorp">Harry Mustoe-Playfair</a>. The source code is licensed
+          <a href="http://opensource.org/licenses/mit-license.php">MIT</a>. The website content
+          is licensed <a href="http://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY NC SA 4.0</a>.
+        </p>
+      </div>
+    </footer>
+    <script type="text/javascript" src="public/dist/js/main.js"></script>
+  </body>
+</html>
