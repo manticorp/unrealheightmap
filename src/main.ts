@@ -1,59 +1,6 @@
-import PNG from "./png";
+import './sass/main.scss';
 
-require('./sass/main.scss');
-
-document.addEventListener('DOMContentLoaded', () => {
-  console.log('Hello Bulma!');
-});
-
-const container : HTMLElement = document.getElementById('app');
-
-const srcTerrarium = 'test/terrarium.png';
-const srcBw = 'test/bw16bit.png';
-
-const srcsToCombine = [
-  'test/13-4092-2724.png',
-  'test/13-4093-2724.png',
-  'test/13-4094-2724.png',
-  'test/13-4095-2724.png',
-  'test/13-4096-2724.png',
-  'test/13-4097-2724.png',
-];
-
-const loaded = (im : HTMLImageElement, timeout = 10000) : Promise<HTMLImageElement> => {
-  if (im.complete || im.naturalWidth > 0) {
-    return Promise.resolve(im);
-  } else {
-    return new Promise((resolve, reject) => {
-      const to = setTimeout(() => reject('Image not loaded'), timeout);
-      im.addEventListener('load', () => {
-        clearTimeout(to);
-        resolve(im);
-      });
-    });
-  }
-}
-
-Promise.all([
-  ...srcsToCombine.map(url => {
-    const im = new Image();
-    im.src = url;
-    return loaded(im);
-  })
-]).then((ims) => {
-  ims.map(im => container.appendChild(im));
-}).catch(e => {
-  console.error('Some images could not be loaded');
-});
-
-var xhr = new XMLHttpRequest();
-xhr.open("GET", srcsToCombine[0]);
-xhr.responseType = "arraybuffer";
-xhr.onload = function(e) {
-  console.log(PNG.fromBuffer(this.response));
-};
-xhr.send();
-
+import App from "./app";
 
 document.addEventListener('DOMContentLoaded', () => {
 
@@ -75,4 +22,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  const container : HTMLElement = document.getElementById('app');
+  if (container) {
+    const myapp = new App({container});
+    //@ts-ignore
+    window.app = myapp;
+  }
 });

@@ -1,4 +1,5 @@
 @charset "utf-8";
+@import '../../node_modules/leaflet/dist/leaflet.css';
 
 // Customization
 
@@ -25,3 +26,13 @@ $primary-invert: $pink-invert;
 // 4. Import the rest of Bulma
 
 @import "~bulma/bulma";
+
+.message-stack {
+	position: fixed;
+	bottom: 0;
+	right: 0;
+	width: min(80vw, 400px);
+	max-height: 100vh;
+	overflow-y: auto;
+    z-index: 999999;
+}
