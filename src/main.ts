@@ -1,6 +1,13 @@
 import './sass/main.scss';
 
+import header from "./templates/header.html";
+import footer from "./templates/footer.html";
+
+import * as $ from "jquery";
 import App from "./app";
+
+$('body').prepend(header);
+$('body').append(footer);
 
 document.addEventListener('DOMContentLoaded', () => {
 
