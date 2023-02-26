@@ -24,6 +24,59 @@
         <p>The size of the exported area depends on the <strong>output zoom</strong> and the <strong>output size in pixels</strong>.</p>
         <p>After clicking 'Generate' a 16 bit PNG should await you.</p>
       </article>
+      <article class="container content">
+        <h2>Output</h2>
+        <p>The output will be a 16 bit grayscale PNG file with the gray levels representing the height of the ground at that location.</p>
+        <p>16 bits gives 2<sup>16</sup> levels of detail between the lowest and highest point. That's 65536 levels - enough to detail from sea level to the top of mount everest (8849m) in roughly 13cm intervals.</p>
+        <p>For comparison, 8 bit detail only give 2<sup>8</sup> levels of detail, which is only 256 levels!</p>
+        <p>The mapzen data is actually much <strong>more</strong> detailed than 16 bit (it has 24 bits of data, with a fidelity of about 4mm in the data itself, although the measurements are probably only accurate to 1m maximum)</p>
+      </article>
+      <article class="container content">
+        <h2>Normalisation Options</h2>
+        <p>When using the data for import into Unreal Engine 5, it can be useful to normalise the data so that you're using the full 16 bit range of the file.</p>
+        <dl>
+          <dt>None</dt>
+          <dd>Do not perform any normalisation. The pixel value represents the height in m (note that negative values will be 0)</dd>
+          <dt>Regular</dt>
+          <dd>Scale the height values in the data to 0 to 65536, making full use of all 16 bits of the file's range</dd>
+          <dt>Smart</dt>
+          <dd>Unfortunately, there are some errors in the Mapzen data that throw off the normalisation - 0 values or high values that skew the normalisation completely. Using this method, we take a 99.9% window of the data to get rid of outliers. However, if the actual max/min are within 1 standard deviation of the windowed max/min then we use the actual values to retain the min/max data.</dd>
+        </dl>
+        <h3>Examples</h3>
+        <table class="table is-fullwidth">
+          <thead>
+            <tr>
+              <th>Normalisation Mode</th>
+              <th class="has-text-centered">None</th>
+              <th class="has-text-centered">Regular</th>
+              <th class="has-text-centered">Smart</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th>Aizuwakamatsu<br><small>Without Source Error</small></th>
+              <td><figure class="image"><img src="public/im/aizuwakamatsu_none.png" width=512 height=512 alt=""></figure></td>
+              <td><figure class="image"><img src="public/im/aizuwakamatsu_regular.png" width=512 height=512 alt=""></figure></td>
+              <td><figure class="image"><img src="public/im/aizuwakamatsu_smart.png" width=512 height=512 alt=""></figure></td>
+            </tr>
+            <tr>
+              <th>Mt Fuji<br><small>With Source Error</small></th>
+              <td><figure class="image"><img src="public/im/mt_fuji_none.png" width=512 height=512 alt=""></figure></td>
+              <td><figure class="image"><img src="public/im/mt_fuji_regular.png" width=512 height=512 alt=""></figure></td>
+              <td><figure class="image"><img src="public/im/mt_fuji_smart.png" width=512 height=512 alt=""></figure></td>
+            </tr>
+          </tbody>
+        </table>
+        <p>Here is an example of an error in the source data:</p>
+        <div class="columns">
+          <div class="column">
+            <figure class="image"><img src="public/im/actual_error_grayscale.png"></figure>
+          </div>
+          <div class="column">
+            <figure class="image"><img src="public/im/actual_error_terrarium.png"></figure>
+          </div>
+        </div>
+      </article>
       <article class="container content faq">
         <h2>FAQs</h2>
         <details>
@@ -36,7 +89,7 @@
         </details>
         <details>
           <summary>Why wouldn't I use the <a href="http://tangrams.github.io/heightmapper" target="_blank">heightmapper</a> website output?</summary>
-          Unfortunately, because of the way it generates images, the output from heightmapper is 1) noisy, 2) only 8 bit, resulting in poor quality landscapes and jagged areas.
+          Unfortunately, because of the way it generates images, the output from heightmapper is 1) noisy, 2) only 8 bit, resulting in poor quality landscapes and jagged areas. In 8 bit, a 1000m tall mountain would have jagged edges every 4m in height.
         </details>
       </article>
     </main>

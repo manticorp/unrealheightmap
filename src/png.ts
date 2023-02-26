@@ -2,16 +2,7 @@ const pako = require('pako');
 
 const pngHeader = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 
-export type TypedArray =
-  | Int8Array
-  | Uint8Array
-  | Uint8ClampedArray
-  | Int16Array
-  | Uint16Array
-  | Int32Array
-  | Uint32Array
-  | Float32Array
-  | Float64Array;
+import {TypedArray} from "./helpers";
 
 import {default as bufferTools} from "./buffer";
 
@@ -1140,21 +1131,6 @@ export default class PNG {
       dv.setUint16(i * 2, inp[i]);
     }
     return new Uint8Array(u8);
-  }
-  terrariumToGrayscaleArray() : number[] {
-    this.assertHasData();
-    const pixels = this.getImageData();
-    const area = this.getArea();
-    const newPixels = new Array(area);
-    // terrarium images are 24,8 decimal encodings with R representing
-    // the first 8 bits, G representing the next 8 and B representing the
-    // final 8 bits
-    // i.e. the height in metres is (R * 256) + (G) + (B / 256)
-    // so...
-    for (let i = 0; i < area; i++) {
-      newPixels[i] = ((pixels[(i*3)]*2**8) + (pixels[(i*3)+1])+ (pixels[(i*3)+2]/2**8)) - 2**15;
-    }
-    return newPixels;
   }
   terrariumToGrayscale() : Float32Array {
     this.assertHasData();

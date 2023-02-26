@@ -18,6 +18,18 @@ header {
   }
 }
 
+.content {
+  dt {
+    font-weight: bold;
+    display: block;
+    width: 100%;
+    padding: calc($column-gap / 2) 0;
+  }
+  dd {
+    margin-bottom: $column-gap;
+  }
+}
+
 .message-stack {
   position: fixed;
   bottom: 0;

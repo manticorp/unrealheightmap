@@ -1,4 +1,4 @@
-import PNG, {TypedArray} from "./png";
+import PNG from "./png";
 import NextZen from "./nextzen";
 import UPNG from "./UPNG";
 import * as $ from "jquery";
@@ -11,6 +11,16 @@ import * as Comlink from 'comlink';
 
 const worker = new Worker("public/dist/js/processor.js");
 const processor = Comlink.wrap(worker);
+
+import {
+  TypedArray,
+  TileCoords,
+  LatLng,
+  LatLngZoom,
+  ConfigState,
+  TileLoadState,
+  NormaliseMode
+} from "./helpers";
 
 type AppArgs = {
   container: HTMLElement
@@ -27,19 +37,6 @@ type AppEls = Dictionary<JQuery<HTMLElement>>;
 
 type AppInputs = Dictionary<JQuery<HTMLInputElement>|JQuery<HTMLSelectElement>>;
 
-export interface TileCoords {
-  x: number,
-  y: number,
-  z: number
-}
-export interface LatLng {
-  latitude: number,
-  longitude: number
-}
-export interface LatLngZoom extends LatLng {
-  zoom: number
-}
-
 type StoredItemValue = {
   key: string,
   data: string,
@@ -47,24 +44,6 @@ type StoredItemValue = {
 }
 
 type ImageLocation = TileCoords;
-
-type ConfigState = TileCoords & LatLngZoom & {
-  width : number,
-  height : number,
-  exactPos : TileCoords,
-  widthInTiles : number,
-  heightInTiles : number,
-  startx: number,
-  starty: number,
-  endx: number,
-  endy: number,
-  status: string,
-  bounds: [LatLng, LatLng]
-};
-
-type HeightMap = Float32Array;
-
-type TileLoadState = ConfigState & {x: number, y: number, buffer: ArrayBuffer, png: PNG, heights: HeightMap};
 
 let currentRequests: XMLHttpRequest[] = [];
 
@@ -89,6 +68,14 @@ export default class App {
   boundingRect : L.Rectangle;
   layers: Record<string, any> = {};
   layer: string  = 'topo';
+  savedKeys : string[] = [
+      'latitude',
+      'longitude',
+      'zoom',
+      'outputzoom',
+      'width',
+      'height'
+  ];
   constructor({container} : AppArgs) {
     this.container = container;
     this.createMapLayers();
@@ -104,7 +91,6 @@ export default class App {
 
     this.createInputOptions();
     this.createOutputOptions();
-    this.createDefaultOptions();
     this.createSubmitButton();
     this.resetOutput();
   }
@@ -186,22 +172,26 @@ export default class App {
       this.inputs.zoom.val(this.map.getZoom());
       this.mapMarker.setLatLng(e.latlng);
       this.saveLatLngZoomState();
-      this.redrawRect();
+      this.updatePhysicalDimensions();
     });
 
     this.map.on('move', (e) => {
       const center = this.map.getCenter();
-      this.inputs.latitude.val(center.lat);
-      this.inputs.longitude.val(center.lng);
+      const nlat = center.lat + 90;
+      const lat = (((nlat % 180) + 180) % 180) - 90;
+      const nlng = center.lng + 180;
+      const lng = (((nlng % 360) + 360) % 360) - 180;
+      this.inputs.latitude.val(lat);
+      this.inputs.longitude.val(lng);
       this.inputs.zoom.val(this.map.getZoom());
       this.mapMarker.setLatLng(center);
       this.saveLatLngZoomState();
-      this.redrawRect();
+      this.updatePhysicalDimensions();
     });
-    this.redrawRect();
+    this.updatePhysicalDimensions();
     this.showHideCurrentLayer();
   }
-  redrawRect() {
+  updatePhysicalDimensions() {
     let state = this.getCurrentState();
     const bounds : L.LatLngBoundsExpression = [
       [
@@ -216,6 +206,12 @@ export default class App {
       this.boundingRect = L.rectangle(bounds, {color: "#ff7800", weight: 1}).addTo(this.map);
     }
     this.boundingRect.setBounds(bounds);
+
+    const units = state.phys.width > 1000 ? 'km' : 'm';
+    const w = state.phys.width > 1000 ? state.phys.width/1000 : state.phys.width;
+    const h = state.phys.height > 1000 ? state.phys.height/1000 : state.phys.height;
+
+    this.els.generate.text(`Generate (${w.toFixed(1)} x ${h.toFixed(1)}${units})`);
   }
   createInputOptions() {
     // input options
@@ -332,8 +328,7 @@ export default class App {
     this.els.columnsOutput.append(this.els.columnHeight);
 
     this.els.inputContainer.append(this.els.columnsOutput);
-  }
-  createDefaultOptions() {
+
     // defaultSize options
 
     this.inputs.defaultSize = $('<select>') as JQuery<HTMLSelectElement>;
@@ -354,29 +349,49 @@ export default class App {
     this.els.columnsOutput.append(this.els.columnSize);
 
     this.els.inputContainer.append(this.els.columnsDefaultSizes);
+
+    this.els.smartNormalisationControl = $(`
+    <label class="label">Normalisation Mode</label>
+    <div class="control">
+      <div class="select is-fullwidth">
+        <select name="smart-normalisation-control">
+          <option value=0>Off</option>
+          <option value=1>Regular</option>
+          <option value=3 selected>Smart</option>
+        </select>
+      </div>
+    </div>`);
+    this.els.columnsOutput.append(
+      $('<div class="column field">').append(this.els.smartNormalisationControl)
+    );
+
+    this.inputs.smartNormalisationControl = this.els.smartNormalisationControl.find('select');
+
   }
   createSubmitButton() {
     this.els.generate = $('<button class="button is-primary">Generate</button>');
     this.els.inputContainer.append(
       $('<div class="columns">').append(
         $('<div class="column">').append(
-          $('<div class="field is-grouped">').append(
+          $('<div class="field">').append(
             $('<div class="control">').append(this.els.generate)
           )
         )
       )
     );
   }
+  getInputState() {
+    const state : Record<string,any> = {};
+    for (let key of this.savedKeys) {
+      const input = this.inputs[key];
+      if (input) {
+        state[key] = input.val();
+      }
+    }
+    return state;
+  }
   insertSavedValues() {
-    let keys = [
-      'latitude',
-      'longitude',
-      'zoom',
-      'outputzoom',
-      'width',
-      'height'
-    ];
-    for (let key of keys) {
+    for (let key of this.savedKeys) {
       let val = localStorage.getItem(key);
       if (val) {
         let value = JSON.parse(val) as StoredItemValue;
@@ -386,11 +401,33 @@ export default class App {
         }
       }
     }
+    this.insertValuesFromUrlHash();
+  }
+  insertValuesFromUrlHash() {
+    const state = this.parseHash(location.hash);
+    for (let [key, value] of Object.entries(state)) {
+      const input = this.inputs[key];
+      if (value && input) {
+        input.val(value);
+      }
+    }
+  }
+  parseHash(hashstr : string) {
+    const pairs = hashstr.replace(/^#/,'').replace(/^\//, '').split('/');
+    const out : Record<string,string> = {};
+    for (let i = 0; i < pairs.length; i+=2) {
+      out[pairs[i]] = pairs[i+1];
+    }
+    return out;
+  }
+  objectToHash(hashobj : Record<string,any>) {
+    return '#' + Object.entries(hashobj).flat().join("/");
   }
   storeValue(key : string, data : string, expires : number = null) {
     expires = expires || ((new Date()).getTime())+(1000*60*60*24*30);
     let storedItem : StoredItemValue = {key, data, expires};
     localStorage.setItem(key, JSON.stringify(storedItem));
+    location.hash = this.objectToHash(this.getInputState());
   }
   saveLatLngZoomState() {
     this.storeValue('latitude', this.inputs.latitude.val().toString());
@@ -409,7 +446,7 @@ export default class App {
       }
       this.storeValue('width', this.inputs.width.val().toString());
       this.storeValue('height', this.inputs.height.val().toString());
-      this.redrawRect();
+      this.updatePhysicalDimensions();
     }, 100, {isImmediate:true}));
 
     this.els.generate.on('click touchend', debounce(() => {
@@ -427,7 +464,7 @@ export default class App {
         lat: parseFloat(this.inputs.latitude.val().toString()),
         lng: parseFloat(this.inputs.longitude.val().toString())
       });
-      this.redrawRect();
+      this.updatePhysicalDimensions();
     }, 60));
 
     this.inputs.longitude.on('change input', debounce(() => {
@@ -436,28 +473,28 @@ export default class App {
         lat: parseFloat(this.inputs.latitude.val().toString()),
         lng: parseFloat(this.inputs.longitude.val().toString())
       });
-      this.redrawRect();
+      this.updatePhysicalDimensions();
     }, 60));
 
     this.inputs.zoom.on('change input', debounce(() => {
       this.storeValue('zoom', this.inputs.zoom.val().toString());
       this.map.setZoom(parseInt(this.inputs.zoom.val().toString()));
-      this.redrawRect();
+      this.updatePhysicalDimensions();
     }, 60));
 
     this.inputs.outputzoom.on('change input', debounce(() => {
       this.storeValue('outputzoom', this.inputs.outputzoom.val().toString());
-      this.redrawRect();
+      this.updatePhysicalDimensions();
     }, 60));
 
     this.inputs.width.on('change input', debounce(() => {
       this.storeValue('width', this.inputs.width.val().toString());
-      this.redrawRect();
+      this.updatePhysicalDimensions();
     }, 60));
 
     this.inputs.height.on('change input', debounce(() => {
       this.storeValue('height', this.inputs.height.val().toString());
-      this.redrawRect();
+      this.updatePhysicalDimensions();
     }, 60));
   }
   newState() : ConfigState {
@@ -478,7 +515,8 @@ export default class App {
       endx: 0,
       endy: 0,
       bounds: [{latitude:0, longitude:0},{latitude:0, longitude:0}],
-      status: 'pending'
+      status: 'pending',
+      phys: {width: 0, height: 0}
     };
   }
   getCurrentState() {
@@ -511,6 +549,13 @@ export default class App {
         this.state.zoom
       )
     ];
+
+    const latWidth = Math.abs(this.state.bounds[1].latitude - this.state.bounds[0].latitude);
+    const lngWidth = Math.abs(this.state.bounds[1].longitude - this.state.bounds[0].longitude);
+    this.state.phys = {
+      height: 1000 * 110.574 * latWidth,
+      width: 1000 * 111.320 * Math.cos(latWidth) * lngWidth
+    };
 
     return this.state;
   }
@@ -545,7 +590,7 @@ export default class App {
     }
     return Promise.all(imageFetches).then((result : TileLoadState[]) => {
       return new Promise((resolve, reject)  => {
-        this.els.outputText.text('Generating images (should not take much longer)');
+        this.els.outputText.html('Generating images (should not take much longer)');
         setTimeout(() => {
           resolve(this.generateOutput(result));
         },1);
@@ -577,7 +622,7 @@ export default class App {
   }
   async generateOutputUsingWorker(states : TileLoadState[]) {
     //@ts-ignore
-    const output = await processor.combineImages(states);
+    const output = await processor.combineImages(states, this.inputs.smartNormalisationControl.val());
     this.saveOutput(output, states);
   }
   async generateOutput(states : TileLoadState[]) {
@@ -694,7 +739,7 @@ export default class App {
     if (zoom !== Math.floor(zoom)) {
       throw new Error(`Zoom must be an integer, got ${zoom}`);
     }
-    const x = (longitude + 180) / 360 * (1 << zoom);
+    const x = ((longitude + 180)%360) / 360 * (1 << zoom);
     const y = (1 - Math.log(Math.tan(App.toRad(latitude)) + 1 / Math.cos(App.toRad(latitude))) / Math.PI) / 2 * (1 << zoom);
     return {
       x,
