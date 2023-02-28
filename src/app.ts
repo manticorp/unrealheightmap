@@ -208,10 +208,15 @@ export default class App {
     this.boundingRect.setBounds(bounds);
 
     const units = state.phys.width > 1000 ? 'km' : 'm';
+    const precision = state.phys.width > 100000 ? 0 : 1;
     const w = state.phys.width > 1000 ? state.phys.width/1000 : state.phys.width;
     const h = state.phys.height > 1000 ? state.phys.height/1000 : state.phys.height;
 
-    this.els.generate.text(`Generate (${w.toFixed(1)} x ${h.toFixed(1)}${units})`);
+    const res = Math.max(state.phys.width/state.width, state.phys.height/state.height);
+    const resunit = 'm';
+    const resprecision = res > 10 ? 1 : 2;
+
+    this.els.generate.text(`Generate (${w.toFixed(precision)} x ${h.toFixed(precision)}${units} - ${res.toFixed(resprecision)}${resunit}/px resolution)`);
   }
   createInputOptions() {
     // input options
@@ -553,8 +558,8 @@ export default class App {
     const latWidth = Math.abs(this.state.bounds[1].latitude - this.state.bounds[0].latitude);
     const lngWidth = Math.abs(this.state.bounds[1].longitude - this.state.bounds[0].longitude);
     this.state.phys = {
-      height: 1000 * 110.574 * latWidth,
-      width: 1000 * 111.320 * Math.cos(latWidth) * lngWidth
+      height: (1000 * 110.574 * latWidth),
+      width: (1000 * 111.320 * Math.cos(App.toRad(latWidth)) * lngWidth)
     };
 
     return this.state;
