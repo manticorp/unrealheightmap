@@ -8,6 +8,7 @@ import "leaflet-providers";
 import {format} from "./helpers";
 
 import * as Comlink from 'comlink';
+import {NormaliseResult} from './processor';
 
 const worker = new Worker("public/dist/js/processor.js");
 const processor = Comlink.wrap(worker);
@@ -627,13 +628,19 @@ export default class App {
   }
   async generateOutputUsingWorker(states : TileLoadState[]) {
     //@ts-ignore
-    const output = await processor.combineImages(states, this.inputs.smartNormalisationControl.val());
-    this.saveOutput(output, states);
+    const output = await processor.combineImages(states, this.inputs.smartNormalisationControl.val()) as NormaliseResult<Float32Array>;
+    this.displayHeightData(output);
+    return this.saveOutput(output.data, states);
+  }
+  displayHeightData(output : NormaliseResult<Float32Array>) {
+    const fmt = new Intl.NumberFormat(undefined, {style:'unit', unit: 'meter'});
+    const txt = `Height range: ${fmt.format(output.minBefore)} to ${fmt.format(output.maxBefore)}`;
+    this.els.outputText.html(txt);
   }
   async generateOutput(states : TileLoadState[]) {
     return this.generateOutputUsingWorker(states);
   }
-  saveOutput(output : Float32Array, states : TileLoadState[]) {
+  async saveOutput(output : Float32Array, states : TileLoadState[]) {
     const s = states[0];
     const formatArgs = {
       lat: s.latitude.toFixed(3).toString().replace(".",'_'),
@@ -644,7 +651,7 @@ export default class App {
     };
     const fn = format('{lat}_{lng}_{zoom}_{w}_{h}.png', formatArgs);
 
-    App.encodeToPng([PNG.Float32ArrayToPng16Bit(output)], states[0].width, states[0].height, 1, 0, 16).then(a => {
+    return App.encodeToPng([PNG.Float32ArrayToPng16Bit(output)], states[0].width, states[0].height, 1, 0, 16).then(a => {
       const blob = new Blob( [ a ] );
       const url = URL.createObjectURL( blob );
       const img : HTMLImageElement = new Image();

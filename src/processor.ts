@@ -2,8 +2,16 @@ import * as Comlink from "comlink";
 
 import {TypedArray, TileCoords, LatLng, LatLngZoom, ConfigState, TileLoadState, NormaliseMode} from "./helpers";
 
+export type NormaliseResult<T> = {
+  data: T,
+  minBefore: number,
+  maxBefore: number,
+  minAfter: number,
+  maxAfter: number
+};
+
 const processor = {
-  normaliseTypedArray<T extends TypedArray|number[]>(inp : T) : T {
+  normaliseTypedArray<T extends TypedArray|number[]>(inp : T) : NormaliseResult<T> {
     let bpe = 2;
     if (!Array.isArray(inp)) {
       if (inp instanceof Float32Array) {
@@ -26,9 +34,15 @@ const processor = {
     inp.forEach((a : number, index : number) => {
       inp[index] = (((a-min)/sub) * nsub + newMin);
     });
-    return inp;
+    return {
+      data: inp,
+      minBefore: min,
+      maxBefore: max,
+      minAfter: newMin,
+      maxAfter: newMax,
+    };
   },
-  normaliseTypedArraySmart<T extends TypedArray|number[]>(inp : T) : T {
+  normaliseTypedArraySmart<T extends TypedArray|number[]>(inp : T) : NormaliseResult<T> {
     let bpe = 2;
     if (!Array.isArray(inp)) {
       if (inp instanceof Float32Array) {
@@ -66,9 +80,15 @@ const processor = {
       else if (a <= min) inp[index] = newMin;
       else inp[index] = (((a-min)/sub) * nsub + newMin);
     });
-    return inp;
+    return {
+      data: inp,
+      minBefore: actualMin,
+      maxBefore: actualMax,
+      minAfter: newMin,
+      maxAfter: newMax,
+    };
   },
-  normaliseTypedArraySmartWindow<T extends TypedArray>(inp : T) : T {
+  normaliseTypedArraySmartWindow<T extends TypedArray>(inp : T) : NormaliseResult<T> {
     let bpe = 2;
     if (!Array.isArray(inp)) {
       if (inp instanceof Float32Array) {
@@ -117,9 +137,15 @@ const processor = {
       else if (a <= min) inp[index] = newMin;
       else inp[index] = (((a-min)/sub) * nsub + newMin);
     });
-    return inp;
+    return {
+      data: inp,
+      minBefore: actualMin,
+      maxBefore: actualMax,
+      minAfter: newMin,
+      maxAfter: newMax,
+    };
   },
-  combineImages(states : TileLoadState[], normaliseMode : number = NormaliseMode.Regular) : Float32Array {
+  combineImages(states : TileLoadState[], normaliseMode : number = NormaliseMode.Regular) : NormaliseResult<Float32Array> {
     const area = states[0].width * states[0].height;
     let output = new Float32Array(area);
     const tileWidth = 256;
@@ -154,14 +180,28 @@ const processor = {
         output[i++] = map[tile.x][tile.y].heights[idx];
       }
     }
+    let result = {
+      data: output,
+      minBefore: Math.pow(2, 32),
+      maxBefore: 0,
+      minAfter: Math.pow(2, 32),
+      maxAfter: 0,
+    };
     if (normaliseMode == NormaliseMode.Regular) {
-      output = this.normaliseTypedArray(output);
+      result = this.normaliseTypedArray(output);
     } else if (normaliseMode == NormaliseMode.Smart) {
-      output = this.normaliseTypedArraySmart(output);
+      result = this.normaliseTypedArraySmart(output);
     } else if (normaliseMode == NormaliseMode.SmartWindow) {
-      output = this.normaliseTypedArraySmartWindow(output);
+      result = this.normaliseTypedArraySmartWindow(output);
+    } else {
+      for (let i = 0; i < output.length; i++) {
+        result.maxAfter = Math.max(output[i], result.maxAfter);
+        result.minAfter = Math.min(output[i], result.minAfter);
+      }
+      result.maxBefore = result.maxAfter;
+      result.minBefore = result.minAfter;
     }
-    return output;
+    return result;
   }
 }
 
