@@ -595,7 +595,11 @@ export default class App {
   getApproxHeightsForState() {
     let state = this.getCurrentState(1);
     if (state.width > 4000) {
-      state = this.getCurrentState(0.5);
+      state = this.getCurrentState(1/8);
+    } else if (state.width > 2000) {
+      state = this.getCurrentState(1/4);
+    } else if (state.width > 1000) {
+      state = this.getCurrentState(1/2);
     }
     console.log('getApproxHeightsForState', state);
     const imageFetches = [];
@@ -616,9 +620,8 @@ export default class App {
       }
     }
     return Promise.all(imageFetches).then((result : TileLoadState[]) : Promise<void> => {
-      this.els.outputText.html('Generating images (should not take much longer)');
       //@ts-ignore
-      return processor.combineImages(result, NormaliseMode.None)
+      return processor.combineImages(result, NormaliseMode.SmartWindow)
       .then((output : NormaliseResult<Float32Array>) => {
         const fmt = this.meterFormatter;
         const txt = `, Height range: ${fmt.format(output.minBefore)} to ${fmt.format(output.maxBefore)}`;

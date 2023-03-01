@@ -139,8 +139,8 @@ const processor = {
     });
     return {
       data: inp,
-      minBefore: actualMin,
-      maxBefore: actualMax,
+      minBefore: min,
+      maxBefore: max,
       minAfter: newMin,
       maxAfter: newMax,
     };
