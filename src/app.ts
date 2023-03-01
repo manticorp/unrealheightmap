@@ -63,6 +63,7 @@ export default class App {
     '253 x 253',
     '127 x 127',
   ];
+  meterFormatter : Intl.NumberFormat;
   map : L.Map;
   mapMarker : L.Marker;
   boundingRect : L.Rectangle;
@@ -78,6 +79,7 @@ export default class App {
   ];
   constructor({container} : AppArgs) {
     this.container = container;
+    this.meterFormatter = new Intl.NumberFormat(undefined, {style:'unit', unit: 'meter'});
     this.createMapLayers();
     this.createAppElements();
     this.insertSavedValues();
@@ -165,6 +167,10 @@ export default class App {
     this.mapMarker = L.marker(curLatLng, {icon});
     this.mapMarker.addTo(this.map);
 
+    const doHeightsDebounced = debounce(50, () => {
+      this.getApproxHeightsForState();
+    });
+
     this.map.on('click', debounce(100, (e) => {
       this.map.setView(e.latlng);
       this.inputs.latitude.val(e.latlng.lat);
@@ -173,6 +179,7 @@ export default class App {
       this.mapMarker.setLatLng(e.latlng);
       this.saveLatLngZoomState();
       this.updatePhysicalDimensions();
+      doHeightsDebounced();
     }));
 
     this.map.on('move', throttle(1000/60, (e) => {
@@ -187,13 +194,14 @@ export default class App {
       this.mapMarker.setLatLng(center);
       this.saveLatLngZoomState();
       this.updatePhysicalDimensions();
+      doHeightsDebounced();
     }));
 
-    this.map.on('moveend', debounce(100, () => {
-    }));
+    this.map.on('moveend', doHeightsDebounced);
 
     this.updatePhysicalDimensions();
     this.showHideCurrentLayer();
+    doHeightsDebounced();
   }
   updatePhysicalDimensions() {
     let state = this.getCurrentState();
@@ -444,6 +452,9 @@ export default class App {
     this.storeValue('zoom', this.inputs.zoom.val().toString());
   }
   hookControls() {
+    const doHeightsDebounced = debounce(50, () => {
+      this.getApproxHeightsForState();
+    });
     this.inputs.defaultSize.on('change input', debounce(100, () => {
       const val = this.inputs.defaultSize.val();
       if (val && typeof val === 'string' && val.trim() !== '') {
@@ -456,6 +467,7 @@ export default class App {
       this.storeValue('width', this.inputs.width.val().toString());
       this.storeValue('height', this.inputs.height.val().toString());
       this.updatePhysicalDimensions();
+      doHeightsDebounced();
     }));
 
     this.els.generate.on('click touchend', debounce(100, () => {
@@ -465,6 +477,7 @@ export default class App {
     this.inputs.maptype.on('change input', debounce(30, () => {
       this.storeValue('maptype', this.inputs.maptype.val().toString());
       this.showHideCurrentLayer();
+      doHeightsDebounced();
     }));
 
     this.inputs.latitude.on('change input', debounce(30, () => {
@@ -474,6 +487,7 @@ export default class App {
         lng: parseFloat(this.inputs.longitude.val().toString())
       });
       this.updatePhysicalDimensions();
+      doHeightsDebounced();
     }));
 
     this.inputs.longitude.on('change input', debounce(30, () => {
@@ -483,27 +497,32 @@ export default class App {
         lng: parseFloat(this.inputs.longitude.val().toString())
       });
       this.updatePhysicalDimensions();
+      doHeightsDebounced();
     }));
 
     this.inputs.zoom.on('change input', debounce(30, () => {
       this.storeValue('zoom', this.inputs.zoom.val().toString());
       this.map.setZoom(parseInt(this.inputs.zoom.val().toString()));
       this.updatePhysicalDimensions();
+      doHeightsDebounced();
     }));
 
     this.inputs.outputzoom.on('change input', debounce(30, () => {
       this.storeValue('outputzoom', this.inputs.outputzoom.val().toString());
       this.updatePhysicalDimensions();
+      doHeightsDebounced();
     }));
 
     this.inputs.width.on('change input', debounce(30, () => {
       this.storeValue('width', this.inputs.width.val().toString());
       this.updatePhysicalDimensions();
+      doHeightsDebounced();
     }));
 
     this.inputs.height.on('change input', debounce(30, () => {
       this.storeValue('height', this.inputs.height.val().toString());
       this.updatePhysicalDimensions();
+      doHeightsDebounced();
     }));
   }
   newState() : ConfigState {
@@ -528,14 +547,19 @@ export default class App {
       phys: {width: 0, height: 0}
     };
   }
-  getCurrentState() {
+  getCurrentState(scaleApprox : number = 1) {
     const state = this.newState();
+
+    const z = parseInt(this.inputs.outputzoom.val().toString());
+    const newZ = Math.floor(Math.min(15, Math.max(1, z + Math.log2(scaleApprox))));
+    const scale = Math.pow(2, newZ-z);
+
     state.latitude  = parseFloat(this.inputs.latitude.val().toString());
     state.longitude = parseFloat(this.inputs.longitude.val().toString());
-    state.z         = parseInt(this.inputs.outputzoom.val().toString());
-    state.zoom      = parseInt(this.inputs.outputzoom.val().toString());
-    state.width     = parseInt(this.inputs.width.val().toString());
-    state.height    = parseInt(this.inputs.height.val().toString());
+    state.z         = newZ;
+    state.zoom      = newZ;
+    state.width     = parseInt(this.inputs.width.val().toString()) * scale;
+    state.height    = parseInt(this.inputs.height.val().toString()) * scale;
 
     state.exactPos = App.getTileCoordsFromLatLngExact(state.latitude, state.longitude, state.zoom);
     state.widthInTiles = state.width/NextZen.tileWidth;
@@ -568,14 +592,17 @@ export default class App {
 
     return state;
   }
-  getHeightsForState() {
-    const state = this.getCurrentState();
+  getApproxHeightsForState() {
+    let state = this.getCurrentState(1);
+    if (state.width > 4000) {
+      state = this.getCurrentState(0.5);
+    }
+    console.log('getApproxHeightsForState', state);
     const imageFetches = [];
     for (let x = state.startx; x <= state.endx; x++) {
       for (let y = state.starty; y <= state.endy; y++) {
         imageFetches.push(new Promise((resolve, reject) => {
           return App.getImageAt({...state, x, y}).then(buffer => {
-            this.imageLoaded({...state, x, y});
             const png = PNG.fromBuffer(buffer);
             resolve({...state, x, y, buffer, png, heights: png.terrariumToGrayscale()});
           }).catch(e => {
@@ -583,18 +610,19 @@ export default class App {
               return;
             }
             console.error(e);
-            this.displayError({text: `Failed to load image at tile x = ${x} y = ${y} - please try again`});
             reject({...state, x, y});
           });
         }));
       }
     }
-    return Promise.all(imageFetches).then((result : TileLoadState[]) => {
-      return new Promise((resolve, reject)  => {
-        this.els.outputText.html('Generating images (should not take much longer)');
-        setTimeout(() => {
-          resolve(this.generateOutput(result));
-        },1);
+    return Promise.all(imageFetches).then((result : TileLoadState[]) : Promise<void> => {
+      this.els.outputText.html('Generating images (should not take much longer)');
+      //@ts-ignore
+      return processor.combineImages(result, NormaliseMode.None)
+      .then((output : NormaliseResult<Float32Array>) => {
+        const fmt = this.meterFormatter;
+        const txt = `, Height range: ${fmt.format(output.minBefore)} to ${fmt.format(output.maxBefore)}`;
+        this.els.generate.find('.heights').text(txt);
       });
     }).catch(e => {
       console.error('Failed to load images', e);
@@ -607,6 +635,7 @@ export default class App {
   generate() {
     this.els.generate.prop('disabled', true);
     const state = this.getCurrentState();
+    console.log('generate', state);
     this.resetOutput();
 
     const imageFetches = [];
@@ -671,8 +700,15 @@ export default class App {
     return this.saveOutput(output.data, states);
   }
   displayHeightData(output : NormaliseResult<Float32Array>) {
-    const fmt = new Intl.NumberFormat(undefined, {style:'unit', unit: 'meter'});
-    const txt = `Height range: ${fmt.format(output.minBefore)} to ${fmt.format(output.maxBefore)}`;
+    const fmt = this.meterFormatter;
+    const range = output.maxBefore - output.minBefore;
+    const unrealZscaleFactor = 0.001953125;
+    const zScale = unrealZscaleFactor * range * 100;
+    // Start by multiplying 4207 by 100 to convert the height into centimeters. This equals 420,700 cm.
+    // Next, multiply this new value by the ratio: 420,700 multiplied by 0.001953125 equals 821.6796875‬.
+    // This gives you a Z scale value of 821.6796875‬ and results in a heightmap that will go from -210,350 cm to 210,350 cm.
+    const txt = `<p>Height range: ${fmt.format(output.minBefore)} to ${fmt.format(output.maxBefore)}</p>
+    <p>In Unreal Engine, on import, a z scaling of <code>${zScale}</code> should be used for 1:1 height scaling using a normalised image.</p>`;
     this.els.outputText.html(txt);
   }
   async generateOutput(states : TileLoadState[]) {
