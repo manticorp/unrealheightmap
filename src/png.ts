@@ -1147,32 +1147,4 @@ export default class PNG {
     }
     return newPixels;
   }
-  terrariumToGrayscaleNormalised() : Float32Array {
-    return PNG.normaliseTypedArray(this.terrariumToGrayscale());
-  }
-  static normaliseTypedArray<T extends TypedArray|number[]>(inp : T) : T {
-    let bpe = 2;
-    if (!Array.isArray(inp)) {
-      if (inp instanceof Float32Array) {
-        bpe = 2;
-      } else {
-        bpe = inp.BYTES_PER_ELEMENT;
-      }
-    }
-    // For some reason, typescript does not think the reduce function as
-    // used below is compatible with all typedarrays
-    //@ts-ignore
-    const max = inp.reduce((prev : number, cur : number) : number => Math.max(prev, cur), 0);
-    //@ts-ignore
-    const min = inp.reduce((prev : number, cur : number) : number => Math.min(prev, cur), max);
-    const newMax = Math.pow(2, bpe * 8);
-    const newMin = 0;
-    const sub = max - min;
-    const nsub = newMax - newMin;
-    const factor = newMax/(max - sub);
-    inp.forEach((a : number, index : number) => {
-      inp[index] = (((a-min)/sub) * nsub + newMin);
-    });
-    return inp;
-  }
 }

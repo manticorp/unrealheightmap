@@ -8,7 +8,7 @@ import "leaflet-providers";
 import {format} from "./helpers";
 
 import * as Comlink from 'comlink';
-import {NormaliseResult} from './processor';
+import {NormaliseResult, TypedArrayToStlArgs, typedArrayToStlDefaults} from './processor';
 
 const worker = new Worker("public/dist/js/processor.js");
 const processor = Comlink.wrap(worker);
@@ -601,7 +601,6 @@ export default class App {
     } else if (state.width > 1000) {
       state = this.getCurrentState(1/2);
     }
-    console.log('getApproxHeightsForState', state);
     const imageFetches = [];
     for (let x = state.startx; x <= state.endx; x++) {
       for (let y = state.starty; y <= state.endy; y++) {
@@ -737,32 +736,35 @@ export default class App {
       img.onload = e => URL.revokeObjectURL( url );
 
       this.els.outputImage.append(img);
-
-      const blobUrl = URL.createObjectURL(blob);
-
-      // Create a link element
-      const link = document.createElement("a");
-
-      // Set link's href to point to the Blob URL
-      link.href = blobUrl;
-      link.download = fn;
-
-      // Append link to the body
-      document.body.appendChild(link);
-
-      // Dispatch click event on the link
-      // This is necessary as link.click() does not work on the latest firefox
-      link.dispatchEvent(
-        new MouseEvent('click', {
-          bubbles: true,
-          cancelable: true,
-          view: window
-        })
-      );
-
-      // Remove link from body
-      document.body.removeChild(link);
+      this.download(blob, fn);
     });
+  }
+
+  download(contents : Blob, fn : string) {
+    const blobUrl = URL.createObjectURL(contents);
+
+    // Create a link element
+    const link = document.createElement("a");
+
+    // Set link's href to point to the Blob URL
+    link.href = blobUrl;
+    link.download = fn;
+
+    // Append link to the body
+    document.body.appendChild(link);
+
+    // Dispatch click event on the link
+    // This is necessary as link.click() does not work on the latest firefox
+    link.dispatchEvent(
+      new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        view: window
+      })
+    );
+
+    // Remove link from body
+    document.body.removeChild(link);
   }
 
   resetOutput() {
@@ -893,5 +895,14 @@ export default class App {
     tabs: UPNG.ImageTabs = {}
   ) : Promise<any> {
     return UPNG.encodeLL(bufs, width, height, colourChannel, alphaChannel, depth, dels, tabs)
+  }
+  async typedArrayToStl(
+    points: TypedArray,
+    widthpx : number,
+    heightpx : number,
+    {width, depth, height} : TypedArrayToStlArgs = typedArrayToStlDefaults
+  ) {
+    //@ts-ignore
+    return await processor.typedArrayToStl(points, widthpx, heightpx, {width, depth, height});
   }
 }

@@ -31,8 +31,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const container : HTMLElement = document.getElementById('app');
   if (container) {
-    const myapp = new App({container});
+    const app = new App({container});
     //@ts-ignore
-    window.app = myapp;
+    window.app = app;
+
+    // const url = 'public/test/tiny16bitpng.png';
+    // App.getPngFromUrl(url).then(png => {
+    //   return app.typedArrayToStl(
+    //     png.getImageDataTransformed(),
+    //     png.getWidth(),
+    //     png.getHeight()
+    //   );
+    // }).then((stlData) => {
+    //   return app.download(new Blob([stlData]), 'stl.stl');
+    // });
   }
 });

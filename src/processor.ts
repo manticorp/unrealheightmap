@@ -10,6 +10,20 @@ export type NormaliseResult<T> = {
   maxAfter: number
 };
 
+export type TypedArrayToStlArgs = {
+  width : number,
+  depth : number,
+  height: number
+};
+export const typedArrayToStlDefaults : TypedArrayToStlArgs = {
+  width : 100,
+  depth : 100,
+  height : 10,
+};
+
+export type vec3 = [number, number, number];
+export type trivec3 = [vec3, vec3, vec3, vec3];
+
 const processor = {
   normaliseTypedArray<T extends TypedArray|number[]>(inp : T) : NormaliseResult<T> {
     let bpe = 2;
@@ -68,8 +82,6 @@ const processor = {
     const actualMin = inp.reduce((prev : number, cur : number) : number => Math.min(prev, cur), max);
     const min = Math.max(mean-stddev * numStdDeviations, actualMin);
 
-    console.log({n, mean, stddev, actualMax, max, actualMin, min});
-
     const newMax = Math.pow(2, bpe * 8);
     const newMin = 0;
     const sub = max - min;
@@ -124,8 +136,6 @@ const processor = {
 
     const max = (windowedMax + stddev) > actualMax ? actualMax : windowedMax;
     const min = (windowedMin - stddev) < actualMin ? actualMin : windowedMin;
-
-    console.log({windowedMax, windowedMin, actualMax, actualMin, offset, length, stddev, max, min});
 
     const newMax = Math.pow(2, bpe * 8)-1;
     const newMin = 0;
@@ -201,6 +211,66 @@ const processor = {
       result.maxBefore = result.maxAfter;
       result.minBefore = result.minAfter;
     }
+    return result;
+  },
+  typedArrayToStl(
+    points: TypedArray,
+    widthpx : number,
+    heightpx : number,
+    {width, depth, height} : TypedArrayToStlArgs = typedArrayToStlDefaults
+  ) : ArrayBuffer {
+    const dataLength = ((widthpx) * (heightpx)) * 50;
+    console.log(points.length, dataLength);
+    const size = 80 + 4 + dataLength;
+    const result = new ArrayBuffer(dataLength);
+    const dv = new DataView(result);
+    dv.setUint32(80, (widthpx-1)*(heightpx-1), true);
+
+    //@ts-ignore
+    const max = points.reduce((acc, point) => Math.max(point, acc), 0);
+
+    const o = (x : number, y : number) : number => (y * widthpx) + x;
+    const n = (p1 : vec3, p2 : vec3, p3: vec3) : vec3 => {
+      const A = [p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]];
+      const B = [p3[0] - p1[0], p3[1] - p1[1], p3[2] - p1[2]];
+      return [
+        A[1] * B[2] - A[2] * B[1],
+        A[2] * B[0] - A[0] * B[2],
+        A[0] * B[1] - A[1] * B[0]
+      ]
+    }
+    const pt = (tris : trivec3, off : number) => {
+      tris.flat().forEach((flt : number, i : number) => {
+        dv.setFloat32(off + (i * 4), flt, true);
+      });
+      // dv.setUint16(off+48, 0, true);
+    }
+
+    let off = 84;
+    for (let x = 0; x < (widthpx - 1); x += 2) {
+      for (let y = 0; y < (heightpx - 1); y++) {
+        const tri1 : trivec3 = [
+          [0,0,0], // normal
+          [  x,   y, points[o(x,y)]/max], // v1
+          [x+1,   y, points[o(x+1,y)]/max], // v2
+          [  x, y+1, points[o(x,y+1)]/max], // v3
+        ];
+        // tri1[0] = n(tri1[1], tri1[2], tri1[3]);
+        pt(tri1, off);
+        off += 50;
+
+        const tri2 : trivec3 = [
+          [0,0,0], // normal
+          [x+1,   y, points[o(x+1,y)]/max], // v1
+          [x+1, y+1, points[o(x+1,y+1)]/max], // v2
+          [  x, y+1, points[o(x,y+1)]/max], // v3
+        ];
+        // tri2[0] = n(tri2[1], tri2[2], tri2[3]);
+        pt(tri2, off);
+        off += 50;
+      }
+    }
+
     return result;
   }
 }
