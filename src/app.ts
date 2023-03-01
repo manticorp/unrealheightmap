@@ -2,7 +2,7 @@ import PNG from "./png";
 import NextZen from "./nextzen";
 import UPNG from "./UPNG";
 import * as $ from "jquery";
-import { debounce } from "ts-debounce";
+import { throttle, debounce } from 'throttle-debounce';
 import * as  L from "leaflet";
 import "leaflet-providers";
 import {format} from "./helpers";
@@ -63,7 +63,6 @@ export default class App {
     '253 x 253',
     '127 x 127',
   ];
-  state : ConfigState;
   map : L.Map;
   mapMarker : L.Marker;
   boundingRect : L.Rectangle;
@@ -166,7 +165,7 @@ export default class App {
     this.mapMarker = L.marker(curLatLng, {icon});
     this.mapMarker.addTo(this.map);
 
-    this.map.on('click', (e) => {
+    this.map.on('click', debounce(100, (e) => {
       this.map.setView(e.latlng);
       this.inputs.latitude.val(e.latlng.lat);
       this.inputs.longitude.val(e.latlng.lng);
@@ -174,9 +173,9 @@ export default class App {
       this.mapMarker.setLatLng(e.latlng);
       this.saveLatLngZoomState();
       this.updatePhysicalDimensions();
-    });
+    }));
 
-    this.map.on('move', (e) => {
+    this.map.on('move', throttle(1000/60, (e) => {
       const center = this.map.getCenter();
       const nlat = center.lat + 90;
       const lat = (((nlat % 180) + 180) % 180) - 90;
@@ -188,7 +187,11 @@ export default class App {
       this.mapMarker.setLatLng(center);
       this.saveLatLngZoomState();
       this.updatePhysicalDimensions();
-    });
+    }));
+
+    this.map.on('moveend', debounce(100, () => {
+    }));
+
     this.updatePhysicalDimensions();
     this.showHideCurrentLayer();
   }
@@ -217,7 +220,7 @@ export default class App {
     const resunit = 'm';
     const resprecision = res > 10 ? 1 : 2;
 
-    this.els.generate.text(`Generate (${w.toFixed(precision)} x ${h.toFixed(precision)}${units} - ${res.toFixed(resprecision)}${resunit}/px resolution)`);
+    this.els.generate.html(`Generate (${w.toFixed(precision)} x ${h.toFixed(precision)}${units} - ${res.toFixed(resprecision)}${resunit}/px resolution<span class="heights"></span>)`);
   }
   createInputOptions() {
     // input options
@@ -441,7 +444,7 @@ export default class App {
     this.storeValue('zoom', this.inputs.zoom.val().toString());
   }
   hookControls() {
-    this.inputs.defaultSize.on('change input', debounce(() => {
+    this.inputs.defaultSize.on('change input', debounce(100, () => {
       const val = this.inputs.defaultSize.val();
       if (val && typeof val === 'string' && val.trim() !== '') {
         const parts = val.split(" x ");
@@ -453,55 +456,55 @@ export default class App {
       this.storeValue('width', this.inputs.width.val().toString());
       this.storeValue('height', this.inputs.height.val().toString());
       this.updatePhysicalDimensions();
-    }, 100, {isImmediate:true}));
+    }));
 
-    this.els.generate.on('click touchend', debounce(() => {
+    this.els.generate.on('click touchend', debounce(100, () => {
       this.generate();
-    }, 100, {isImmediate:true}));
+    }));
 
-    this.inputs.maptype.on('change input', debounce(() => {
+    this.inputs.maptype.on('change input', debounce(30, () => {
       this.storeValue('maptype', this.inputs.maptype.val().toString());
       this.showHideCurrentLayer();
-    }, 60));
+    }));
 
-    this.inputs.latitude.on('change input', debounce(() => {
+    this.inputs.latitude.on('change input', debounce(30, () => {
       this.storeValue('latitude', this.inputs.latitude.val().toString());
       this.map.setView({
         lat: parseFloat(this.inputs.latitude.val().toString()),
         lng: parseFloat(this.inputs.longitude.val().toString())
       });
       this.updatePhysicalDimensions();
-    }, 60));
+    }));
 
-    this.inputs.longitude.on('change input', debounce(() => {
+    this.inputs.longitude.on('change input', debounce(30, () => {
       this.storeValue('longitude', this.inputs.longitude.val().toString());
       this.map.setView({
         lat: parseFloat(this.inputs.latitude.val().toString()),
         lng: parseFloat(this.inputs.longitude.val().toString())
       });
       this.updatePhysicalDimensions();
-    }, 60));
+    }));
 
-    this.inputs.zoom.on('change input', debounce(() => {
+    this.inputs.zoom.on('change input', debounce(30, () => {
       this.storeValue('zoom', this.inputs.zoom.val().toString());
       this.map.setZoom(parseInt(this.inputs.zoom.val().toString()));
       this.updatePhysicalDimensions();
-    }, 60));
+    }));
 
-    this.inputs.outputzoom.on('change input', debounce(() => {
+    this.inputs.outputzoom.on('change input', debounce(30, () => {
       this.storeValue('outputzoom', this.inputs.outputzoom.val().toString());
       this.updatePhysicalDimensions();
-    }, 60));
+    }));
 
-    this.inputs.width.on('change input', debounce(() => {
+    this.inputs.width.on('change input', debounce(30, () => {
       this.storeValue('width', this.inputs.width.val().toString());
       this.updatePhysicalDimensions();
-    }, 60));
+    }));
 
-    this.inputs.height.on('change input', debounce(() => {
+    this.inputs.height.on('change input', debounce(30, () => {
       this.storeValue('height', this.inputs.height.val().toString());
       this.updatePhysicalDimensions();
-    }, 60));
+    }));
   }
   newState() : ConfigState {
     return {
@@ -526,60 +529,95 @@ export default class App {
     };
   }
   getCurrentState() {
-    this.state = this.state || this.newState();
-    this.state.latitude  = parseFloat(this.inputs.latitude.val().toString());
-    this.state.longitude = parseFloat(this.inputs.longitude.val().toString());
-    this.state.z         = parseInt(this.inputs.outputzoom.val().toString());
-    this.state.zoom      = parseInt(this.inputs.outputzoom.val().toString());
-    this.state.width     = parseInt(this.inputs.width.val().toString());
-    this.state.height    = parseInt(this.inputs.height.val().toString());
+    const state = this.newState();
+    state.latitude  = parseFloat(this.inputs.latitude.val().toString());
+    state.longitude = parseFloat(this.inputs.longitude.val().toString());
+    state.z         = parseInt(this.inputs.outputzoom.val().toString());
+    state.zoom      = parseInt(this.inputs.outputzoom.val().toString());
+    state.width     = parseInt(this.inputs.width.val().toString());
+    state.height    = parseInt(this.inputs.height.val().toString());
 
-    this.state.exactPos = App.getTileCoordsFromLatLngExact(this.state.latitude, this.state.longitude, this.state.zoom);
-    this.state.widthInTiles = this.state.width/NextZen.tileWidth;
-    this.state.heightInTiles = this.state.height/NextZen.tileWidth;
+    state.exactPos = App.getTileCoordsFromLatLngExact(state.latitude, state.longitude, state.zoom);
+    state.widthInTiles = state.width/NextZen.tileWidth;
+    state.heightInTiles = state.height/NextZen.tileWidth;
 
-    this.state.startx = Math.floor(this.state.exactPos.x - this.state.widthInTiles/2);
-    this.state.starty = Math.floor(this.state.exactPos.y - this.state.heightInTiles/2);
-    this.state.endx   = Math.floor(this.state.exactPos.x + this.state.widthInTiles/2);
-    this.state.endy   = Math.floor(this.state.exactPos.y + this.state.heightInTiles/2);
+    state.startx = Math.floor(state.exactPos.x - state.widthInTiles/2);
+    state.starty = Math.floor(state.exactPos.y - state.heightInTiles/2);
+    state.endx   = Math.floor(state.exactPos.x + state.widthInTiles/2);
+    state.endy   = Math.floor(state.exactPos.y + state.heightInTiles/2);
 
-    this.state.bounds = [
+    state.bounds = [
       App.getLatLngFromTileCoords(
-        this.state.exactPos.x - this.state.widthInTiles/2,
-        this.state.exactPos.y - this.state.heightInTiles/2,
-        this.state.zoom
+        state.exactPos.x - state.widthInTiles/2,
+        state.exactPos.y - state.heightInTiles/2,
+        state.zoom
       ),
       App.getLatLngFromTileCoords(
-        this.state.exactPos.x + this.state.widthInTiles/2,
-        this.state.exactPos.y + this.state.heightInTiles/2,
-        this.state.zoom
+        state.exactPos.x + state.widthInTiles/2,
+        state.exactPos.y + state.heightInTiles/2,
+        state.zoom
       )
     ];
 
-    const latWidth = Math.abs(this.state.bounds[1].latitude - this.state.bounds[0].latitude);
-    const lngWidth = Math.abs(this.state.bounds[1].longitude - this.state.bounds[0].longitude);
-    this.state.phys = {
+    const latWidth = Math.abs(state.bounds[1].latitude - state.bounds[0].latitude);
+    const lngWidth = Math.abs(state.bounds[1].longitude - state.bounds[0].longitude);
+    state.phys = {
       height: (1000 * 110.574 * latWidth),
       width: (1000 * 111.320 * Math.cos(App.toRad(latWidth)) * lngWidth)
     };
 
-    return this.state;
+    return state;
+  }
+  getHeightsForState() {
+    const state = this.getCurrentState();
+    const imageFetches = [];
+    for (let x = state.startx; x <= state.endx; x++) {
+      for (let y = state.starty; y <= state.endy; y++) {
+        imageFetches.push(new Promise((resolve, reject) => {
+          return App.getImageAt({...state, x, y}).then(buffer => {
+            this.imageLoaded({...state, x, y});
+            const png = PNG.fromBuffer(buffer);
+            resolve({...state, x, y, buffer, png, heights: png.terrariumToGrayscale()});
+          }).catch(e => {
+            if (e.type === 'abort') {
+              return;
+            }
+            console.error(e);
+            this.displayError({text: `Failed to load image at tile x = ${x} y = ${y} - please try again`});
+            reject({...state, x, y});
+          });
+        }));
+      }
+    }
+    return Promise.all(imageFetches).then((result : TileLoadState[]) => {
+      return new Promise((resolve, reject)  => {
+        this.els.outputText.html('Generating images (should not take much longer)');
+        setTimeout(() => {
+          resolve(this.generateOutput(result));
+        },1);
+      });
+    }).catch(e => {
+      console.error('Failed to load images', e);
+      this.displayError({text: 'Failed to load images'});
+    }).finally(() => {
+      this.els.generate.prop('disabled', false);
+      currentRequests = [];
+    });
   }
   generate() {
     this.els.generate.prop('disabled', true);
-    this.getCurrentState();
+    const state = this.getCurrentState();
     this.resetOutput();
 
     const imageFetches = [];
-    this.state.status = 'loading';
     currentRequests = [];
-    for (let x = this.state.startx; x <= this.state.endx; x++) {
-      for (let y = this.state.starty; y <= this.state.endy; y++) {
+    for (let x = state.startx; x <= state.endx; x++) {
+      for (let y = state.starty; y <= state.endy; y++) {
         imageFetches.push(new Promise((resolve, reject) => {
-          return App.getImageAt({...this.state, x, y}).then(buffer => {
-            this.imageLoaded({...this.state, x, y});
+          return App.getImageAt({...state, x, y}).then(buffer => {
+            this.imageLoaded({...state, x, y});
             const png = PNG.fromBuffer(buffer);
-            resolve({...this.state, x, y, buffer, png, heights: png.terrariumToGrayscale()});
+            resolve({...state, x, y, buffer, png, heights: png.terrariumToGrayscale()});
           }).catch(e => {
             for (let r of currentRequests) {
               r.abort();
@@ -589,7 +627,7 @@ export default class App {
             }
             console.error(e);
             this.displayError({text: `Failed to load image at tile x = ${x} y = ${y} - please try again`});
-            reject({...this.state, x, y});
+            reject({...state, x, y});
           });
         }));
       }
@@ -714,13 +752,13 @@ export default class App {
     this.els.outputImage.empty();
     this.els.outputError.empty();
   }
-  imageLoaded({x, y, z} : TileCoords) {
-    this.imagesLoaded.push({x, y, z});
-    this.doOutputText();
+  imageLoaded(state : ConfigState) {
+    this.imagesLoaded.push(state);
+    this.doOutputText(state);
   }
-  doOutputText() {
-    const widthInTiles = (this.state.endx - this.state.startx)+1;
-    const heightInTiles = (this.state.endy - this.state.starty)+1;
+  doOutputText(state : ConfigState) {
+    const widthInTiles = (state.endx - state.startx)+1;
+    const heightInTiles = (state.endy - state.starty)+1;
 
     const totalTiles = widthInTiles * heightInTiles;
     this.els.outputText.text(`Loaded ${this.imagesLoaded.length} / ${totalTiles} tiles`);
