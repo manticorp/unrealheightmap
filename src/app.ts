@@ -20,7 +20,9 @@ import {
   LatLngZoom,
   ConfigState,
   TileLoadState,
-  NormaliseMode
+  NormaliseMode,
+  roll,
+  clamp
 } from "./helpers";
 
 type AppArgs = {
@@ -544,10 +546,12 @@ export default class App {
       endy: 0,
       bounds: [{latitude:0, longitude:0},{latitude:0, longitude:0}],
       status: 'pending',
-      phys: {width: 0, height: 0}
+      phys: {width: 0, height: 0},
+      min: {x: 0, y: 0},
+      max: {x: 0, y: 0}
     };
   }
-  getCurrentState(scaleApprox : number = 1) {
+  getCurrentState(scaleApprox : number = 1) : ConfigState {
     const state = this.newState();
 
     const z = parseInt(this.inputs.outputzoom.val().toString());
@@ -563,12 +567,22 @@ export default class App {
 
     state.exactPos = App.getTileCoordsFromLatLngExact(state.latitude, state.longitude, state.zoom);
     state.widthInTiles = state.width/NextZen.tileWidth;
-    state.heightInTiles = state.height/NextZen.tileWidth;
+    state.heightInTiles = state.height/NextZen.tileHeight;
+
+    state.min = App.getTileCoordsFromLatLngExact( 85, -179.999, newZ);
+    state.min.x = Math.floor(state.min.x);
+    state.min.y = 0;
+    state.max = App.getTileCoordsFromLatLngExact(-85,  179.999, newZ);
+    state.max.x = Math.ceil(state.max.x);
+    state.max.y = Math.floor(state.max.y);
 
     state.startx = Math.floor(state.exactPos.x - state.widthInTiles/2);
-    state.starty = Math.floor(state.exactPos.y - state.heightInTiles/2);
     state.endx   = Math.floor(state.exactPos.x + state.widthInTiles/2);
-    state.endy   = Math.floor(state.exactPos.y + state.heightInTiles/2);
+    state.starty = clamp(Math.floor(state.exactPos.y - state.heightInTiles/2), state.min.y, state.max.y);
+    state.endy   = clamp(Math.floor(state.exactPos.y + state.heightInTiles/2), state.min.y, state.max.y);
+
+    state.heightInTiles = clamp(state.exactPos.y + state.heightInTiles/2, state.min.y, state.max.y) - clamp(state.exactPos.y - state.heightInTiles/2, state.min.y, state.max.y);
+    state.height = state.heightInTiles * NextZen.tileHeight;
 
     state.bounds = [
       App.getLatLngFromTileCoords(
@@ -587,7 +601,7 @@ export default class App {
     const lngWidth = Math.abs(state.bounds[1].longitude - state.bounds[0].longitude);
     state.phys = {
       height: (1000 * 110.574 * latWidth),
-      width: (1000 * 111.320 * Math.cos(App.toRad(latWidth)) * lngWidth)
+      width:  (1000 * 110.574 * lngWidth),
     };
 
     return state;
@@ -605,7 +619,8 @@ export default class App {
     for (let x = state.startx; x <= state.endx; x++) {
       for (let y = state.starty; y <= state.endy; y++) {
         imageFetches.push(new Promise((resolve, reject) => {
-          return App.getImageAt({...state, x, y}).then(buffer => {
+          const nx = roll(x, state.min.x, state.max.x);
+          return App.getImageAt({z: state.z, x: nx, y: y}).then(buffer => {
             const png = PNG.fromBuffer(buffer);
             resolve({...state, x, y, buffer, png, heights: png.terrariumToGrayscale()});
           }).catch(e => {
@@ -613,7 +628,7 @@ export default class App {
               return;
             }
             console.error(e);
-            reject({...state, x, y});
+            reject({...state, x, y, nx});
           });
         }));
       }
@@ -628,7 +643,6 @@ export default class App {
       });
     }).catch(e => {
       console.error('Failed to load images', e);
-      this.displayError({text: 'Failed to load images'});
     }).finally(() => {
       this.els.generate.prop('disabled', false);
       currentRequests = [];
@@ -645,7 +659,8 @@ export default class App {
     for (let x = state.startx; x <= state.endx; x++) {
       for (let y = state.starty; y <= state.endy; y++) {
         imageFetches.push(new Promise((resolve, reject) => {
-          return App.getImageAt({...state, x, y}).then(buffer => {
+          const nx = roll(x, state.min.x, state.max.x);
+          return App.getImageAt({z: state.z, x: nx, y: y}).then(buffer => {
             this.imageLoaded({...state, x, y});
             const png = PNG.fromBuffer(buffer);
             resolve({...state, x, y, buffer, png, heights: png.terrariumToGrayscale()});
@@ -698,19 +713,21 @@ export default class App {
   async generateOutputUsingWorker(states : TileLoadState[]) {
     //@ts-ignore
     const output = await processor.combineImages(states, this.inputs.smartNormalisationControl.val()) as NormaliseResult<Float32Array>;
-    this.displayHeightData(output);
+    this.displayHeightData(output, states[0]);
     return this.saveOutput(output.data, states);
   }
-  displayHeightData(output : NormaliseResult<Float32Array>) {
+  displayHeightData(output : NormaliseResult<Float32Array>, state: TileLoadState) {
     const fmt = this.meterFormatter;
     const range = output.maxBefore - output.minBefore;
     const unrealZscaleFactor = 0.001953125;
     const zScale = unrealZscaleFactor * range * 100;
+    const xyScale = ((state.phys.width * 100) / state.width);
     // Start by multiplying 4207 by 100 to convert the height into centimeters. This equals 420,700 cm.
     // Next, multiply this new value by the ratio: 420,700 multiplied by 0.001953125 equals 821.6796875‬.
     // This gives you a Z scale value of 821.6796875‬ and results in a heightmap that will go from -210,350 cm to 210,350 cm.
     const txt = `<p>Height range: ${fmt.format(output.minBefore)} to ${fmt.format(output.maxBefore)}</p>
-    <p>In Unreal Engine, on import, a z scaling of <code>${zScale}</code> should be used for 1:1 height scaling using a normalised image.</p>`;
+    <p>In Unreal Engine, on import, a z scaling of <code>${zScale.toFixed(2)}</code> should be used for 1:1 height scaling using a normalised image.</p>
+    <p>x and y scales should be set to <code>${xyScale.toFixed(2)}</code></p>`;
     this.els.outputText.html(txt);
   }
   async generateOutput(states : TileLoadState[]) {

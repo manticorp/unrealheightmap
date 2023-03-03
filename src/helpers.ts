@@ -41,7 +41,9 @@ export type ConfigState = TileCoords & LatLngZoom & {
   endy: number,
   status: string,
   bounds: [LatLng, LatLng],
-  phys: {width: number, height: number}
+  phys: {width: number, height: number},
+  min: {y: number, x: number},
+  max: {y: number, x: number},
 };
 
 export type TileLoadState = ConfigState & {x: number, y: number, heights: Float32Array};
@@ -52,3 +54,7 @@ export enum NormaliseMode {
   Smart = 2,
   SmartWindow = 3,
 }
+
+export const roll = (num: number, min: number = 0, max: number = 1)  => modWithNeg(num - min, max - min) + min;
+export const modWithNeg =  (x: number, mod: number) => ((x % mod) + mod) % mod;
+export const clamp = (num : number, min: number = 0, max: number = 1) => Math.max(min, Math.min(max, num)));

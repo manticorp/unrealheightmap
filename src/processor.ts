@@ -187,7 +187,13 @@ const processor = {
           y: Math.floor((y%1)*tileWidth)
         };
         const idx = px.y*tileWidth + px.x;
-        output[i++] = map[tile.x][tile.y].heights[idx];
+        if (typeof map[tile.x] === 'undefined') {
+          throw new Error(`x value ${tile.x} was undefined`);
+        } else if (typeof map[tile.x][tile.y] === 'undefined') {
+          throw new Error(`y value ${tile.y} was undefined`);
+        } else {
+          output[i++] = map[tile.x][tile.y].heights[idx];
+        }
       }
     }
     let result = {
