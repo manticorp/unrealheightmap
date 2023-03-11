@@ -1,6 +1,14 @@
 import * as Comlink from "comlink";
 
-import {TypedArray, TileCoords, LatLng, LatLngZoom, ConfigState, TileLoadState, NormaliseMode} from "./helpers";
+import {
+  TypedArray,
+  TileCoords,
+  LatLng,
+  LatLngZoom,
+  ConfigState,
+  TileLoadState,
+  NormaliseMode
+  } from "./helpers";
 
 export type NormaliseResult<T> = {
   data: T,
@@ -24,8 +32,12 @@ export const typedArrayToStlDefaults : TypedArrayToStlArgs = {
 export type vec3 = [number, number, number];
 export type trivec3 = [vec3, vec3, vec3, vec3];
 
+export type NormRange = {from : number|null|undefined, to : number|null|undefined};
+export const normMaxRange : NormRange = {from: -10929, to: 8848};
+export const normDefaults : NormRange = {from: null, to: null};
+
 const processor = {
-  normaliseTypedArray<T extends TypedArray|number[]>(inp : T) : NormaliseResult<T> {
+  normaliseTypedArray<T extends TypedArray|number[]>(inp : T, norm: NormRange) : NormaliseResult<T> {
     let bpe = 2;
     if (!Array.isArray(inp)) {
       if (inp instanceof Float32Array) {
@@ -37,16 +49,18 @@ const processor = {
     // For some reason, typescript does not think the reduce function as
     // used below is compatible with all typedarrays
     //@ts-ignore
-    const max = inp.reduce((prev : number, cur : number) : number => Math.max(prev, cur), 0);
+    const max = (typeof norm.to === 'number') ? norm.to : inp.reduce((prev : number, cur : number) : number => Math.max(prev, cur), 0);
     //@ts-ignore
-    const min = inp.reduce((prev : number, cur : number) : number => Math.min(prev, cur), max);
+    const min = (typeof norm.from === 'number') ? norm.from : inp.reduce((prev : number, cur : number) : number => Math.min(prev, cur), max);
     const newMax = Math.pow(2, bpe * 8);
     const newMin = 0;
     const sub = max - min;
     const nsub = newMax - newMin;
     const factor = newMax/(max - sub);
     inp.forEach((a : number, index : number) => {
-      inp[index] = (((a-min)/sub) * nsub + newMin);
+      if (a >= max) inp[index] = newMax;
+      else if (a <= min) inp[index] = newMin;
+      else inp[index] = (((a-min)/sub) * nsub + newMin);
     });
     return {
       data: inp,
@@ -56,7 +70,7 @@ const processor = {
       maxAfter: newMax,
     };
   },
-  normaliseTypedArraySmart<T extends TypedArray|number[]>(inp : T) : NormaliseResult<T> {
+  normaliseTypedArraySmart<T extends TypedArray|number[]>(inp : T, norm: NormRange) : NormaliseResult<T> {
     let bpe = 2;
     if (!Array.isArray(inp)) {
       if (inp instanceof Float32Array) {
@@ -77,10 +91,10 @@ const processor = {
     const stddev = Math.sqrt(inp.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n)
     //@ts-ignore
     const actualMax = inp.reduce((prev : number, cur : number) : number => Math.max(prev, cur), 0);
-    const max = Math.min(mean+stddev * numStdDeviations, actualMax);
+    const max = (typeof norm.to === 'number') ? norm.to : Math.min(mean+stddev * numStdDeviations, actualMax);
     //@ts-ignore
     const actualMin = inp.reduce((prev : number, cur : number) : number => Math.min(prev, cur), max);
-    const min = Math.max(mean-stddev * numStdDeviations, actualMin);
+    const min = (typeof norm.from === 'number') ? norm.from : Math.max(mean-stddev * numStdDeviations, actualMin);
 
     const newMax = Math.pow(2, bpe * 8);
     const newMin = 0;
@@ -100,7 +114,7 @@ const processor = {
       maxAfter: newMax,
     };
   },
-  normaliseTypedArraySmartWindow<T extends TypedArray>(inp : T) : NormaliseResult<T> {
+  normaliseTypedArraySmartWindow<T extends TypedArray>(inp : T, norm: NormRange) : NormaliseResult<T> {
     let bpe = 2;
     if (!Array.isArray(inp)) {
       if (inp instanceof Float32Array) {
@@ -134,8 +148,8 @@ const processor = {
     const actualMin = copy[0];
     const windowedMin = windowedCopy[0];
 
-    const max = (windowedMax + stddev) > actualMax ? actualMax : windowedMax;
-    const min = (windowedMin - stddev) < actualMin ? actualMin : windowedMin;
+    const max = (typeof norm.to === 'number') ? norm.to : (windowedMax + stddev) > actualMax ? actualMax : windowedMax;
+    const min = (typeof norm.from === 'number') ? norm.from : (windowedMin - stddev) < actualMin ? actualMin : windowedMin;
 
     const newMax = Math.pow(2, bpe * 8)-1;
     const newMin = 0;
@@ -155,7 +169,11 @@ const processor = {
       maxAfter: newMax,
     };
   },
-  combineImages(states : TileLoadState[], normaliseMode : number = NormaliseMode.Regular) : NormaliseResult<Float32Array> {
+  combineImages(
+    states : TileLoadState[],
+    normaliseMode : number = NormaliseMode.Regular,
+    norm : NormRange = normDefaults
+  ) : NormaliseResult<Float32Array> {
     const area = states[0].width * states[0].height;
     let output = new Float32Array(area);
     const tileWidth = 256;
@@ -203,12 +221,18 @@ const processor = {
       minAfter: Math.pow(2, 32),
       maxAfter: 0,
     };
-    if (normaliseMode == NormaliseMode.Regular) {
-      result = this.normaliseTypedArray(output);
+    if (
+      normaliseMode == NormaliseMode.Regular ||
+      (
+        typeof norm.from == 'number' &&
+        typeof norm.to == 'number'
+      )
+    ) {
+      result = this.normaliseTypedArray(output, norm);
     } else if (normaliseMode == NormaliseMode.Smart) {
-      result = this.normaliseTypedArraySmart(output);
+      result = this.normaliseTypedArraySmart(output, norm);
     } else if (normaliseMode == NormaliseMode.SmartWindow) {
-      result = this.normaliseTypedArraySmartWindow(output);
+      result = this.normaliseTypedArraySmartWindow(output, norm);
     } else {
       for (let i = 0; i < output.length; i++) {
         result.maxAfter = Math.max(output[i], result.maxAfter);

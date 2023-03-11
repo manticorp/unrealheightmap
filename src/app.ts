@@ -5,10 +5,16 @@ import * as $ from "jquery";
 import { throttle, debounce } from 'throttle-debounce';
 import * as  L from "leaflet";
 import "leaflet-providers";
-import {format} from "./helpers";
+import {format, promiseAllInBatches} from "./helpers";
 
 import * as Comlink from 'comlink';
-import {NormaliseResult, TypedArrayToStlArgs, typedArrayToStlDefaults} from './processor';
+import {
+  NormaliseResult,
+  TypedArrayToStlArgs,
+  typedArrayToStlDefaults,
+  NormRange,
+  normMaxRange
+} from './processor';
 
 const worker = new Worker("public/dist/js/processor.js");
 const processor = Comlink.wrap(worker);
@@ -362,7 +368,7 @@ export default class App {
 
     this.els.defaultSizeControl  = $('<div class="control">').append($('<div class="select is-fullwidth">').append(this.inputs.defaultSize));
 
-    this.els.columnSize.append(App.createLabel('Default UE5 Landscape Sizes', {for:'width'}));
+    this.els.columnSize.append(App.createLabel('Default UE5 Sizes', {for:'width'}));
     this.els.columnSize.append(this.els.defaultSizeControl);
 
     this.els.columnsOutput.append(this.els.columnSize);
@@ -380,11 +386,34 @@ export default class App {
         </select>
       </div>
     </div>`);
+
+    this.els.normFrom = $(`
+    <label class="label">Norm From</label>
+    <div class="control">
+      <input class="input" type="number" name="norm-from" min="-10929" max="8848">
+    </div>`);
+
+    this.els.normTo = $(`
+    <label class="label">Norm To</label>
+    <div class="control">
+      <input class="input" type="number" name="norm-to" min="-10929" max="8848">
+    </div>`);
+
     this.els.columnsOutput.append(
       $('<div class="column field">').append(this.els.smartNormalisationControl)
     );
 
+    this.els.columnsOutput.append(
+      $('<div class="column field">').append(this.els.normFrom)
+    );
+
+    this.els.columnsOutput.append(
+      $('<div class="column field">').append(this.els.normTo)
+    );
+
     this.inputs.smartNormalisationControl = this.els.smartNormalisationControl.find('select');
+    this.inputs.normFrom = this.els.normFrom.find('input');
+    this.inputs.normTo = this.els.normTo.find('input');
 
   }
   createSubmitButton() {
@@ -606,6 +635,23 @@ export default class App {
 
     return state;
   }
+  async fetchImage({x,y,z} : {x : number, y : number, z : number}, state : ConfigState) : Promise<TileLoadState> {
+    return new Promise((resolve, reject) => {
+      App.getImageAt({z, y, x}).then(buffer => {
+        const png = PNG.fromBuffer(buffer);
+        resolve({...state, x, y, buffer, heights: png.terrariumToGrayscale()});
+      }).catch(e => {
+        for (let r of currentRequests) {
+          r.abort();
+        }
+        if (e.type === 'abort') {
+          return;
+        }
+        console.error(e);
+        reject({...state, x, y, z});
+      });
+    });
+  }
   getApproxHeightsForState() {
     let state = this.getCurrentState(1);
     if (state.width > 4000) {
@@ -616,24 +662,14 @@ export default class App {
       state = this.getCurrentState(1/2);
     }
     const imageFetches = [];
+    const items : TileCoords[] = [];
     for (let x = state.startx; x <= state.endx; x++) {
       for (let y = state.starty; y <= state.endy; y++) {
-        imageFetches.push(new Promise((resolve, reject) => {
-          const nx = roll(x, state.min.x, state.max.x);
-          return App.getImageAt({z: state.z, x: nx, y: y}).then(buffer => {
-            const png = PNG.fromBuffer(buffer);
-            resolve({...state, x, y, buffer, png, heights: png.terrariumToGrayscale()});
-          }).catch(e => {
-            if (e.type === 'abort') {
-              return;
-            }
-            console.error(e);
-            reject({...state, x, y, nx});
-          });
-        }));
+        const nx = roll(x, state.min.x, state.max.x);
+        items.push({z: state.z, x: nx, y: y});
       }
     }
-    return Promise.all(imageFetches).then((result : TileLoadState[]) : Promise<void> => {
+    return promiseAllInBatches((item) => this.fetchImage(item, state), items, 200, 0).then((result : TileLoadState[]) : Promise<void> => {
       //@ts-ignore
       return processor.combineImages(result, NormaliseMode.SmartWindow)
       .then((output : NormaliseResult<Float32Array>) => {
@@ -653,32 +689,24 @@ export default class App {
     const state = this.getCurrentState();
     console.log('generate', state);
     this.resetOutput();
-
     const imageFetches = [];
-    currentRequests = [];
+    const items : TileCoords[] = [];
     for (let x = state.startx; x <= state.endx; x++) {
       for (let y = state.starty; y <= state.endy; y++) {
-        imageFetches.push(new Promise((resolve, reject) => {
-          const nx = roll(x, state.min.x, state.max.x);
-          return App.getImageAt({z: state.z, x: nx, y: y}).then(buffer => {
-            this.imageLoaded({...state, x, y});
-            const png = PNG.fromBuffer(buffer);
-            resolve({...state, x, y, buffer, png, heights: png.terrariumToGrayscale()});
-          }).catch(e => {
-            for (let r of currentRequests) {
-              r.abort();
-            }
-            if (e.type === 'abort') {
-              return;
-            }
-            console.error(e);
-            this.displayError({text: `Failed to load image at tile x = ${x} y = ${y} - please try again`});
-            reject({...state, x, y});
-          });
-        }));
+        const nx = roll(x, state.min.x, state.max.x);
+        items.push({z: state.z, x: nx, y: y});
       }
     }
-    return Promise.all(imageFetches).then((result : TileLoadState[]) => {
+    return promiseAllInBatches((item) => {
+      return this.fetchImage(item, state)
+      .then((im) => {
+        this.imageLoaded(im);
+        return im;
+      })
+      .catch((e) => {
+        this.displayError({text: `Failed to load image at tile x = ${state.x} y = ${state.y} - please try again`});
+      });
+    }, items, 200, 0).then((result : TileLoadState[]) : Promise<void> => {
       return new Promise((resolve, reject)  => {
         this.els.outputText.html('Generating images (should not take much longer)');
         setTimeout(() => {
@@ -687,7 +715,6 @@ export default class App {
       });
     }).catch(e => {
       console.error('Failed to load images', e);
-      this.displayError({text: 'Failed to load images'});
     }).finally(() => {
       this.els.generate.prop('disabled', false);
       currentRequests = [];
@@ -711,8 +738,15 @@ export default class App {
     errEl.find('.delete').on('click touchend', () => errEl.slideUp());
   }
   async generateOutputUsingWorker(states : TileLoadState[]) {
+    const norm : NormRange = {from : null, to : null}
+    if (this.inputs.normFrom.val() !== "") {
+      norm.from = parseFloat(this.inputs.normFrom.val().toString());
+    }
+    if (this.inputs.normTo.val() !== "") {
+      norm.to = parseFloat(this.inputs.normTo.val().toString());
+    }
     //@ts-ignore
-    const output = await processor.combineImages(states, this.inputs.smartNormalisationControl.val()) as NormaliseResult<Float32Array>;
+    const output = await processor.combineImages(states, this.inputs.smartNormalisationControl.val(), norm) as NormaliseResult<Float32Array>;
     this.displayHeightData(output, states[0]);
     return this.saveOutput(output.data, states);
   }
