@@ -143,6 +143,10 @@ export default class App {
       layer: L.tileLayer.provider('OpenTopoMap'),
       label: 'Open Topo Map'
     };
+    this.layers.usgsusimagery = {
+      layer: L.tileLayer.provider('USGS.USImagery'),
+      label: 'USGS US Imagery'
+    };
     this.layers.watercolor = {
       layer: L.tileLayer.provider('Stamen.Watercolor'),
       label: 'Watercolor (does not work for albedo export)'
