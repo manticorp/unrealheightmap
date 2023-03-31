@@ -626,14 +626,41 @@ export default class App {
       )
     ];
 
-    const latWidth = Math.abs(state.bounds[1].latitude - state.bounds[0].latitude);
-    const lngWidth = Math.abs(state.bounds[1].longitude - state.bounds[0].longitude);
+
     state.phys = {
-      height: (1000 * 110.574 * latWidth),
-      width:  (1000 * 110.574 * lngWidth),
+      height:0,
+      width: 0,
     };
 
+    // Width = difference in longitudes
+    state.phys.width = this.getDistanceBetweenLatLngs(state.bounds[0], {
+      latitude: state.bounds[0].latitude,
+      longitude: state.bounds[1].longitude,
+    });
+
+    // Height = difference in latitudes
+    state.phys.height = this.getDistanceBetweenLatLngs(state.bounds[0], {
+      latitude: state.bounds[1].latitude,
+      longitude: state.bounds[0].longitude,
+    });
+
     return state;
+  }
+  // From https://www.movable-type.co.uk/scripts/latlong.html
+  getDistanceBetweenLatLngs(point1 : LatLng, point2 : LatLng) : number {
+    const R = 6371e3; // metres
+    const φ1 = point1.latitude * Math.PI/180; // φ, λ in radians
+    const φ2 = point2.latitude * Math.PI/180;
+    const Δφ = (point2.latitude-point1.latitude) * Math.PI/180;
+    const Δλ = (point2.longitude-point1.longitude) * Math.PI/180;
+
+    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ/2) * Math.sin(Δλ/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+    const d = R * c; // in metres
+    return d;
   }
   async fetchImage({x,y,z} : {x : number, y : number, z : number}, state : ConfigState) : Promise<TileLoadState> {
     return new Promise((resolve, reject) => {
