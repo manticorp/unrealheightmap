@@ -19,10 +19,53 @@
       </article>
       <article class="container content">
         <h2>How to Export</h2>
+        <div class="card is-pulled-right">
+          <div class="card-content">
+            <figure class="image">
+              <img src="public/im/latlng_inputs.png">
+              <figcaption>
+                Enter your latitude/longitude values here
+              </figcaption>
+            </figure>
+          </div>
+        </div>
         <p>Using the map at the top of the screen, choose a location. You can also manually type in a latitude and longitude.</p>
         <p>The orange rectangle shows the size of the exported image, and what will be included.</p>
         <p>The size of the exported area depends on the <strong>output zoom</strong> and the <strong>output size in pixels</strong>.</p>
         <p>After clicking 'Generate' a 16 bit PNG should await you.</p>
+        <h3>Explanation of different options</h3>
+        <table class="table is-fullwidth">
+          <tr><th>Latitude</th><td>The Latitude at the centre of the image</td></tr>
+          <tr><th>Longitude</th><td>The Longitude at the centre of the image</td></tr>
+          <tr><th>Zoom</th><td>The zoom level in the preview</td></tr>
+          <tr><th>Output Zoom</th><td>The zoom level to use for the output</td></tr>
+          <tr><th>Map Preview Type</th><td>The tiles to use in the preview at the top of the page</td></tr>
+          <tr><th>Output Width (px)</th><td>The output width of the entire image in pixels</td></tr>
+          <tr><th>Output Height (px)</th><td>The output height of the entire image in pixels</td></tr>
+          <tr><th>Default UE5 Sizes</th><td>A preset list of useful sizes for generating Unreal Engine 5 terrain</td></tr>
+          <tr><th>Normalisation Mode</th><td>The normalisation mode to use. See below for more information</td></tr>
+          <tr><th>Norm From</th><td>Overrides the normlisation "from" parameter. Can be useful when low height data is funky, e.g. at the coast (just use 0)</td></tr>
+          <tr><th>Norm To</th><td>Overrides the normlisation "to" parameter</td></tr>
+        </table>
+        <div class="card">
+          <div class="card-content">
+            <div class="content">
+              <h4>Top Tip: Copy &amp; Paste</h4>
+              <p>You can now copy and paste straight onto the page any lat/lng string. Acceptable formats include:</p>
+              <ul>
+                <li>03°04′33″S 37°21′12″E</li>
+                <li>3.0674° S, 37.3556° E</li>
+                <li>-3.0674, 37.3556</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <figure class="image">
+          <img src="public/im/mapview.png">
+          <figcaption>
+            The orange box shows the area that will be exported.
+          </figcaption>
+        </figure>
       </article>
       <article class="container content">
         <h2>Output</h2>
