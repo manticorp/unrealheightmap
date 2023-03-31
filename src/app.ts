@@ -569,6 +569,79 @@ export default class App {
       this.updatePhysicalDimensions();
       doHeightsDebounced();
     }));
+
+    window.addEventListener('paste', (event : ClipboardEvent) => {
+      // @ts-ignore
+      let paste = (event.clipboardData || window.clipboardData).getData("text");
+      console.log(event, paste);
+      if (paste) {
+        if (this.isPasteableText(paste)) {
+          const latLng = this.getLatLngFromText(paste);
+          console.log('Pasted latLng', latLng);
+
+          this.storeValue('latitude', latLng.latitude.toString());
+          this.storeValue('longitude', latLng.longitude.toString());
+          this.inputs.latitude.val(latLng.latitude);
+          this.inputs.longitude.val(latLng.longitude);
+          this.map.setView({
+            lat: parseFloat(this.inputs.latitude.val().toString()),
+            lng: parseFloat(this.inputs.longitude.val().toString())
+          });
+          this.updatePhysicalDimensions();
+          doHeightsDebounced();
+        } else {
+          console.log('Text was not pasteable', paste);
+        }
+      }
+    });
+  }
+  getLatLngFromText(text : string) : LatLng|null {
+    const google = /([0-9]{1,3}.?[0-9]*)°? ?(S|N), ?([0-9]{1,3}.?[0-9]*)°? ?(E|W)/;
+    const gmatch = text.trim().match(google);
+    if (gmatch) {
+      let latitude = parseFloat(gmatch[1]);
+      let longitude = parseFloat(gmatch[3]);
+      if (gmatch[2].toUpperCase() === 'S') {
+        latitude = -latitude;
+      }
+      if (gmatch[4].toUpperCase() === 'W') {
+        longitude = -longitude;
+      }
+      return {
+        latitude,
+        longitude
+      };
+    }
+    const generic = /([-0-9]{1,3}.?[0-9]*) *, *([-0-9]{1,3}.?[0-9]*)/;
+    const genmatch = text.trim().match(generic);
+    if (genmatch) {
+      let latitude = parseFloat(genmatch[1]);
+      let longitude = parseFloat(genmatch[2])
+      return {
+        latitude,
+        longitude
+      };
+    }
+    const degreesMinsSecs = /([0-9]{1,2})[*°] *([0-9]{1,2})[′'] *([0-9]{1,2})[″"] *(S|N) ?([0-9]{1,2})[*°] *([0-9]{1,2})[′'] *([0-9]{1,2})[″"] *(E|W)/;
+    const dmsmatch = text.trim().match(degreesMinsSecs);
+    if (dmsmatch) {
+      let latitude  = parseFloat(dmsmatch[1]) + parseFloat(dmsmatch[2])/60 + parseFloat(dmsmatch[3])/(60*60);
+      let longitude = parseFloat(dmsmatch[5]) + parseFloat(dmsmatch[6])/60 + parseFloat(dmsmatch[7])/(60*60);
+      if (dmsmatch[4].toUpperCase() === 'S') {
+        latitude = -latitude;
+      }
+      if (dmsmatch[8].toUpperCase() === 'W') {
+        longitude = -longitude;
+      }
+      return {
+        latitude,
+        longitude
+      };
+    }
+    return null;
+  }
+  isPasteableText(text : string) : boolean {
+    return this.getLatLngFromText(text) !== null;
   }
   newState() : ConfigState {
     return {

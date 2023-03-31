@@ -38,7 +38,7 @@ $text-light: $grey-light;
 $box-background-color: $background;
 
 $card-shadow: none;
-$card-background-color: darken($body-background-color, 1);
+$card-background-color: $background;
 $card-header-box-shadow: none;
 $card-header-background-color: darken($body-background-color, 3);
 $card-footer-background-color: darken($body-background-color, 3);
@@ -65,7 +65,7 @@ $input-icon-active-color: $input-color;
 
 $table-color: $text;
 $table-head-color: $grey-lighter;
-$table-background-color: $grey-dark;
+$table-background-color: $background;
 $table-cell-border: 1px solid $grey;
 $table-row-hover-background-color: $grey-darker;
 $table-striped-row-even-background-color: $grey-darker;
