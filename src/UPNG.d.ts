@@ -85,7 +85,7 @@ declare namespace UPNG {
 
   export function decode(buffer: ArrayBuffer | TypedArray): Image;
   export function decodeImage (data : Uint8Array, w : number, h : number, out : Image) : Uint8Array;
-  export function toRGBA8(out: Image): TypedArray[];
+  export function toRGBA8(out: Image): Uint8Array[];
   export function quantize(data: ArrayBuffer, psize: number): QuantizeResult;
 }
 export default UPNG;

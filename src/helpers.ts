@@ -44,9 +44,13 @@ export type ConfigState = TileCoords & LatLngZoom & {
   phys: {width: number, height: number},
   min: {y: number, x: number},
   max: {y: number, x: number},
+  type: 'albedo'|'heightmap',
+  url: string,
 };
 
-export type TileLoadState = ConfigState & {x: number, y: number, heights: Float32Array, buffer: ArrayBuffer};
+import PNG from "./png";
+
+export type TileLoadState = ConfigState & {x: number, y: number, heights: Float32Array|Uint8Array, buffer: ArrayBuffer};
 
 export enum NormaliseMode {
   Off = 0,

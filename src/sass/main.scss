@@ -1,7 +1,31 @@
 @charset "utf-8";
 @import '../../node_modules/leaflet/dist/leaflet.css';
 
+@import 'bulma/sass/utilities/functions.sass';
+@import 'bulma/sass/utilities/initial-variables.sass';
 @import "variables";
+
+$secondary: $red;
+$secondary-invert: findColorInvert($secondary);
+$secondary-light: findLightColor($secondary);
+$secondary-dark: findDarkColor($secondary);
+
+$tertiary: $purple;
+$tertiary-invert: findColorInvert($secondary);
+$tertiary-light: findLightColor($secondary);
+$tertiary-dark: findDarkColor($secondary);
+
+$cta: $red;
+$cta-invert: findColorInvert($secondary);
+$cta-light: findLightColor($secondary);
+$cta-dark: findDarkColor($secondary);
+
+$custom-colors: (
+    "secondary": ($secondary, $secondary-invert, $secondary-light, $secondary-dark),
+    "tertiary": ($tertiary, $tertiary-invert, $tertiary-light, $tertiary-dark),
+    "cta": ($cta, $cta-invert, $cta-light, $cta-dark)
+);
+
 @import "~bulma/bulma";
 @import "overrides";
 

@@ -10,6 +10,8 @@ import {
   NormaliseMode
   } from "./helpers";
 
+import PNG from "./png";
+
 export type NormaliseResult<T> = {
   data: T,
   minBefore: number,

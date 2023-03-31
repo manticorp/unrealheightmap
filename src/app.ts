@@ -75,7 +75,7 @@ export default class App {
   map : L.Map;
   mapMarker : L.Marker;
   boundingRect : L.Rectangle;
-  layers: Record<string, any> = {};
+  layers: Record<string, {layer:L.TileLayer, label:string}> = {};
   layer: string  = 'topo';
   savedKeys : string[] = [
       'latitude',
@@ -135,13 +135,17 @@ export default class App {
       layer: L.tileLayer.provider('OpenStreetMap.Mapnik'),
       label: 'Open Street Map'
     };
+    this.layers.osmhot = {
+      layer: L.tileLayer.provider('OpenStreetMap.HOT'),
+      label: 'Open Street Map HOT'
+    };
     this.layers.otm = {
       layer: L.tileLayer.provider('OpenTopoMap'),
       label: 'Open Topo Map'
     };
     this.layers.watercolor = {
       layer: L.tileLayer.provider('Stamen.Watercolor'),
-      label: 'Watercolor'
+      label: 'Watercolor (does not work for albedo export)'
     };
     this.layers.nextzen = {
       layer: L.tileLayer(
@@ -236,7 +240,7 @@ export default class App {
     const resunit = 'm';
     const resprecision = res > 10 ? 1 : 2;
 
-    this.els.generate.html(`Generate (${w.toFixed(precision)} x ${h.toFixed(precision)}${units} - ${res.toFixed(resprecision)}${resunit}/px resolution<span class="heights"></span>)`);
+    this.els.generatorInfo.html(`${w.toFixed(precision)} x ${h.toFixed(precision)}${units} - ${res.toFixed(resprecision)}${resunit}/px resolution<span class="heights"></span>`);
   }
   createInputOptions() {
     // input options
@@ -417,15 +421,21 @@ export default class App {
 
   }
   createSubmitButton() {
-    this.els.generate = $('<button class="button is-primary">Generate</button>');
+    this.els.generatorInfo = $('<div class="column content">');
+    this.els.generate = $('<button class="button is-primary">Generate Heightmap</button>');
+    this.els.generateAlbedo = $('<button class="button is-secondary">Generate Albedo From View</button>');
     this.els.inputContainer.append(
-      $('<div class="columns">').append(
+      $('<div class="columns">')
+      .append(
         $('<div class="column">').append(
           $('<div class="field">').append(
-            $('<div class="control">').append(this.els.generate)
+            $('<div class="control buttons">')
+            .append(this.els.generate)
+            .append(this.els.generateAlbedo)
           )
         )
       )
+      .append(this.els.generatorInfo)
     );
   }
   getInputState() {
@@ -505,6 +515,10 @@ export default class App {
       this.generate();
     }));
 
+    this.els.generateAlbedo.on('click touchend', debounce(100, () => {
+      this.generateAlbedo();
+    }));
+
     this.inputs.maptype.on('change input', debounce(30, () => {
       this.storeValue('maptype', this.inputs.maptype.val().toString());
       this.showHideCurrentLayer();
@@ -577,7 +591,9 @@ export default class App {
       status: 'pending',
       phys: {width: 0, height: 0},
       min: {x: 0, y: 0},
-      max: {x: 0, y: 0}
+      max: {x: 0, y: 0},
+      type: 'heightmap',
+      url: ''
     };
   }
   getCurrentState(scaleApprox : number = 1) : ConfigState {
@@ -662,11 +678,15 @@ export default class App {
     const d = R * c; // in metres
     return d;
   }
-  async fetchImage({x,y,z} : {x : number, y : number, z : number}, state : ConfigState) : Promise<TileLoadState> {
+  async fetchImage({x,y,z} : TileCoords, state : ConfigState) : Promise<TileLoadState> {
     return new Promise((resolve, reject) => {
-      App.getImageAt({z, y, x}).then(buffer => {
+      App.getImageAt({z, y, x}, state).then(buffer => {
         const png = PNG.fromBuffer(buffer);
-        resolve({...state, x, y, buffer, heights: png.terrariumToGrayscale()});
+        if (state.type === 'heightmap') {
+          resolve({...state, x, y, buffer, heights: png.terrariumToGrayscale()});
+        } else {
+          resolve({...state, x, y, buffer, heights: (png.getImageData() as Uint8Array)});
+        }
       }).catch(e => {
         for (let r of currentRequests) {
           r.abort();
@@ -702,12 +722,11 @@ export default class App {
       .then((output : NormaliseResult<Float32Array>) => {
         const fmt = this.meterFormatter;
         const txt = `, Height range: ${fmt.format(output.minBefore)} to ${fmt.format(output.maxBefore)}`;
-        this.els.generate.find('.heights').text(txt);
+        this.els.generatorInfo.find('.heights').text(txt);
       });
     }).catch(e => {
       console.error('Failed to load images', e);
     }).finally(() => {
-      this.els.generate.prop('disabled', false);
       currentRequests = [];
     });
   }
@@ -747,6 +766,138 @@ export default class App {
       currentRequests = [];
     });
   }
+  generateAlbedo() {
+    this.els.generateAlbedo.prop('disabled', true);
+    this.els.generateAlbedo.text('Generating');
+    const state = this.getCurrentState();
+    this.resetOutput();
+    const imageFetches = [];
+    const items : (ConfigState & TileCoords & {url: string})[] = [];
+
+    const oldZoom = parseInt(this.inputs.zoom.val().toString());
+    this.map.setZoom(parseInt(this.inputs.outputzoom.val().toString()));
+
+    // This little timeout seems to help the map to 'Catch up' for some reason
+    setTimeout(() => {
+      const layer = this.layers[this.inputs.maptype.val().toString()].layer;
+      for (let x = state.startx; x <= state.endx; x++) {
+        for (let y = state.starty; y <= state.endy; y++) {
+          const nx = roll(x, state.min.x, state.max.x);
+          const coords = {z: state.z, x: nx, y: y};
+          //@ts-ignore
+          items.push({...state, ...coords, url: layer.getTileUrl(coords)});
+        }
+      }
+      this.combineUrlsAndDownload(items)
+      .finally(() => {
+        this.inputs.zoom.val(oldZoom);
+        this.map.setZoom(oldZoom);
+        this.els.generateAlbedo.prop('disabled', false);
+        this.els.generateAlbedo.text('Generate Albedo from View');
+      });
+    }, 1000);
+  }
+  async combineImagesSimple(states : (ConfigState & TileCoords & {url: string})[]) : Promise<void|ImageData> {
+    const tileWidth = 256;
+    const increment = 1/tileWidth;
+
+    const extent = {
+      x1: states[0].exactPos.x - states[0].widthInTiles/2,
+      x2: states[0].exactPos.x + states[0].widthInTiles/2,
+      y1: states[0].exactPos.y - states[0].heightInTiles/2,
+      y2: states[0].exactPos.y + states[0].heightInTiles/2
+    }
+
+    const map : Record<number, Record<number, (ConfigState & TileCoords & {url: string})>> = {};
+    let total = 0;
+    for (let tile of states) {
+      if (!map[tile.x]) {
+        map[tile.x] = {};
+      }
+      map[tile.x][tile.y] = tile;
+      total++;
+    }
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext("2d");
+    canvas.width  = states[0].width;
+    canvas.height = states[0].height;
+
+    const promises = [];
+
+    let i = 0;
+    for (let y = extent.y1; y < extent.y2+1; y ++) {
+      for (let x = extent.x1; x < extent.x2+1; x ++) {
+        const tile = {
+          x: Math.floor(x),
+          y: Math.floor(y)
+        };
+        const px = {
+          x: Math.floor((x%1)*tileWidth),
+          y: Math.floor((y%1)*tileWidth)
+        };
+        const tileOb = map[tile.x][tile.y];
+        promises.push(new Promise<void>((resolve, reject) => {
+          let img = new Image();
+          img.crossOrigin = "Anonymous";
+          img.onload = () => {
+            this.els.generateAlbedo.text(`Downloaded ${i++}/${total}`);
+            const drawAt = {
+              x: Math.floor((tile.x - extent.x1) * tileWidth),
+              y: Math.floor((tile.y - extent.y1) * tileWidth)
+            };
+            ctx.drawImage(
+              img,
+              drawAt.x,
+              drawAt.y
+            );
+            resolve();
+          };
+          img.onerror = reject;
+          img.src = tileOb.url;
+        }));
+      }
+    }
+    return Promise.all(promises)
+    .then(r => {
+      this.els.generateAlbedo.text(`Getting Image Data`);
+      return ctx.getImageData(0, 0, canvas.width, canvas.height);
+    }).catch(e => {
+      console.error(e);
+    });
+  }
+  async combineUrlsAndDownload(items : (ConfigState  & TileCoords & {url: string})[]) {
+    //@ts-ignore
+    const output = await this.combineImagesSimple(items);
+    if (output) {
+      return this.saveOutputAlbedo(output, items);
+    }
+  }
+  async saveOutputAlbedo(output : ImageData, states : ConfigState[]) {
+    const s = states[0];
+    const formatArgs = {
+      lat: s.latitude.toFixed(3).toString().replace(".",'_'),
+      lng: s.longitude.toFixed(3).toString().replace(".",'_'),
+      zoom: s.zoom,
+      w: s.width,
+      h: s.height,
+      layer: this.layer,
+    };
+    const fn = format('{lat}_{lng}_{zoom}_{w}_{h}_albedo_{layer}.png', formatArgs);
+
+    //@ts-ignore
+    const result = UPNG.encode([output.data.buffer], states[0].width, states[0].height, null);
+
+    const blob = new Blob( [ result ] );
+    const url = URL.createObjectURL( blob );
+    const img : HTMLImageElement = new Image();
+    img.src = url;
+    // So the Blob can be Garbage Collected
+    img.onload = e => URL.revokeObjectURL( url );
+
+    this.els.outputImage.append(img);
+    return this.download(blob, fn);
+  }
   displayError(message : {text: string}) {
     this.els.outputError.text(message.text);
 
@@ -763,6 +914,9 @@ export default class App {
     errEl.slideDown();
     setTimeout(() => errEl.slideUp(), 15000);
     errEl.find('.delete').on('click touchend', () => errEl.slideUp());
+  }
+  async generateOutput(states : TileLoadState[]) {
+    return this.generateOutputUsingWorker(states);
   }
   async generateOutputUsingWorker(states : TileLoadState[]) {
     const norm : NormRange = {from : null, to : null}
@@ -790,9 +944,6 @@ export default class App {
     <p>In Unreal Engine, on import, a z scaling of <code>${zScale.toFixed(2)}</code> should be used for 1:1 height scaling using a normalised image.</p>
     <p>x and y scales should be set to <code>${xyScale.toFixed(2)}</code></p>`;
     this.els.outputText.html(txt);
-  }
-  async generateOutput(states : TileLoadState[]) {
-    return this.generateOutputUsingWorker(states);
   }
   async saveOutput(output : Float32Array, states : TileLoadState[]) {
     const s = states[0];
@@ -927,8 +1078,10 @@ export default class App {
       longitude: (x / Math.pow(2,z) * 360 - 180)
     };
   }
-
-  static async getImageAt({x, y, z} : TileCoords) : Promise<ArrayBuffer> {
+  static async getImageAt({x, y, z} : TileCoords, state : ConfigState) : Promise<ArrayBuffer> {
+    if (state.type === 'albedo') {
+      return App.getImageAsBuffer(format(state.url, {x,y,z}));
+    }
     return App.getImageAsBuffer(NextZen.getUrl({x,y,z}));
   }
   static async getImageAsBuffer(im : string) : Promise<ArrayBuffer> {
