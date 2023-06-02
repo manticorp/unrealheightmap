@@ -169,6 +169,7 @@ export default class App {
 
     this.map = L.map('map', {
       center: curLatLng,
+      scrollWheelZoom: 'center',
       zoom: parseInt(this.inputs.zoom.val().toString())
     });
 
