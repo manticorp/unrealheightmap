@@ -218,9 +218,19 @@ export default class App {
 
     this.map.on('moveend', doHeightsDebounced);
 
+    window.addEventListener('resize', debounce(50, () => {
+      this.resizeMap();
+    }))
+    this.resizeMap();
+
     this.updatePhysicalDimensions();
     this.showHideCurrentLayer();
     doHeightsDebounced();
+  }
+  resizeMap() {
+    const mapHeight = Math.min(768, Math.max(256, window.innerHeight));
+    $('#map').height(mapHeight);
+    this.map.invalidateSize();
   }
   updatePhysicalDimensions() {
     let state = this.getCurrentState();
