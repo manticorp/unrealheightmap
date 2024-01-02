@@ -28,6 +28,8 @@ import {
   TileLoadState,
   NormaliseMode,
   roll,
+  roundDigits,
+  localFormatNumber,
   clamp
 } from "./helpers";
 
@@ -257,7 +259,7 @@ export default class App {
     const resunit = 'm';
     const resprecision = res > 10 ? 1 : 2;
 
-    this.els.generatorInfo.html(`${w.toFixed(precision)} x ${h.toFixed(precision)}${units} - ${res.toFixed(resprecision)}${resunit}/px resolution<span class="heights"></span>`);
+    this.els.generatorInfo.html(`${localFormatNumber(w, precision)} x ${localFormatNumber(h, precision)}${units} - ${localFormatNumber(res, resprecision)}${resunit}/px resolution<span class="heights"></span>`);
   }
   createInputOptions() {
     // input options
@@ -1097,11 +1099,14 @@ export default class App {
     const zScale = unrealZscaleFactor * range * 100;
     const xyScale = ((state.phys.width * 100) / state.width);
     // Start by multiplying 4207 by 100 to convert the height into centimeters. This equals 420,700 cm.
-    // Next, multiply this new value by the ratio: 420,700 multiplied by 0.001953125 equals 821.6796875‬.
-    // This gives you a Z scale value of 821.6796875‬ and results in a heightmap that will go from -210,350 cm to 210,350 cm.
+    // Next, multiply this new value by the ratio: 420,700 multiplied by 0.001953125 equals 821.6796875.
+    // This gives you a Z scale value of 821.6796875 and results in a heightmap that will go from -210,350 cm to 210,350 cm.
     const txt = `<p>Height range: ${fmt.format(output.minBefore)} to ${fmt.format(output.maxBefore)}</p>
-    <p>In Unreal Engine, on import, a z scaling of <code>${zScale.toFixed(2)}</code> should be used for 1:1 height scaling using a normalised image.</p>
-    <p>x and y scales should be set to <code>${xyScale.toFixed(2)}</code></p>`;
+    <p>In Unreal Engine, on import, a z scaling of <code>${localFormatNumber(zScale, 2)}</code> should be used for 1:1 height scaling using a normalised image.</p>
+    <p>x and y scales should be set to <code>${localFormatNumber(xyScale, 2)}</code></p>
+    <p>For 3D printing, the height range is <code>${this.meterFormatter.format(range)}</code> and height/width ratio is <code>${localFormatNumber(range/state.phys.width, 6)}</code></p>
+    <p>i.e. if you printed this 100mm wide, it would have to be <code>${localFormatNumber(range/state.phys.width * 100, 3)}</code>mm tall to be physically accurate</p>
+    `;
     this.els.outputText.html(txt);
   }
   async saveOutput(output : Float32Array, states : TileLoadState[]) {

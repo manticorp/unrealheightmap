@@ -88,3 +88,20 @@ export async function promiseAllInBatches<T, B>(task : (item : T) => Promise<B>|
     }
     return results;
 }
+
+export function roundDigits(num : number, scale : number) : number {
+  if(!("" + num).includes("e")) {
+    return +(Math.round(parseFloat(num + "e+" + scale))  + "e-" + scale);
+  } else {
+    var arr = ("" + num).split("e");
+    var sig = ""
+    if(+arr[1] + scale > 0) {
+      sig = "+";
+    }
+    return +(Math.round(parseFloat(+arr[0] + "e" + sig + (+arr[1] + scale))) + "e-" + scale);
+  }
+}
+
+export function localFormatNumber(num : number, scale : number) : string {
+  return roundDigits(num, scale).toLocaleString();
+}
