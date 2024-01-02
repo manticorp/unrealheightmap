@@ -77,6 +77,7 @@ export default class App {
   boundingRect : L.Rectangle;
   layers: Record<string, {layer:L.TileLayer, label:string}> = {};
   layer: string  = 'topo';
+  listenHashChange: boolean = false;
   savedKeys : string[] = [
       'latitude',
       'longitude',
@@ -93,6 +94,7 @@ export default class App {
     this.insertSavedValues();
     this.createMap();
     this.hookControls();
+    this.listenHashChange = true;
   }
   createAppElements() {
     this.els.container = $(this.container);
@@ -490,7 +492,11 @@ export default class App {
     expires = expires || ((new Date()).getTime())+(1000*60*60*24*30);
     let storedItem : StoredItemValue = {key, data, expires};
     localStorage.setItem(key, JSON.stringify(storedItem));
+    this.listenHashChange = false;
     location.hash = this.objectToHash(this.getInputState());
+    setTimeout(() => {
+      this.listenHashChange = true;
+    }, 1);
   }
   saveLatLngZoomState() {
     this.storeValue('latitude', this.inputs.latitude.val().toString());
@@ -536,7 +542,7 @@ export default class App {
         lat: parseFloat(this.inputs.latitude.val().toString()),
         lng: parseFloat(this.inputs.longitude.val().toString())
       });
-      this.updatePhysicalDimensions();
+      this.insertValuesFromUrlHash();
       doHeightsDebounced();
     }));
 
@@ -599,6 +605,21 @@ export default class App {
         }
       }
     });
+
+    window.addEventListener('hashchange', debounce(50, (event : HashChangeEvent) => {
+      if (this.listenHashChange) {
+        this.insertValuesFromUrlHash();
+        this.listenHashChange = false;
+        this.setMapViewFromInputs();
+        this.listenHashChange = true;
+      }
+    }));
+  }
+  setMapViewFromInputs() {
+    this.map.setView({
+      lat: parseFloat(this.inputs.latitude.val().toString()),
+      lng: parseFloat(this.inputs.longitude.val().toString())
+    }, parseInt(this.inputs.zoom.val().toString()));
   }
   getLatLngFromText(text : string) : LatLng|null {
     const google = /([0-9]{1,3}.?[0-9]*)°? ?(S|N), ?([0-9]{1,3}.?[0-9]*)°? ?(E|W)/;
@@ -617,6 +638,7 @@ export default class App {
         longitude
       };
     }
+    // 32°53′S 64°13′W
     const generic = /([-0-9]{1,3}.?[0-9]*) *, *([-0-9]{1,3}.?[0-9]*)/;
     const genmatch = text.trim().match(generic);
     if (genmatch) {
@@ -627,7 +649,7 @@ export default class App {
         longitude
       };
     }
-    const degreesMinsSecs = /([0-9]{1,2})[*°] *([0-9]{1,2})[′'] *([0-9]{1,2})[″"] *(S|N) ?([0-9]{1,2})[*°] *([0-9]{1,2})[′'] *([0-9]{1,2})[″"] *(E|W)/;
+    const degreesMinsSecs = /([0-9]{1,2})[*°] *([0-9]{1,2})[′'] *([0-9.]{1,6})[″"] *(S|N) ?([0-9]{1,3})[*°] *([0-9]{1,2})[′'] *([0-9.]{1,6})[″"] *(E|W)/;
     const dmsmatch = text.trim().match(degreesMinsSecs);
     if (dmsmatch) {
       let latitude  = parseFloat(dmsmatch[1]) + parseFloat(dmsmatch[2])/60 + parseFloat(dmsmatch[3])/(60*60);
@@ -636,6 +658,22 @@ export default class App {
         latitude = -latitude;
       }
       if (dmsmatch[8].toUpperCase() === 'W') {
+        longitude = -longitude;
+      }
+      return {
+        latitude,
+        longitude
+      };
+    }
+    const degreesMins = /([0-9]{1,2})[*°] *([0-9]{1,2})[′'] *(S|N) ?([0-9]{1,3})[*°] *([0-9]{1,2})[′'] *(E|W)/;
+    const dmmatch = text.trim().match(degreesMins);
+    if (dmmatch) {
+      let latitude  = parseFloat(dmmatch[1]) + parseFloat(dmmatch[2])/60;
+      let longitude = parseFloat(dmmatch[4]) + parseFloat(dmmatch[5])/60;
+      if (dmmatch[3].toUpperCase() === 'S') {
+        latitude = -latitude;
+      }
+      if (dmmatch[6].toUpperCase() === 'W') {
         longitude = -longitude;
       }
       return {
@@ -796,7 +834,37 @@ export default class App {
     }
     return promiseAllInBatches((item) => this.fetchImage(item, state), items, 200, 0).then((result : TileLoadState[]) : Promise<void> => {
       //@ts-ignore
-      return processor.combineImages(result, NormaliseMode.SmartWindow)
+      const resultToSend : TileLoadState[] = [];
+      for (let s of result) {
+        resultToSend.push({
+          z: s.z,
+          x: s.x,
+          y: s.y,
+          heights: Comlink.transfer(s.heights, [s.heights.buffer]),
+          buffer: s.buffer,
+          width: s.width,
+          height: s.height,
+          exactPos: s.exactPos,
+          widthInTiles: s.widthInTiles,
+          heightInTiles: s.heightInTiles,
+          startx: s.startx,
+          starty: s.starty,
+          endx: s.endx,
+          endy: s.endy,
+          status: s.status,
+          bounds: s.bounds,
+          phys: s.phys,
+          min: s.min,
+          max: s.max,
+          type: s.type,
+          url: s.url,
+          latitude: s.latitude,
+          longitude: s.longitude,
+          zoom: s.zoom
+        });
+      }
+      //@ts-ignore
+      return processor.combineImages(resultToSend, NormaliseMode.SmartWindow)
       .then((output : NormaliseResult<Float32Array>) => {
         const fmt = this.meterFormatter;
         const txt = `, Height range: ${fmt.format(output.minBefore)} to ${fmt.format(output.maxBefore)}`;
@@ -858,8 +926,8 @@ export default class App {
     // This little timeout seems to help the map to 'Catch up' for some reason
     setTimeout(() => {
       const layer = this.layers[this.inputs.maptype.val().toString()].layer;
-      for (let x = state.startx; x <= state.endx; x++) {
-        for (let y = state.starty; y <= state.endy; y++) {
+      for (let x = (state.startx - 1); x <= (state.endx+1); x++) {
+        for (let y = (state.starty - 1); y <= (state.endy+1); y++) {
           const nx = roll(x, state.min.x, state.max.x);
           const coords = {z: state.z, x: nx, y: y};
           //@ts-ignore
@@ -914,6 +982,9 @@ export default class App {
           x: Math.floor((x%1)*tileWidth),
           y: Math.floor((y%1)*tileWidth)
         };
+        if (typeof map[tile.x] === 'undefined') {
+          console.error("Did not have map tile row", map[tile.x], tile.x, map);
+        }
         const tileOb = map[tile.x][tile.y];
         promises.push(new Promise<void>((resolve, reject) => {
           let img = new Image();
