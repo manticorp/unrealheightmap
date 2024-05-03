@@ -295,7 +295,7 @@ export default class App {
       placeholder: 'Output Zoom Level',
       type: 'number',
       min: '1',
-      max: '15',
+      max: '18',
       step: '1',
       value: '13'
     });
@@ -515,6 +515,19 @@ export default class App {
     this.storeValue('longitude', this.inputs.longitude.val().toString());
     this.storeValue('zoom', this.inputs.zoom.val().toString());
   }
+  doDisEnableControls() {
+    const outputZoomLevel = parseInt(this.inputs.outputzoom.val().toString());
+    console.log(outputZoomLevel, outputZoomLevel > 15);
+    if (outputZoomLevel > 15) {
+      this.els.generate.prop('disabled', true);
+      this.els.generate.prop('title', 'Cannot generate heightmap for output zoom > 15');
+      this.els.generate.text('Output Zoom too high (>15)');
+    } else {
+      this.els.generate.prop('disabled', false);
+      this.els.generate.prop('title', 'Generate heightmap');
+      this.els.generate.text('Generate Albedo');
+    }
+  }
   hookControls() {
     const doHeightsDebounced = debounce(50, () => {
       this.getApproxHeightsForState();
@@ -578,6 +591,7 @@ export default class App {
     this.inputs.outputzoom.on('change input', debounce(30, () => {
       this.storeValue('outputzoom', this.inputs.outputzoom.val().toString());
       this.updatePhysicalDimensions();
+      this.doDisEnableControls();
       doHeightsDebounced();
     }));
 
@@ -626,6 +640,8 @@ export default class App {
         this.listenHashChange = true;
       }
     }));
+
+    this.doDisEnableControls();
   }
   setMapViewFromInputs() {
     this.map.setView({
@@ -728,7 +744,7 @@ export default class App {
     const state = this.newState();
 
     const z = parseInt(this.inputs.outputzoom.val().toString());
-    const newZ = Math.floor(Math.min(15, Math.max(1, z + Math.log2(scaleApprox))));
+    const newZ = Math.floor(Math.min(18, Math.max(1, z + Math.log2(scaleApprox))));
     const scale = Math.pow(2, newZ-z);
 
     state.latitude  = parseFloat(this.inputs.latitude.val().toString());
