@@ -117,6 +117,11 @@ export default class App {
         layer.layer.removeFrom(this.map);
       }
     }
+    const mz = this.map.getMaxZoom();
+    this.inputs.zoom.prop('max', mz);
+    this.inputs.outputzoom.prop('max', mz);
+    this.inputs.zoom.val(Math.min(parseInt(this.inputs.zoom.val().toString()), mz));
+    this.inputs.outputzoom.val(Math.min(parseInt(this.inputs.outputzoom.val().toString()), mz));
   }
   createMapLayers() {
     this.layers.topo = {
@@ -844,6 +849,12 @@ export default class App {
     });
   }
   getApproxHeightsForState() {
+    const outputZoomLevel = parseInt(this.inputs.outputzoom.val().toString());
+    console.log(outputZoomLevel, outputZoomLevel > 15);
+    if (outputZoomLevel > 15) {
+       this.els.generatorInfo.find('.heights').text('');
+       return;
+    }
     let state = this.getCurrentState(1);
     if (state.width > 4000) {
       state = this.getCurrentState(1/8);
