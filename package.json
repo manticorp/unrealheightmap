@@ -42,8 +42,8 @@
     "@types/throttle-debounce": "^5.0.0",
     "comlink": "^4.4.1",
     "jquery": "^3.6.3",
-    "leaflet": "^1.9.3",
-    "leaflet-providers": "^1.13.0",
+    "leaflet": "^1.9.4",
+    "leaflet-providers": "^2.0.0",
     "pako": "^2.1.0",
     "throttle-debounce": "^5.0.0",
     "upng-js": "^2.1.0"

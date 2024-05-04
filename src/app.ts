@@ -152,13 +152,45 @@ export default class App {
       layer: L.tileLayer.provider('OpenTopoMap'),
       label: 'Open Topo Map'
     };
+    this.layers.opnvkarte = {
+      layer: L.tileLayer.provider('OPNVKarte'),
+      label: 'OPNVKarte'
+    };
     this.layers.usgsusimagery = {
       layer: L.tileLayer.provider('USGS.USImagery'),
       label: 'USGS US Imagery'
     };
     this.layers.watercolor = {
-      layer: L.tileLayer.provider('Stamen.Watercolor'),
-      label: 'Watercolor (does not work for albedo export)'
+      layer: L.tileLayer.provider('Stadia.StamenWatercolor'),
+      label: 'Watercolor'
+    };
+    this.layers.stadiastamentoner = {
+      layer: L.tileLayer.provider('Stadia.StamenToner'),
+      label: 'Toner Saver (with names) (does not work for albedo export)'
+    };
+    this.layers.stadiastamentoner = {
+      layer: L.tileLayer.provider('Stadia.StamenTonerLite'),
+      label: 'Toner Saver Lite (with names) (does not work for albedo export)'
+    };
+    this.layers.stadiastamentonerbg = {
+      layer: L.tileLayer.provider('Stadia.StamenTonerBackground'),
+      label: 'Toner Saver (without names) (does not work for albedo export)'
+    };
+    this.layers.stadiaalidadesatellite = {
+      layer: L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_satellite/{z}/{x}/{y}{r}.jpg', {
+         minZoom: 0,
+         maxZoom: 20,
+         attribution: '&copy; CNES, Distribution Airbus DS, © Airbus DS, © PlanetObserver (Contains Copernicus Data) | &copy; <a href="https://www.stadiamaps.com/" target="_blank">Stadia Maps</a> &copy; <a href="https://openmaptiles.org/" target="_blank">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      }),
+      label: 'Stadia Satellite (does not work for albedo export)'
+    };
+    this.layers.stadiasmooth = {
+      layer: L.tileLayer.provider('Stadia.AlidadeSmooth'),
+      label: 'Stadia Smooth (does not work for albedo export)'
+    };
+    this.layers.stadiasmoothdark = {
+      layer: L.tileLayer.provider('Stadia.AlidadeSmoothDark'),
+      label: 'Stadia Smooth Dark (does not work for albedo export)'
     };
     this.layers.nextzen = {
       layer: L.tileLayer(
