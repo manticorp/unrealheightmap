@@ -166,15 +166,15 @@ export default class App {
     };
     this.layers.stadiastamentoner = {
       layer: L.tileLayer.provider('Stadia.StamenToner'),
-      label: 'Toner Saver (with names) (does not work for albedo export)'
+      label: 'Toner Saver (with names)'
     };
-    this.layers.stadiastamentoner = {
+    this.layers.stadiastamentonerlite = {
       layer: L.tileLayer.provider('Stadia.StamenTonerLite'),
-      label: 'Toner Saver Lite (with names) (does not work for albedo export)'
+      label: 'Toner Saver Lite (with names)'
     };
     this.layers.stadiastamentonerbg = {
       layer: L.tileLayer.provider('Stadia.StamenTonerBackground'),
-      label: 'Toner Saver (without names) (does not work for albedo export)'
+      label: 'Toner Saver (without names)'
     };
     this.layers.stadiaalidadesatellite = {
       layer: L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_satellite/{z}/{x}/{y}{r}.jpg', {
@@ -182,15 +182,15 @@ export default class App {
          maxZoom: 20,
          attribution: '&copy; CNES, Distribution Airbus DS, © Airbus DS, © PlanetObserver (Contains Copernicus Data) | &copy; <a href="https://www.stadiamaps.com/" target="_blank">Stadia Maps</a> &copy; <a href="https://openmaptiles.org/" target="_blank">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       }),
-      label: 'Stadia Satellite (does not work for albedo export)'
+      label: 'Stadia Satellite'
     };
     this.layers.stadiasmooth = {
       layer: L.tileLayer.provider('Stadia.AlidadeSmooth'),
-      label: 'Stadia Smooth (does not work for albedo export)'
+      label: 'Stadia Smooth'
     };
     this.layers.stadiasmoothdark = {
       layer: L.tileLayer.provider('Stadia.AlidadeSmoothDark'),
-      label: 'Stadia Smooth Dark (does not work for albedo export)'
+      label: 'Stadia Smooth Dark'
     };
     this.layers.nextzen = {
       layer: L.tileLayer(
@@ -200,7 +200,7 @@ export default class App {
           maxZoom: 15
         }
       ),
-      label: 'Terrarium (used for the export)'
+      label: 'Terrarium (used for the heightmap export)'
     };
   }
   createMap() {
@@ -1002,9 +1002,11 @@ export default class App {
           const nx = roll(x, state.min.x, state.max.x);
           const coords = {z: state.z, x: nx, y: y};
           //@ts-ignore
-          items.push({...state, ...coords, url: layer.getTileUrl(coords)});
+          const url = layer.getTileUrl(coords).replace('@2x', '');
+          items.push({...state, ...coords, url: url});
         }
       }
+      console.log(items);
       this.combineUrlsAndDownload(items)
       .finally(() => {
         this.inputs.zoom.val(oldZoom);
