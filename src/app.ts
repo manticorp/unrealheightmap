@@ -562,7 +562,7 @@ export default class App {
     } else {
       this.els.generate.prop('disabled', false);
       this.els.generate.prop('title', 'Generate heightmap');
-      this.els.generate.text('Generate Albedo');
+      this.els.generate.text('Generate Heightmap');
     }
   }
   hookControls() {
