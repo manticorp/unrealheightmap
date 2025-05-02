@@ -76,10 +76,12 @@ export default class App {
   meterFormatter : Intl.NumberFormat;
   map : L.Map;
   mapMarker : L.Marker;
+  arrows : L.Marker[] = [];
   boundingRect : L.Rectangle;
   layers: Record<string, {layer:L.TileLayer, label:string}> = {};
   layer: string  = 'topo';
   listenHashChange: boolean = false;
+  doHeightsDebounced: () => void;
   savedKeys : string[] = [
       'latitude',
       'longitude',
@@ -208,6 +210,10 @@ export default class App {
 
     const curLatLng : L.LatLngExpression = [parseFloat(this.inputs.latitude.val().toString()), parseFloat(this.inputs.longitude.val().toString())];
 
+    this.doHeightsDebounced = debounce(50, () => {
+      this.getApproxHeightsForState();
+    });
+
     this.map = L.map('map', {
       center: curLatLng,
       scrollWheelZoom: 'center',
@@ -217,27 +223,62 @@ export default class App {
     this.layers.topo.layer.addTo(this.map);
 
     const icon = L.icon({
-      iconUrl: 'public/im/marker.png',
-      iconSize: [25, 41],
-      iconAnchor: [12, 41],
+      iconUrl: 'public/im/icon-marker.png',
+      iconSize: [32, 32],
+      iconAnchor: [16, 32],
     });
+
+    const arrowIcons = {
+      up: L.icon({
+        iconUrl: 'public/im/icon-up.png',
+        iconSize: [32, 32],
+        iconAnchor: [16, 0],
+      }),
+      down: L.icon({
+        iconUrl: 'public/im/icon-down.png',
+        iconSize: [32, 32],
+        iconAnchor: [16, 32],
+      }),
+      right: L.icon({
+        iconUrl: 'public/im/icon-right.png',
+        iconSize: [32, 32],
+        iconAnchor: [32, 16],
+      }),
+      left: L.icon({
+        iconUrl: 'public/im/icon-left.png',
+        iconSize: [32, 32],
+        iconAnchor: [0, 16],
+      }),
+    };
 
     this.mapMarker = L.marker(curLatLng, {icon});
     this.mapMarker.addTo(this.map);
 
-    const doHeightsDebounced = debounce(50, () => {
-      this.getApproxHeightsForState();
-    });
+    this.arrows[0] = L.marker(curLatLng, {icon: arrowIcons.up});
+    this.arrows[1] = L.marker(curLatLng, {icon: arrowIcons.left});
+    this.arrows[2] = L.marker(curLatLng, {icon: arrowIcons.down});
+    this.arrows[3] = L.marker(curLatLng, {icon: arrowIcons.right});
+    this.arrows.map(arrow => arrow.addTo(this.map));
+    this.arrows.map((arrow, i) => arrow.on('click', () => {
+      console.log(`Arrow ${i} clicked`);
+      switch(i) {
+        case 0:
+          this.arrowClick(1, 0);
+          break;
+        case 1:
+          this.arrowClick(0, -1);
+          break;
+        case 2:
+          this.arrowClick(-1, 0);
+          break;
+        case 3:
+          this.arrowClick(0, 1);
+          break;
+      }
+    }));
 
     this.map.on('click', debounce(100, (e) => {
-      this.map.setView(e.latlng);
-      this.inputs.latitude.val(e.latlng.lat);
-      this.inputs.longitude.val(e.latlng.lng);
-      this.inputs.zoom.val(this.map.getZoom());
-      this.mapMarker.setLatLng(e.latlng);
-      this.saveLatLngZoomState();
-      this.updatePhysicalDimensions();
-      doHeightsDebounced();
+      this.setPositionTo(e.latlng);
     }));
 
     this.map.on('move', throttle(1000/60, (e) => {
@@ -252,10 +293,10 @@ export default class App {
       this.mapMarker.setLatLng(center);
       this.saveLatLngZoomState();
       this.updatePhysicalDimensions();
-      doHeightsDebounced();
+      this.doHeightsDebounced();
     }));
 
-    this.map.on('moveend', doHeightsDebounced);
+    this.map.on('moveend', this.doHeightsDebounced);
 
     window.addEventListener('resize', debounce(50, () => {
       this.resizeMap();
@@ -264,7 +305,30 @@ export default class App {
 
     this.updatePhysicalDimensions();
     this.showHideCurrentLayer();
-    doHeightsDebounced();
+    this.doHeightsDebounced();
+  }
+  setPositionTo(latlng: L.LatLngLiteral) {
+    this.map.setView(latlng);
+    this.inputs.latitude.val(latlng.lat);
+    this.inputs.longitude.val(latlng.lng);
+    this.inputs.zoom.val(this.map.getZoom());
+    this.mapMarker.setLatLng(latlng);
+    this.saveLatLngZoomState();
+    this.updatePhysicalDimensions();
+    this.doHeightsDebounced();
+  }
+  arrowClick(up: 1|-1|0, right: 1|-1|0) {
+    const state = this.getCurrentState();
+    const distance: [number, number] = [
+      Math.abs(state.bounds[0].latitude - state.bounds[1].latitude),
+      Math.abs(state.bounds[0].longitude - state.bounds[1].longitude),
+    ];
+    const newLatLng : L.LatLngLiteral = {
+      lat: state.latitude + (up * distance[0]),
+      lng: state.longitude + (right * distance[1])
+    }
+    console.log({state, newLatLng, distance});
+    this.setPositionTo(newLatLng);
   }
   resizeMap() {
     const mapHeight = Math.min(768, Math.max(256, window.innerHeight));
@@ -272,7 +336,7 @@ export default class App {
     this.map.invalidateSize();
   }
   updatePhysicalDimensions() {
-    let state = this.getCurrentState();
+    const state = this.getCurrentState();
     const bounds : L.LatLngBoundsExpression = [
       [
         state.bounds[0].latitude,
@@ -286,6 +350,11 @@ export default class App {
       this.boundingRect = L.rectangle(bounds, {color: "#ff7800", weight: 1}).addTo(this.map);
     }
     this.boundingRect.setBounds(bounds);
+    console.log(bounds, this.latLngBetween(bounds[0], [bounds[0][0], bounds[1][1]]));
+    this.arrows[0].setLatLng(this.latLngBetween(bounds[0], [bounds[0][0], bounds[1][1]]));
+    this.arrows[1].setLatLng(this.latLngBetween(bounds[0], [bounds[1][0], bounds[0][1]]));
+    this.arrows[2].setLatLng(this.latLngBetween([bounds[1][0], bounds[0][1]], bounds[1]));
+    this.arrows[3].setLatLng(this.latLngBetween([bounds[0][0], bounds[1][1]], bounds[1]));
 
     const units = state.phys.width > 1000 ? 'km' : 'm';
     const precision = state.phys.width > 100000 ? 0 : 1;
@@ -297,6 +366,12 @@ export default class App {
     const resprecision = res > 10 ? 1 : 2;
 
     this.els.generatorInfo.html(`${localFormatNumber(w, precision)} x ${localFormatNumber(h, precision)}${units} - ${localFormatNumber(res, resprecision)}${resunit}/px resolution<span class="heights"></span>`);
+  }
+  latLngBetween(a: L.LatLngTuple, b:  L.LatLngTuple):  L.LatLngTuple {
+    if (a.length === 3 && b.length === 3) {
+      return [(a[0]+b[0])/2, a[1] + (a[1]+b[1])/2, (a[2] + b[2])/2];
+    }
+    return [(a[0]+b[0])/2, (a[1]+b[1])/2];
   }
   createInputOptions() {
     // input options
