@@ -260,7 +260,6 @@ export default class App {
     this.arrows[3] = L.marker(curLatLng, {icon: arrowIcons.right});
     this.arrows.map(arrow => arrow.addTo(this.map));
     this.arrows.map((arrow, i) => arrow.on('click', () => {
-      console.log(`Arrow ${i} clicked`);
       switch(i) {
         case 0:
           this.arrowClick(1, 0);
@@ -327,7 +326,6 @@ export default class App {
       lat: state.latitude + (up * distance[0]),
       lng: state.longitude + (right * distance[1])
     }
-    console.log({state, newLatLng, distance});
     this.setPositionTo(newLatLng);
   }
   resizeMap() {
@@ -350,7 +348,6 @@ export default class App {
       this.boundingRect = L.rectangle(bounds, {color: "#ff7800", weight: 1}).addTo(this.map);
     }
     this.boundingRect.setBounds(bounds);
-    console.log(bounds, this.latLngBetween(bounds[0], [bounds[0][0], bounds[1][1]]));
     this.arrows[0].setLatLng(this.latLngBetween(bounds[0], [bounds[0][0], bounds[1][1]]));
     this.arrows[1].setLatLng(this.latLngBetween(bounds[0], [bounds[1][0], bounds[0][1]]));
     this.arrows[2].setLatLng(this.latLngBetween([bounds[1][0], bounds[0][1]], bounds[1]));
@@ -629,7 +626,6 @@ export default class App {
   }
   doDisEnableControls() {
     const outputZoomLevel = parseInt(this.inputs.outputzoom.val().toString());
-    console.log(outputZoomLevel, outputZoomLevel > 15);
     if (outputZoomLevel > 15) {
       this.els.generate.prop('disabled', true);
       this.els.generate.prop('title', 'Cannot generate heightmap for output zoom > 15');
@@ -722,7 +718,6 @@ export default class App {
     window.addEventListener('paste', (event : ClipboardEvent) => {
       // @ts-ignore
       let paste = (event.clipboardData || window.clipboardData).getData("text");
-      console.log(event, paste);
       if (paste) {
         if (this.isPasteableText(paste)) {
           const latLng = this.getLatLngFromText(paste);
@@ -957,7 +952,6 @@ export default class App {
   }
   getApproxHeightsForState() {
     const outputZoomLevel = parseInt(this.inputs.outputzoom.val().toString());
-    console.log(outputZoomLevel, outputZoomLevel > 15);
     if (outputZoomLevel > 15) {
        this.els.generatorInfo.find('.heights').text('');
        return;
@@ -1025,7 +1019,6 @@ export default class App {
   generate() {
     this.els.generate.prop('disabled', true);
     const state = this.getCurrentState();
-    console.log('generate', state);
     this.resetOutput();
     const imageFetches = [];
     const items : TileCoords[] = [];
@@ -1081,7 +1074,6 @@ export default class App {
           items.push({...state, ...coords, url: url});
         }
       }
-      console.log(items);
       this.combineUrlsAndDownload(items)
       .finally(() => {
         this.inputs.zoom.val(oldZoom);
