@@ -362,6 +362,12 @@ export default class App {
     const resunit = 'm';
     const resprecision = res > 10 ? 1 : 2;
 
+    this.els.boundsContent.html(JSON.stringify({
+      topLeft: [bounds[0][0], bounds[0][1]],
+      topRight: [bounds[1][0], bounds[0][1]],
+      bottomLeft: [bounds[1][0], bounds[1][1]],
+      bottomRight: [bounds[0][0], bounds[1][1]]
+    }, null, 2));
     this.els.generatorInfo.html(`${localFormatNumber(w, precision)} x ${localFormatNumber(h, precision)}${units} - ${localFormatNumber(res, resprecision)}${resunit}/px resolution<span class="heights"></span>`);
   }
   latLngBetween(a: L.LatLngTuple, b:  L.LatLngTuple):  L.LatLngTuple {
@@ -549,7 +555,12 @@ export default class App {
 
   }
   createSubmitButton() {
-    this.els.generatorInfo = $('<div class="column content">');
+    this.els.generatedColumn = $('<div class="column content">');
+    this.els.generatorInfo = $('<div class="generatorInfo">');
+    this.els.boundsInfo = $('<details class="boundsInfo"><summary>Bounds (click to expand):</summary></details>');
+    this.els.boundsContent = $('<pre class="boundsContent">');
+    this.els.generatedColumn.append(this.els.generatorInfo);
+    this.els.generatedColumn.append(this.els.boundsInfo.append(this.els.boundsContent));
     this.els.generate = $('<button class="button is-primary">Generate Heightmap</button>');
     this.els.generateAlbedo = $('<button class="button is-secondary">Generate Albedo From View</button>');
     this.els.inputContainer.append(
@@ -563,7 +574,7 @@ export default class App {
           )
         )
       )
-      .append(this.els.generatorInfo)
+      .append(this.els.generatedColumn)
     );
   }
   getInputState() {
