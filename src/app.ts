@@ -364,9 +364,9 @@ export default class App {
 
     this.els.boundsContent.html(JSON.stringify({
       topLeft: [bounds[0][0], bounds[0][1]],
-      topRight: [bounds[1][0], bounds[0][1]],
-      bottomLeft: [bounds[1][0], bounds[1][1]],
-      bottomRight: [bounds[0][0], bounds[1][1]]
+      bottomLeft: [bounds[1][0], bounds[0][1]],
+      bottomRight: [bounds[1][0], bounds[1][1]],
+      topRight: [bounds[0][0], bounds[1][1]]
     }, null, 2));
     this.els.generatorInfo.html(`${localFormatNumber(w, precision)} x ${localFormatNumber(h, precision)}${units} - ${localFormatNumber(res, resprecision)}${resunit}/px resolution<span class="heights"></span>`);
   }
