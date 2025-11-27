@@ -1,7 +1,9 @@
 import PNG from "./png";
 import NextZen from "./nextzen";
 import UPNG from "./UPNG";
-import * as $ from "jquery";
+import { encodeExr, ExrPixelType } from "./exr";
+import { mapHeightSamplesToExr } from "./exr-conversion";
+import $ from "jquery";
 import { throttle, debounce } from 'throttle-debounce';
 import * as  L from "leaflet";
 import "leaflet-providers";
@@ -88,7 +90,8 @@ export default class App {
       'zoom',
       'outputzoom',
       'width',
-      'height'
+      'height',
+      'outputformat'
   ];
   constructor({container} : AppArgs) {
     this.container = container;
@@ -553,6 +556,21 @@ export default class App {
     this.inputs.normFrom = this.els.normFrom.find('input');
     this.inputs.normTo = this.els.normTo.find('input');
 
+    this.inputs.outputformat = $('<select name="outputformat">') as JQuery<HTMLSelectElement>;
+    this.inputs.outputformat.append('<option value="png16" selected>PNG - 16 Bit</option>');
+    this.inputs.outputformat.append('<option value="exr16">OpenEXR - 16 Bit</option>');
+    this.inputs.outputformat.append('<option value="exr32">OpenEXR - 32 Bit</option>');
+
+    this.els.columnsOutput.append(
+      $('<div class="column field">').append(
+        App.createLabel('Output Format', {for:'outputformat'})
+      ).append(
+        $('<div class="control">').append(
+          $('<div class="select is-fullwidth">').append(this.inputs.outputformat)
+        )
+      )
+    );
+
   }
   createSubmitButton() {
     this.els.generatedColumn = $('<div class="column content">');
@@ -724,6 +742,10 @@ export default class App {
       this.storeValue('height', this.inputs.height.val().toString());
       this.updatePhysicalDimensions();
       doHeightsDebounced();
+    }));
+
+    this.inputs.outputformat.on('change input', debounce(30, () => {
+      this.storeValue('outputformat', this.inputs.outputformat.val().toString());
     }));
 
     window.addEventListener('paste', (event : ClipboardEvent) => {
@@ -1249,16 +1271,26 @@ export default class App {
     this.els.outputText.html(txt);
   }
   async saveOutput(output : Float32Array, states : TileLoadState[]) {
-    const s = states[0];
-    const formatArgs = {
-      lat: s.latitude.toFixed(3).toString().replace(".",'_'),
-      lng: s.longitude.toFixed(3).toString().replace(".",'_'),
-      zoom: s.zoom,
-      w: s.width,
-      h: s.height,
-    };
-    const fn = format('{lat}_{lng}_{zoom}_{w}_{h}.png', formatArgs);
+    const formatSelection = this.inputs.outputformat?.val()?.toString() ?? 'png16';
+    if (formatSelection === 'exr16' || formatSelection === 'exr32') {
+      const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
+      return this.saveOutputExr(output, states, pixelType);
+    }
+    return this.saveOutputPng(output, states);
+  }
 
+  getFilenameArgs(state: TileLoadState) {
+    return {
+      lat: state.latitude.toFixed(3).toString().replace(".",'_'),
+      lng: state.longitude.toFixed(3).toString().replace(".",'_'),
+      zoom: state.zoom,
+      w: state.width,
+      h: state.height,
+    };
+  }
+
+  async saveOutputPng(output : Float32Array, states : TileLoadState[]) {
+    const fn = format('{lat}_{lng}_{zoom}_{w}_{h}.png', this.getFilenameArgs(states[0]));
     return App.encodeToPng([PNG.Float32ArrayToPng16Bit(output)], states[0].width, states[0].height, 1, 0, 16).then(a => {
       const blob = new Blob( [ a ] );
       const url = URL.createObjectURL( blob );
@@ -1270,6 +1302,23 @@ export default class App {
       this.els.outputImage.append(img);
       this.download(blob, fn);
     });
+  }
+
+  async saveOutputExr(output : Float32Array, states : TileLoadState[], pixelType: ExrPixelType) {
+    const state = states[0];
+    const fn = format('{lat}_{lng}_{zoom}_{w}_{h}.exr', this.getFilenameArgs(state));
+    const exrData = mapHeightSamplesToExr(output);
+    const exrBuffer = encodeExr({
+      width: state.width,
+      height: state.height,
+      data: exrData,
+      pixelType
+    });
+    const blob = new Blob([exrBuffer], {type: 'application/octet-stream'});
+    const bitLabel = pixelType === ExrPixelType.Half ? '16-bit float' : '32-bit float';
+    this.els.outputImage.append($('<p>').text(`Saved ${fn} (${bitLabel} OpenEXR).`));
+    this.download(blob, fn);
+    return Promise.resolve();
   }
 
   download(contents : Blob, fn : string) {
