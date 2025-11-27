@@ -1290,7 +1290,8 @@ export default class App {
   }
 
   async saveOutputPng(output : Float32Array, states : TileLoadState[]) {
-    const fn = format('{lat}_{lng}_{zoom}_{w}_{h}.png', this.getFilenameArgs(states[0]));
+    const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(states[0]));
+    const fn = `${base}_16bit.png`;
     return App.encodeToPng([PNG.Float32ArrayToPng16Bit(output)], states[0].width, states[0].height, 1, 0, 16).then(a => {
       const blob = new Blob( [ a ] );
       const url = URL.createObjectURL( blob );
@@ -1306,7 +1307,9 @@ export default class App {
 
   async saveOutputExr(output : Float32Array, states : TileLoadState[], pixelType: ExrPixelType) {
     const state = states[0];
-    const fn = format('{lat}_{lng}_{zoom}_{w}_{h}.exr', this.getFilenameArgs(state));
+    const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
+    const bitSuffix = pixelType === ExrPixelType.Half ? '16bit' : '32bit';
+    const fn = `${base}_${bitSuffix}.exr`;
     const exrData = mapHeightSamplesToExr(output);
     const exrBuffer = encodeExr({
       width: state.width,
