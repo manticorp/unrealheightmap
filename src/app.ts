@@ -75,6 +75,18 @@ export default class App {
     '253 x 253',
     '127 x 127',
   ];
+  powerOfTwoSizes : string[] = [
+    '32 x 32',
+    '64 x 64',
+    '128 x 128',
+    '256 x 256',
+    '512 x 512',
+    '1024 x 1024',
+    '2048 x 2048',
+    '4096 x 4096',
+    '8192 x 8192',
+    '16384 x 16384',
+  ];
   meterFormatter : Intl.NumberFormat;
   map : L.Map;
   mapMarker : L.Marker;
@@ -500,8 +512,16 @@ export default class App {
     this.inputs.defaultSize = $('<select>') as JQuery<HTMLSelectElement>;
 
     this.inputs.defaultSize.append(`<option></option>`);
-    for (let size of this.defaultSizes) {
-      this.inputs.defaultSize.append(`<option value="${size}">${size}</option>`);
+    const sizeGroups = [
+      { label: 'Unreal Engine', values: this.defaultSizes },
+      { label: 'Power of Two', values: this.powerOfTwoSizes },
+    ];
+    for (const group of sizeGroups) {
+      const optGroup = $('<optgroup>').attr('label', group.label);
+      for (const size of group.values) {
+        optGroup.append(`<option value="${size}">${size}</option>`);
+      }
+      this.inputs.defaultSize.append(optGroup);
     }
 
     this.els.columnsDefaultSizes = $('<div class="columns">');
@@ -509,7 +529,7 @@ export default class App {
 
     this.els.defaultSizeControl  = $('<div class="control">').append($('<div class="select is-fullwidth">').append(this.inputs.defaultSize));
 
-    this.els.columnSize.append(App.createLabel('Default UE5 Sizes', {for:'width'}));
+    this.els.columnSize.append(App.createLabel('Default Sizes', {for:'width'}));
     this.els.columnSize.append(this.els.defaultSizeControl);
 
     this.els.columnsOutput.append(this.els.columnSize);
