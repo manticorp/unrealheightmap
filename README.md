@@ -85,6 +85,9 @@ npm run author
 
 # Watch mode (auto-rebuild on changes)
 npm run watch
+
+# Run unit tests
+npm test
 ```
 
 ### Project Structure
