@@ -360,7 +360,7 @@ export default class App {
       ]
     ];
     if (!this.boundingRect) {
-      this.boundingRect = L.rectangle(bounds, {color: "#ff7800", weight: 1}).addTo(this.map);
+      this.boundingRect = L.rectangle(bounds, {color: "#ff7800", weight: 1, fillOpacity: 0.1}).addTo(this.map);
     }
     this.boundingRect.setBounds(bounds);
     this.arrows[0].setLatLng(this.latLngBetween(bounds[0], [bounds[0][0], bounds[1][1]]));
