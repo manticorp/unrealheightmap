@@ -90,6 +90,7 @@ export default class App {
   meterFormatter : Intl.NumberFormat;
   map : L.Map;
   mapMarker : L.Marker;
+  zoom: {in: L.Marker, out: L.Marker} = {in: null, out: null};
   arrows : L.Marker[] = [];
   boundingRect : L.Rectangle;
   layers: Record<string, {layer:L.TileLayer, label:string}> = {};
@@ -222,6 +223,7 @@ export default class App {
   }
   createMap() {
     $('#map').height(512);
+    this.els.map = $('#map');
 
     const curLatLng : L.LatLngExpression = [parseFloat(this.inputs.latitude.val().toString()), parseFloat(this.inputs.longitude.val().toString())];
 
@@ -234,6 +236,8 @@ export default class App {
       scrollWheelZoom: 'center',
       zoom: parseInt(this.inputs.zoom.val().toString())
     });
+
+    this.createOutputZoomControls(curLatLng);
 
     this.layers.topo.layer.addTo(this.map);
 
@@ -347,6 +351,7 @@ export default class App {
     const mapHeight = Math.min(768, Math.max(256, window.innerHeight));
     $('#map').height(mapHeight);
     this.map.invalidateSize();
+    this.positionOutputZoomControls();
   }
   updatePhysicalDimensions() {
     const state = this.getCurrentState();
@@ -367,6 +372,7 @@ export default class App {
     this.arrows[1].setLatLng(this.latLngBetween(bounds[0], [bounds[1][0], bounds[0][1]]));
     this.arrows[2].setLatLng(this.latLngBetween([bounds[1][0], bounds[0][1]], bounds[1]));
     this.arrows[3].setLatLng(this.latLngBetween([bounds[0][0], bounds[1][1]], bounds[1]));
+    this.positionOutputZoomControls(bounds);
 
     const units = state.phys.width > 1000 ? 'km' : 'm';
     const precision = state.phys.width > 100000 ? 0 : 1;
@@ -384,6 +390,66 @@ export default class App {
       topRight: [bounds[0][0], bounds[1][1]]
     }, null, 2));
     this.els.generatorInfo.html(`${localFormatNumber(w, precision)} x ${localFormatNumber(h, precision)}${units} - ${localFormatNumber(res, resprecision)}${resunit}/px resolution<span class="heights"></span>`);
+  }
+  createOutputZoomControls(curLatLng: L.LatLngExpression) {
+    if (!this.map) {
+      return;
+    }
+    this.zoom.in = new L.Marker(curLatLng, {icon: L.icon({
+      iconUrl: 'public/im/icon-zoom-in.png',
+      iconSize: [32, 32],
+      iconAnchor: [32, 0],
+    })});
+    this.zoom.out = new L.Marker(curLatLng, {icon: L.icon({
+      iconUrl: 'public/im/icon-zoom-out.png',
+      iconSize: [32, 32],
+      iconAnchor: [0, 0],
+    })});
+
+    this.zoom.in.on('click', () => {
+      this.adjustOutputZoom(1);
+    });
+
+    this.zoom.out.on('click', () => {
+      this.adjustOutputZoom(-1);
+    });
+
+    this.zoom.in.addTo(this.map);
+    this.zoom.out.addTo(this.map);
+    this.positionOutputZoomControls();
+  }
+  adjustOutputZoom(delta: number) {
+    if (!this.inputs.outputzoom) {
+      return;
+    }
+    const current = parseInt(this.inputs.outputzoom.val().toString()) || 0;
+    const min = parseInt(this.inputs.outputzoom.attr('min') || '1', 10);
+    const max = parseInt(this.inputs.outputzoom.attr('max') || '18', 10);
+    const nextValue = clamp(current + delta, min, max);
+    if (nextValue === current) {
+      return;
+    }
+    this.inputs.outputzoom.val(nextValue);
+    this.storeValue('outputzoom', nextValue.toString());
+    this.updatePhysicalDimensions();
+    this.doDisEnableControls();
+    if (this.doHeightsDebounced) {
+      this.doHeightsDebounced();
+    }
+  }
+  positionOutputZoomControls(boundsInput?: L.LatLngBoundsExpression | L.LatLngBounds) {
+    if (!this.zoom.in || !this.zoom.out || !this.map) {
+      return;
+    }
+    const resolvedBounds = boundsInput
+      ? (boundsInput instanceof L.LatLngBounds ? boundsInput : L.latLngBounds(boundsInput))
+      : (this.boundingRect ? this.boundingRect.getBounds() : null);
+    if (resolvedBounds) {
+      const northEast = resolvedBounds.getNorthEast();
+      const northWest = resolvedBounds.getNorthWest();
+      this.zoom.in.setLatLng(northEast);
+      this.zoom.out.setLatLng(northWest);
+    }
   }
   latLngBetween(a: L.LatLngTuple, b:  L.LatLngTuple):  L.LatLngTuple {
     if (a.length === 3 && b.length === 3) {
