@@ -42,7 +42,7 @@
           <tr><th>Map Preview Type</th><td>The tiles to use in the preview at the top of the page</td></tr>
           <tr><th>Output Width (px)</th><td>The output width of the entire image in pixels</td></tr>
           <tr><th>Output Height (px)</th><td>The output height of the entire image in pixels</td></tr>
-          <tr><th>Default UE5 Sizes</th><td>A preset list of useful sizes for generating Unreal Engine 5 terrain</td></tr>
+          <tr><th>Default Sizes</th><td>A preset list of useful sizes</td></tr>
           <tr><th>Normalisation Mode</th><td>The normalisation mode to use. See below for more information</td></tr>
           <tr><th>Norm From</th><td>Overrides the normlisation "from" parameter. Can be useful when low height data is funky, e.g. at the coast (just use 0)</td></tr>
           <tr><th>Norm To</th><td>Overrides the normlisation "to" parameter</td></tr>
@@ -73,6 +73,9 @@
         <p>16 bits gives 2<sup>16</sup> levels of detail between the lowest and highest point. That's 65536 levels - enough to detail from sea level to the top of mount everest (8849m) in roughly 13cm intervals.</p>
         <p>For comparison, 8 bit detail only give 2<sup>8</sup> levels of detail, which is only 256 levels!</p>
         <p>The mapzen data is actually much <strong>more</strong> detailed than 16 bit (it has 24 bits of data, with a fidelity of about 4mm in the data itself, although the measurements are probably only accurate to 1m maximum)</p>
+        <h3>New - EXR output</h3>
+        <p>You can now select 16/32 bit EXR output options.</p>
+        <p>These are useful for importing into <a href="https://github.com/TokisanGames/Terrain3D">Terrain3D</a> and Blender.</p>
       </article>
       <article class="container content">
         <h2>Normalisation Options</h2>
@@ -81,7 +84,7 @@
           <dt>None</dt>
           <dd>Do not perform any normalisation. The pixel value represents the height in m (note that negative values will be 0)</dd>
           <dt>Regular</dt>
-          <dd>Scale the height values in the data to 0 to 65536, making full use of all 16 bits of the file's range</dd>
+          <dd>Scale the height values in the data to 0 to 2^16 or 2^32, making full use of all 16/32 bits of the file's range. (note the source data is 24bit)</dd>
           <dt>Smart</dt>
           <dd>Unfortunately, there are some errors in the Mapzen data that throw off the normalisation - 0 values or high values that skew the normalisation completely. Using this method, we take a 99.9% window of the data to get rid of outliers. However, if the actual max/min are within 1 standard deviation of the windowed max/min then we use the actual values to retain the min/max data.</dd>
         </dl>
@@ -113,10 +116,10 @@
         <p>Here is an example of an error in the source data:</p>
         <div class="columns">
           <div class="column">
-            <figure class="image"><img src="public/im/actual_error_grayscale.png"></figure>
+            <figure class="image"><img alt="Example error from Mapzen source data in grayscale" src="public/im/actual_error_grayscale.png"></figure>
           </div>
           <div class="column">
-            <figure class="image"><img src="public/im/actual_error_terrarium.png"></figure>
+            <figure class="image"><img alt="Example error from Mapzen source data in Terrarium format" src="public/im/actual_error_terrarium.png"></figure>
           </div>
         </div>
       </article>
@@ -128,11 +131,12 @@
         </details>
         <details>
           <summary>How do I use these images?</summary>
-          You can find <a href="https://docs.unrealengine.com/5.1/en-US/creating-and-using-custom-heightmaps-and-layers-in-unreal-engine/">information how to use the 16 bit png images for landscapes on the Unreal Engine website</a>
+          <p>You can find <a rel="noopener" target="_blank" href="https://docs.unrealengine.com/5.1/en-US/creating-and-using-custom-heightmaps-and-layers-in-unreal-engine/">information how to use the 16 bit png images for landscapes on the Unreal Engine website</a></p>
+          <p>You can use these to import into other game engines, and also 3D software such as Blender.</p>
         </details>
         <details>
-          <summary>Why wouldn't I use the <a href="http://tangrams.github.io/heightmapper" target="_blank">heightmapper</a> website output?</summary>
-          Unfortunately, because of the way it generates images, the output from heightmapper is 1) noisy, 2) only 8 bit, resulting in poor quality landscapes and jagged areas. In 8 bit, a 1000m tall mountain would have jagged edges every 4m in height.
+          <summary>Why wouldn't I use the tangrams heightmapper website output?</summary>
+          Unfortunately, because of the way it generates images, the output from <a href="http://tangrams.github.io/heightmapper" rel="noopener" target="_blank">heightmapper</a> is 1) noisy, 2) only 8 bit, resulting in poor quality landscapes and jagged areas. In 8 bit, a 1000m tall mountain would have jagged edges every 4m in height.
         </details>
       </article>
     </main>
