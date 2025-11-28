@@ -307,4 +307,6 @@ const processor = {
   }
 }
 
+export type ProcessorWorker = typeof processor;
+
 Comlink.expose(processor);

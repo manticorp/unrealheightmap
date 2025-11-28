@@ -16,11 +16,12 @@ import {
   TypedArrayToStlArgs,
   typedArrayToStlDefaults,
   NormRange,
-  normMaxRange
+  normMaxRange,
+  ProcessorWorker
 } from './processor';
 
 const worker = new Worker("public/dist/js/processor.js");
-const processor = Comlink.wrap(worker);
+const processor = Comlink.wrap<ProcessorWorker>(worker);
 
 import {
   TypedArray,
@@ -70,14 +71,27 @@ type TileExportConfig = {
   tilesY: number;
 };
 
-type TileSlice = {
-  data: Float32Array;
+type TileSliceInfo = {
   width: number;
   height: number;
+  startX: number;
+  startY: number;
   row: number;
   column: number;
   totalRows: number;
   totalColumns: number;
+};
+
+type TileSlice = TileSliceInfo & {
+  data: Float32Array;
+};
+
+type StreamingSummary = {
+  count: number;
+  minBefore: number;
+  maxBefore: number;
+  minAfter: number;
+  maxAfter: number;
 };
 
 let currentRequests: XMLHttpRequest[] = [];
@@ -1402,7 +1416,26 @@ export default class App {
     this.els.generate.prop('disabled', true);
     const state = this.getCurrentState();
     this.resetOutput();
-    const imageFetches = [];
+    const tileConfig = this.getTileExportConfig(state.width, state.height);
+    if (this.shouldStreamTiles(tileConfig)) {
+      return this.generateStreamedTiles(state, tileConfig)
+      .catch(e => {
+        console.error('Failed to generate tiles', e);
+      }).finally(() => {
+        this.els.generate.prop('disabled', false);
+        currentRequests = [];
+      });
+    }
+    return this.generateStandard(state)
+    .catch(e => {
+      console.error('Failed to load images', e);
+    }).finally(() => {
+      this.els.generate.prop('disabled', false);
+      currentRequests = [];
+    });
+  }
+
+  generateStandard(state: ConfigState) {
     const items : TileCoords[] = [];
     for (let x = state.startx; x <= state.endx; x++) {
       for (let y = state.starty; y <= state.endy; y++) {
@@ -1426,12 +1459,205 @@ export default class App {
           resolve(this.generateOutput(result));
         },1);
       });
-    }).catch(e => {
-      console.error('Failed to load images', e);
-    }).finally(() => {
-      this.els.generate.prop('disabled', false);
-      currentRequests = [];
     });
+  }
+
+  shouldStreamTiles(config: TileExportConfig) {
+    if (!config.enabled) {
+      return false;
+    }
+    if (config.tilesX <= 0 || config.tilesY <= 0) {
+      return false;
+    }
+    if (config.tilesX === 1 && config.tilesY === 1) {
+      return false;
+    }
+    const mode = this.getNormaliseModeValue();
+    return mode === NormaliseMode.Off || this.hasManualNormRange();
+  }
+
+  async generateStreamedTiles(state: ConfigState, config: TileExportConfig) {
+    const slices = this.getTileSliceInfos(state, config);
+    if (!slices.length) {
+      return Promise.resolve();
+    }
+    const summary : StreamingSummary = {
+      count: 0,
+      minBefore: Number.POSITIVE_INFINITY,
+      maxBefore: Number.NEGATIVE_INFINITY,
+      minAfter: Number.POSITIVE_INFINITY,
+      maxAfter: Number.NEGATIVE_INFINITY,
+    };
+    for (let i = 0; i < slices.length; i++) {
+      await this.processTileSequential(state, slices[i], i + 1, slices.length, summary);
+    }
+    if (summary.count > 0) {
+      const summaryResult : NormaliseResult<Float32Array> = {
+        data: new Float32Array(0),
+        minBefore: summary.minBefore,
+        maxBefore: summary.maxBefore,
+        minAfter: summary.minAfter,
+        maxAfter: summary.maxAfter
+      };
+      this.displayHeightData(summaryResult, state as unknown as TileLoadState);
+    }
+  }
+
+  async processTileSequential(baseState: ConfigState, sliceInfo: TileSliceInfo, index: number, total: number, summary: StreamingSummary) {
+    this.els.outputText.html(`Processing tile ${index}/${total} (row ${sliceInfo.row}, col ${sliceInfo.column})`);
+    const chunkState = this.buildChunkState(baseState, sliceInfo);
+    const items = this.buildTileFetchList(chunkState);
+    const normRange = this.getNormRangeFromInputs();
+    const results = await promiseAllInBatches((item) => this.fetchImage(item, chunkState), items, 200, 0);
+    const workerStates = this.prepareWorkerStates(results);
+    const output = await processor.combineImages(workerStates, this.getNormaliseModeValue(), normRange) as NormaliseResult<Float32Array>;
+    this.updateStreamingSummary(summary, output);
+    await this.saveChunkResult(output.data, chunkState, sliceInfo);
+  }
+
+  getNormaliseModeValue() : NormaliseMode {
+    const mode = parseInt(this.inputs.smartNormalisationControl?.val()?.toString() || '0', 10);
+    return mode as NormaliseMode;
+  }
+
+  hasManualNormRange() {
+    return (this.inputs.normFrom?.val()?.toString() ?? '') !== '' && (this.inputs.normTo?.val()?.toString() ?? '') !== '';
+  }
+
+  getNormRangeFromInputs() : NormRange {
+    const norm : NormRange = {from: null, to: null};
+    const fromVal = this.inputs.normFrom?.val()?.toString() ?? '';
+    const toVal = this.inputs.normTo?.val()?.toString() ?? '';
+    if (fromVal !== '') {
+      norm.from = parseFloat(fromVal);
+    }
+    if (toVal !== '') {
+      norm.to = parseFloat(toVal);
+    }
+    return norm;
+  }
+
+  buildTileFetchList(state: ConfigState) : TileCoords[] {
+    const items : TileCoords[] = [];
+    for (let x = state.startx; x <= state.endx; x++) {
+      for (let y = state.starty; y <= state.endy; y++) {
+        const nx = roll(x, state.min.x, state.max.x);
+        items.push({z: state.z, x: nx, y});
+      }
+    }
+    return items;
+  }
+
+  prepareWorkerStates(result: TileLoadState[]) : TileLoadState[] {
+    const workerStates : TileLoadState[] = [];
+    for (let s of result) {
+      workerStates.push({
+        ...s,
+        heights: Comlink.transfer(s.heights, [s.heights.buffer])
+      });
+    }
+    return workerStates;
+  }
+
+  updateStreamingSummary(summary: StreamingSummary, output: NormaliseResult<Float32Array>) {
+    summary.count += 1;
+    summary.minBefore = Math.min(summary.minBefore, output.minBefore);
+    summary.maxBefore = Math.max(summary.maxBefore, output.maxBefore);
+    summary.minAfter = Math.min(summary.minAfter, output.minAfter);
+    summary.maxAfter = Math.max(summary.maxAfter, output.maxAfter);
+  }
+
+  async saveChunkResult(data: Float32Array, state: ConfigState, sliceInfo: TileSliceInfo) {
+    const formatSelection = this.inputs.outputformat?.val()?.toString() ?? 'png16';
+    if (formatSelection === 'exr16' || formatSelection === 'exr32') {
+      const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
+      return this.saveOutputExr(data, state, pixelType, sliceInfo);
+    }
+    return this.saveOutputPng(data, state, sliceInfo, {suppressPreview: true});
+  }
+
+  buildChunkState(baseState: ConfigState, sliceInfo: TileSliceInfo) : ConfigState {
+    const tilePerPixelX = baseState.widthInTiles / baseState.width;
+    const tilePerPixelY = baseState.heightInTiles / baseState.height;
+    const chunkWidthInTiles = sliceInfo.width * tilePerPixelX;
+    const chunkHeightInTiles = sliceInfo.height * tilePerPixelY;
+    const minTileX = baseState.exactPos.x - (baseState.widthInTiles / 2) + sliceInfo.startX * tilePerPixelX;
+    const minTileY = baseState.exactPos.y - (baseState.heightInTiles / 2) + sliceInfo.startY * tilePerPixelY;
+    const maxTileX = minTileX + chunkWidthInTiles;
+    const maxTileY = minTileY + chunkHeightInTiles;
+    const exactPos : TileCoords = {
+      x: (minTileX + maxTileX) / 2,
+      y: (minTileY + maxTileY) / 2,
+      z: baseState.z
+    };
+    const centerLatLng = App.getLatLngFromTileCoords(exactPos.x, exactPos.y, baseState.z);
+    const topLeft = App.getLatLngFromTileCoords(minTileX, minTileY, baseState.z);
+    const bottomRight = App.getLatLngFromTileCoords(maxTileX, maxTileY, baseState.z);
+    const chunkState : ConfigState = {
+      ...baseState,
+      width: sliceInfo.width,
+      height: sliceInfo.height,
+      exactPos,
+      widthInTiles: chunkWidthInTiles,
+      heightInTiles: chunkHeightInTiles,
+      latitude: centerLatLng.latitude,
+      longitude: centerLatLng.longitude,
+      bounds: [topLeft, bottomRight],
+      phys: baseState.phys
+    };
+    chunkState.startx = Math.floor(minTileX);
+    chunkState.endx = Math.floor(maxTileX);
+    chunkState.starty = clamp(Math.floor(minTileY), baseState.min.y, baseState.max.y);
+    chunkState.endy = clamp(Math.floor(maxTileY), baseState.min.y, baseState.max.y);
+    chunkState.phys = {
+      width: this.getDistanceBetweenLatLngs(topLeft, {latitude: topLeft.latitude, longitude: bottomRight.longitude}),
+      height: this.getDistanceBetweenLatLngs(topLeft, {latitude: bottomRight.latitude, longitude: topLeft.longitude})
+    };
+    return chunkState;
+  }
+
+  getTileSliceInfos(state: ConfigState, config: TileExportConfig) : TileSliceInfo[] {
+    const columnSegments = this.buildSegments(state.width, config.tileWidth, config.tilesX);
+    const rowSegments = this.buildSegments(state.height, config.tileHeight, config.tilesY);
+    const totalColumns = columnSegments.length || 1;
+    const totalRows = rowSegments.length || 1;
+    const slices : TileSliceInfo[] = [];
+    rowSegments.forEach((rowSeg, rowIdx) => {
+      columnSegments.forEach((colSeg, colIdx) => {
+        slices.push({
+          width: colSeg.size,
+          height: rowSeg.size,
+          startX: colSeg.start,
+          startY: rowSeg.start,
+          row: rowIdx + 1,
+          column: colIdx + 1,
+          totalRows,
+          totalColumns
+        });
+      });
+    });
+    return slices;
+  }
+
+  buildSegments(total: number, requestedStep: number, maxSegments: number) {
+    const segments : {start: number, size: number}[] = [];
+    const step = Math.max(1, Math.floor(requestedStep));
+    if (step <= 0 || total <= 0) {
+      return segments;
+    }
+    let consumed = 0;
+    let index = 0;
+    while (consumed < total && index < Math.max(1, maxSegments)) {
+      const remaining = total - consumed;
+      const size = Math.min(step, remaining);
+      segments.push({start: consumed, size});
+      consumed += size;
+      index++;
+    }
+    if (!segments.length) {
+      segments.push({start: 0, size: total});
+    }
+    return segments;
   }
   generateAlbedo() {
     this.els.generateAlbedo.prop('disabled', true);
@@ -1653,9 +1879,9 @@ export default class App {
       const tileState = {...states[0], width: slice.width, height: slice.height};
       if (formatSelection === 'exr16' || formatSelection === 'exr32') {
         const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
-        return this.saveOutputExr(slice.data, [tileState], pixelType, slice);
+        return this.saveOutputExr(slice.data, tileState, pixelType, slice);
       }
-      return this.saveOutputPng(slice.data, [tileState], slice, {suppressPreview: true});
+      return this.saveOutputPng(slice.data, tileState, slice, {suppressPreview: true});
     });
     return Promise.all(downloads).then(() => {
       this.els.outputImage.prepend($('<p>').text(`Saved ${slices.length} tiled files.`));
@@ -1689,6 +1915,8 @@ export default class App {
           data: tileData,
           width: tileWidth,
           height: tileHeight,
+          startX,
+          startY,
           row: row + 1,
           column: column + 1,
           totalRows: config.tilesY,
@@ -1699,7 +1927,7 @@ export default class App {
     return slices;
   }
 
-  buildTileSuffix(tileInfo?: TileSlice) : string {
+  buildTileSuffix(tileInfo?: TileSlice | TileSliceInfo) : string {
     if (!tileInfo) {
       return '';
     }
@@ -1716,7 +1944,7 @@ export default class App {
     return str;
   }
 
-  getFilenameArgs(state: TileLoadState) {
+  getFilenameArgs(state: ConfigState) {
     return {
       lat: state.latitude.toFixed(3).toString().replace(".",'_'),
       lng: state.longitude.toFixed(3).toString().replace(".",'_'),
@@ -1726,11 +1954,19 @@ export default class App {
     };
   }
 
-  async saveOutputPng(output : Float32Array, states : TileLoadState[], tileInfo?: TileSlice, options: {suppressPreview?: boolean} = {}) {
-    const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(states[0]));
+  getOutputState(stateOrStates: TileLoadState[] | TileLoadState | ConfigState) : ConfigState {
+    if (Array.isArray(stateOrStates)) {
+      return stateOrStates[0];
+    }
+    return stateOrStates;
+  }
+
+  async saveOutputPng(output : Float32Array, stateOrStates : TileLoadState[] | TileLoadState | ConfigState, tileInfo?: TileSlice | TileSliceInfo, options: {suppressPreview?: boolean} = {}) {
+    const state = this.getOutputState(stateOrStates);
+    const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
     const suffix = this.buildTileSuffix(tileInfo);
     const fn = `${base}_16bit${suffix}.png`;
-    return App.encodeToPng([PNG.Float32ArrayToPng16Bit(output)], states[0].width, states[0].height, 1, 0, 16).then(a => {
+    return App.encodeToPng([PNG.Float32ArrayToPng16Bit(output)], state.width, state.height, 1, 0, 16).then(a => {
       const blob = new Blob( [ a ] );
       if (!options.suppressPreview) {
         const url = URL.createObjectURL( blob );
@@ -1745,8 +1981,8 @@ export default class App {
     });
   }
 
-  async saveOutputExr(output : Float32Array, states : TileLoadState[], pixelType: ExrPixelType, tileInfo?: TileSlice) {
-    const state = states[0];
+  async saveOutputExr(output : Float32Array, stateOrStates : TileLoadState[] | TileLoadState | ConfigState, pixelType: ExrPixelType, tileInfo?: TileSlice | TileSliceInfo) {
+    const state = this.getOutputState(stateOrStates);
     const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
     const bitSuffix = pixelType === ExrPixelType.Half ? '16bit' : '32bit';
     const suffix = this.buildTileSuffix(tileInfo);
@@ -1758,7 +1994,8 @@ export default class App {
       data: exrData,
       pixelType
     });
-    const blob = new Blob([exrBuffer], {type: 'application/octet-stream'});
+    const safeBuffer = exrBuffer.buffer as ArrayBuffer;
+    const blob = new Blob([safeBuffer], {type: 'application/octet-stream'});
     const bitLabel = pixelType === ExrPixelType.Half ? '16-bit float' : '32-bit float';
     this.els.outputImage.append($('<p>').text(`Saved ${fn} (${bitLabel} OpenEXR).`));
     this.download(blob, fn);
