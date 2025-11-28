@@ -59,6 +59,27 @@ type StoredItemValue = {
 
 type ImageLocation = TileCoords;
 
+type TileExportMode = 'off' | 'dimensions' | 'count';
+
+type TileExportConfig = {
+  enabled: boolean;
+  mode: TileExportMode;
+  tileWidth: number;
+  tileHeight: number;
+  tilesX: number;
+  tilesY: number;
+};
+
+type TileSlice = {
+  data: Float32Array;
+  width: number;
+  height: number;
+  row: number;
+  column: number;
+  totalRows: number;
+  totalColumns: number;
+};
+
 let currentRequests: XMLHttpRequest[] = [];
 
 const deafultTippyOptions = {
@@ -111,7 +132,12 @@ export default class App {
       'outputzoom',
       'width',
       'height',
-      'outputformat'
+      'outputformat',
+      'tilemode',
+      'tilewidth',
+      'tileheight',
+      'tilecountx',
+      'tilecounty'
   ];
   constructor({container} : AppArgs) {
     this.container = container;
@@ -396,7 +422,13 @@ export default class App {
       bottomRight: [bounds[1][0], bounds[1][1]],
       topRight: [bounds[0][0], bounds[1][1]]
     }, null, 2));
-    this.els.generatorInfo.html(`${localFormatNumber(w, precision)} x ${localFormatNumber(h, precision)}${units} - ${localFormatNumber(res, resprecision)}${resunit}/px resolution<span class="heights"></span>`);
+    const infoHtml = `${localFormatNumber(w, precision)} x ${localFormatNumber(h, precision)}${units} - ${localFormatNumber(res, resprecision)}${resunit}/px resolution<span class="heights"></span>`;
+    if (this.els.generatorInfoPrimary) {
+      this.els.generatorInfoPrimary.html(infoHtml);
+    } else {
+      this.els.generatorInfo.html(infoHtml);
+    }
+    this.updateTileSummary(state);
   }
   createOutputZoomControls(curLatLng: L.LatLngExpression) {
     if (!this.map) {
@@ -443,6 +475,98 @@ export default class App {
     if (this.doHeightsDebounced) {
       this.doHeightsDebounced();
     }
+  }
+  toggleTileInputs() {
+    const mode = (this.inputs.tileMode?.val()?.toString() || 'off') as TileExportMode;
+    const disableDimensions = mode !== 'dimensions';
+    const disableCounts = mode !== 'count';
+    [this.inputs.tileWidth, this.inputs.tileHeight].forEach(input => {
+      if (input) {
+        input.prop('disabled', disableDimensions);
+      }
+    });
+    [this.inputs.tileCountX, this.inputs.tileCountY].forEach(input => {
+      if (input) {
+        input.prop('disabled', disableCounts);
+      }
+    });
+    this.els.tileSizeColumn?.toggleClass('is-disabled', disableDimensions);
+    this.els.tileCountColumn?.toggleClass('is-disabled', disableCounts);
+  }
+  updateTileSummary(state?: ConfigState) {
+    if (!this.els.tilingSummary) {
+      return;
+    }
+    const width = state ? state.width : this.getNumericInputValue(this.inputs.width);
+    const height = state ? state.height : this.getNumericInputValue(this.inputs.height);
+    if (!width || !height) {
+      this.els.tilingSummary.text('Tiled export disabled.');
+      return;
+    }
+    const config = this.getTileExportConfig(width, height);
+    if (!config.enabled) {
+      this.els.tilingSummary.text('Tiled export disabled.');
+      return;
+    }
+    const totalTiles = config.tilesX * config.tilesY;
+    const approxWidth = Math.min(config.tileWidth, width);
+    const approxHeight = Math.min(config.tileHeight, height);
+    const tileWord = totalTiles === 1 ? 'tile' : 'tiles';
+    const dimText = `${localFormatNumber(approxWidth, 0)} × ${localFormatNumber(approxHeight, 0)}px`;
+    this.els.tilingSummary.text(`Tiled export: ${config.tilesX} × ${config.tilesY} ${tileWord} (${totalTiles} total), target size ${dimText}. Edge tiles resize automatically.`);
+  }
+  getTileExportConfig(totalWidth?: number, totalHeight?: number) : TileExportConfig {
+    const mode = (this.inputs.tileMode?.val()?.toString() || 'off') as TileExportMode;
+    const widthValue = typeof totalWidth === 'number' ? totalWidth : this.getNumericInputValue(this.inputs.width);
+    const heightValue = typeof totalHeight === 'number' ? totalHeight : this.getNumericInputValue(this.inputs.height);
+    const safeWidth = Math.max(1, Math.floor(isNaN(widthValue) ? 0 : widthValue));
+    const safeHeight = Math.max(1, Math.floor(isNaN(heightValue) ? 0 : heightValue));
+    const baseConfig : TileExportConfig = {
+      enabled: false,
+      mode,
+      tileWidth: safeWidth,
+      tileHeight: safeHeight,
+      tilesX: 1,
+      tilesY: 1,
+    };
+    if (mode === 'off') {
+      return baseConfig;
+    }
+    if (mode === 'dimensions') {
+      const requestedWidth = Math.max(1, this.getNumericInputValue(this.inputs.tileWidth));
+      const requestedHeight = Math.max(1, this.getNumericInputValue(this.inputs.tileHeight));
+      if (!requestedWidth || !requestedHeight) {
+        return baseConfig;
+      }
+      const tilesX = Math.max(1, Math.ceil(safeWidth / requestedWidth));
+      const tilesY = Math.max(1, Math.ceil(safeHeight / requestedHeight));
+      return {
+        enabled: true,
+        mode,
+        tileWidth: requestedWidth,
+        tileHeight: requestedHeight,
+        tilesX,
+        tilesY,
+      };
+    }
+    if (mode === 'count') {
+      const countX = Math.max(1, this.getNumericInputValue(this.inputs.tileCountX));
+      const countY = Math.max(1, this.getNumericInputValue(this.inputs.tileCountY));
+      if (!countX || !countY) {
+        return baseConfig;
+      }
+      const tileWidth = Math.max(1, Math.ceil(safeWidth / countX));
+      const tileHeight = Math.max(1, Math.ceil(safeHeight / countY));
+      return {
+        enabled: true,
+        mode,
+        tileWidth,
+        tileHeight,
+        tilesX: countX,
+        tilesY: countY,
+      };
+    }
+    return baseConfig;
   }
   positionOutputZoomControls(boundsInput?: L.LatLngBoundsExpression | L.LatLngBounds) {
     if (!this.zoom.in || !this.zoom.out || !this.map) {
@@ -579,25 +703,6 @@ export default class App {
       value: '505'
     });
 
-    this.els.columnsOutput = $('<div class="columns">');
-    this.els.columnWidth = $('<div class="column field">');
-    this.els.columnHeight = $('<div class="column field">');
-
-    this.els.widthControl  = $('<div class="control">').append(this.inputs.width);
-    this.els.heightControl = $('<div class="control">').append(this.inputs.height);
-
-    this.els.columnWidth.append(App.createLabel('Output Width (px)', {for:'width'}));
-    this.els.columnWidth.append(this.els.widthControl);
-    this.els.columnHeight.append(App.createLabel('Output Height (px)', {for:'height'}));
-    this.els.columnHeight.append(this.els.heightControl);
-
-    this.els.columnsOutput.append(this.els.columnWidth);
-    this.els.columnsOutput.append(this.els.columnHeight);
-
-    this.els.inputContainer.append(this.els.columnsOutput);
-
-    // defaultSize options
-
     this.inputs.defaultSize = $('<select>') as JQuery<HTMLSelectElement>;
 
     this.inputs.defaultSize.append(`<option></option>`);
@@ -613,17 +718,78 @@ export default class App {
       this.inputs.defaultSize.append(optGroup);
     }
 
-    this.els.columnsDefaultSizes = $('<div class="columns">');
-    this.els.columnSize = $('<div class="column field">');
+    this.inputs.tileMode = $('<select name="tilemode">') as JQuery<HTMLSelectElement>;
+    this.inputs.tileMode.append('<option value="off">Single file</option>');
+    this.inputs.tileMode.append('<option value="dimensions">Tile by size</option>');
+    this.inputs.tileMode.append('<option value="count">Tile by count</option>');
+
+    this.inputs.tileWidth = App.createInput({
+      name: 'tilewidth',
+      placeholder: 'Tile width (px)',
+      type: 'number',
+      min: '1',
+      max: '32516',
+      step: '1',
+      value: '1024'
+    });
+
+    this.inputs.tileHeight = App.createInput({
+      name: 'tileheight',
+      placeholder: 'Tile height (px)',
+      type: 'number',
+      min: '1',
+      max: '32516',
+      step: '1',
+      value: '1024'
+    });
+
+    this.inputs.tileCountX = App.createInput({
+      name: 'tilecountx',
+      placeholder: 'Tiles wide',
+      type: 'number',
+      min: '1',
+      max: '64',
+      step: '1',
+      value: '1'
+    });
+
+    this.inputs.tileCountY = App.createInput({
+      name: 'tilecounty',
+      placeholder: 'Tiles high',
+      type: 'number',
+      min: '1',
+      max: '64',
+      step: '1',
+      value: '1'
+    });
+
+    this.els.columnsOutputPrimary = $('<div class="columns columns-output columns-output--primary">');
+    this.els.columnsOutputSecondary = $('<div class="columns columns-output columns-output--secondary">');
+
+    const widthColumn = $('<div class="column field">')
+      .append(App.createLabel('Output Width (px)', {for:'width'}))
+      .append($('<div class="control">').append(this.inputs.width));
+
+    const heightColumn = $('<div class="column field">')
+      .append(App.createLabel('Output Height (px)', {for:'height'}))
+      .append($('<div class="control">').append(this.inputs.height));
 
     this.els.defaultSizeControl  = $('<div class="control">').append($('<div class="select is-fullwidth">').append(this.inputs.defaultSize));
+    const defaultSizeColumn = $('<div class="column field">')
+      .append(App.createLabel('Default Sizes', {for:'width'}))
+      .append(this.els.defaultSizeControl);
 
-    this.els.columnSize.append(App.createLabel('Default Sizes', {for:'width'}));
-    this.els.columnSize.append(this.els.defaultSizeControl);
-
-    this.els.columnsOutput.append(this.els.columnSize);
-
-    this.els.inputContainer.append(this.els.columnsDefaultSizes);
+    this.inputs.outputformat = $('<select name="outputformat">') as JQuery<HTMLSelectElement>;
+    this.inputs.outputformat.append('<option value="png16" selected>PNG - 16 Bit</option>');
+    this.inputs.outputformat.append('<option value="exr16">OpenEXR - 16 Bit</option>');
+    this.inputs.outputformat.append('<option value="exr32">OpenEXR - 32 Bit</option>');
+    const outputFormatColumn = $('<div class="column field">')
+      .append(App.createLabel('Output Format', {for:'outputformat'}))
+      .append(
+        $('<div class="control">').append(
+          $('<div class="select is-fullwidth">').append(this.inputs.outputformat)
+        )
+      );
 
     this.els.smartNormalisationControl = $(`
     <div class="control">
@@ -635,6 +801,30 @@ export default class App {
         </select>
       </div>
     </div>`);
+    const normalisationColumn = $('<div class="column field">').append(this.els.smartNormalisationControl);
+
+    this.els.columnsOutputPrimary
+      .append(widthColumn)
+      .append(heightColumn)
+      .append(defaultSizeColumn)
+      .append(outputFormatColumn)
+      .append(normalisationColumn);
+
+    const tileSizeLabel = $('<label class="label">Tile Dimensions (px)</label>');
+    const tileSizeControls = $('<div class="tile-option-grid">')
+      .append($('<div class="control">').append(this.inputs.tileWidth))
+      .append($('<div class="control">').append(this.inputs.tileHeight));
+    this.els.tileSizeColumn = $('<div class="column field tile-field">')
+      .append(tileSizeLabel)
+      .append(tileSizeControls);
+
+    const tileCountLabel = $('<label class="label">Tile Counts</label>');
+    const tileCountControls = $('<div class="tile-option-grid">')
+      .append($('<div class="control">').append(this.inputs.tileCountX))
+      .append($('<div class="control">').append(this.inputs.tileCountY));
+    this.els.tileCountColumn = $('<div class="column field tile-field">')
+      .append(tileCountLabel)
+      .append(tileCountControls);
 
     this.els.normFrom = $(`
     <label class="label">Norm From</label>
@@ -648,38 +838,30 @@ export default class App {
       <input class="input" type="number" name="norm-to" min="-10929" max="8848">
     </div>`);
 
-    this.els.columnsOutput.append(
-      $('<div class="column field">').append(this.els.smartNormalisationControl)
-    );
+    const normFromColumn = $('<div class="column field">').append(this.els.normFrom);
+    const normToColumn = $('<div class="column field">').append(this.els.normTo);
 
-    this.els.columnsOutput.append(
-      $('<div class="column field">').append(this.els.normFrom)
-    );
+    const tileModeColumn = $('<div class="column field">')
+      .append(App.createLabel('Tiled Export', {for:'tilemode'}))
+      .append(
+        $('<div class="control">').append(
+          $('<div class="select is-fullwidth">').append(this.inputs.tileMode)
+        )
+      );
 
-    this.els.columnsOutput.append(
-      $('<div class="column field">').append(this.els.normTo)
-    );
+    this.els.columnsOutputSecondary
+      .append(tileModeColumn)
+      .append(this.els.tileSizeColumn)
+      .append(this.els.tileCountColumn)
+      .append(normFromColumn)
+      .append(normToColumn);
 
     this.inputs.smartNormalisationControl = this.els.smartNormalisationControl.find('select');
     this.inputs.normFrom = this.els.normFrom.find('input');
     this.inputs.normTo = this.els.normTo.find('input');
 
-    this.inputs.outputformat = $('<select name="outputformat">') as JQuery<HTMLSelectElement>;
-    this.inputs.outputformat.append('<option value="png16" selected>PNG - 16 Bit</option>');
-    this.inputs.outputformat.append('<option value="exr16">OpenEXR - 16 Bit</option>');
-    this.inputs.outputformat.append('<option value="exr32">OpenEXR - 32 Bit</option>');
-
-    this.els.columnsOutput.append(
-      $('<div class="column field">').append(
-        App.createLabel('Output Format', {for:'outputformat'})
-      ).append(
-        $('<div class="control">').append(
-          $('<div class="select is-fullwidth">').append(this.inputs.outputformat)
-        )
-      )
-    );
-
-
+    this.els.inputContainer.append(this.els.columnsOutputPrimary);
+    this.els.inputContainer.append(this.els.columnsOutputSecondary);
 
     const normalisationModeLabel = $('<label class="label">Norm. Mode</label>');
     this.els.smartNormalisationControl.prepend(normalisationModeLabel);
@@ -696,6 +878,10 @@ export default class App {
   createSubmitButton() {
     this.els.generatedColumn = $('<div class="column content">');
     this.els.generatorInfo = $('<div class="generatorInfo">');
+    this.els.generatorInfoPrimary = $('<div class="generatorInfo-primary">');
+    this.els.tilingSummary = $('<div class="tilingSummary">Tiled export disabled.</div>');
+    this.els.generatorInfo.append(this.els.generatorInfoPrimary);
+    this.els.generatorInfo.append(this.els.tilingSummary);
     this.els.boundsInfo = $('<details class="boundsInfo"><summary>Bounds (click to expand):</summary></details>');
     this.els.boundsContent = $('<pre class="boundsContent">');
     this.els.generatedColumn.append(this.els.generatorInfo);
@@ -756,6 +942,8 @@ export default class App {
         input.val(value);
       }
     }
+    this.toggleTileInputs();
+    this.updateTileSummary();
   }
   parseHash(hashstr : string) {
     const pairs = hashstr.replace(/^#/,'').replace(/^\//, '').split('/');
@@ -811,6 +999,7 @@ export default class App {
       this.storeValue('width', this.inputs.width.val().toString());
       this.storeValue('height', this.inputs.height.val().toString());
       this.updatePhysicalDimensions();
+      this.updateTileSummary();
       doHeightsDebounced();
     }));
 
@@ -826,6 +1015,32 @@ export default class App {
       this.storeValue('maptype', this.inputs.maptype.val().toString());
       this.showHideCurrentLayer();
       doHeightsDebounced();
+    }));
+
+    this.inputs.tileMode.on('change input', debounce(30, () => {
+      this.storeValue('tilemode', this.inputs.tileMode.val()?.toString() || 'off');
+      this.toggleTileInputs();
+      this.updateTileSummary();
+    }));
+
+    this.inputs.tileWidth.on('change input', debounce(30, () => {
+      this.storeValue('tilewidth', this.inputs.tileWidth.val().toString());
+      this.updateTileSummary();
+    }));
+
+    this.inputs.tileHeight.on('change input', debounce(30, () => {
+      this.storeValue('tileheight', this.inputs.tileHeight.val().toString());
+      this.updateTileSummary();
+    }));
+
+    this.inputs.tileCountX.on('change input', debounce(30, () => {
+      this.storeValue('tilecountx', this.inputs.tileCountX.val().toString());
+      this.updateTileSummary();
+    }));
+
+    this.inputs.tileCountY.on('change input', debounce(30, () => {
+      this.storeValue('tilecounty', this.inputs.tileCountY.val().toString());
+      this.updateTileSummary();
     }));
 
     this.inputs.latitude.on('change input', debounce(30, () => {
@@ -845,6 +1060,7 @@ export default class App {
         lng: parseFloat(this.inputs.longitude.val().toString())
       });
       this.updatePhysicalDimensions();
+      this.updateTileSummary();
       doHeightsDebounced();
     }));
 
@@ -852,6 +1068,7 @@ export default class App {
       this.storeValue('zoom', this.inputs.zoom.val().toString());
       this.map.setZoom(parseInt(this.inputs.zoom.val().toString()));
       this.updatePhysicalDimensions();
+      this.updateTileSummary();
       doHeightsDebounced();
     }));
 
@@ -865,12 +1082,14 @@ export default class App {
     this.inputs.width.on('change input', debounce(30, () => {
       this.storeValue('width', this.inputs.width.val().toString());
       this.updatePhysicalDimensions();
+      this.updateTileSummary();
       doHeightsDebounced();
     }));
 
     this.inputs.height.on('change input', debounce(30, () => {
       this.storeValue('height', this.inputs.height.val().toString());
       this.updatePhysicalDimensions();
+      this.updateTileSummary();
       doHeightsDebounced();
     }));
 
@@ -1392,21 +1611,109 @@ export default class App {
     // Start by multiplying 4207 by 100 to convert the height into centimeters. This equals 420,700 cm.
     // Next, multiply this new value by the ratio: 420,700 multiplied by 0.001953125 equals 821.6796875.
     // This gives you a Z scale value of 821.6796875 and results in a heightmap that will go from -210,350 cm to 210,350 cm.
-    const txt = `<p>Height range: ${fmt.format(output.minBefore)} to ${fmt.format(output.maxBefore)}</p>
+    let txt = `<p>Height range: ${fmt.format(output.minBefore)} to ${fmt.format(output.maxBefore)}</p>
     <p>In Unreal Engine, on import, a z scaling of <code>${localFormatNumber(zScale, 2)}</code> should be used for 1:1 height scaling using a normalised image.</p>
     <p>x and y scales should be set to <code>${localFormatNumber(xyScale, 2)}</code></p>
     <p>For 3D printing, the height range is <code>${this.meterFormatter.format(range)}</code> and height/width ratio is <code>${localFormatNumber(range/state.phys.width, 6)}</code></p>
     <p>i.e. if you printed this 100mm wide, it would have to be <code>${localFormatNumber(range/state.phys.width * 100, 3)}</code>mm tall to be physically accurate</p>
     `;
+    const tiling = this.getTileExportConfig(state.width, state.height);
+    if (tiling.enabled) {
+      const totalTiles = tiling.tilesX * tiling.tilesY;
+      const approxWidth = Math.min(tiling.tileWidth, state.width);
+      const approxHeight = Math.min(tiling.tileHeight, state.height);
+      txt += `<p>Tiled export: ${tiling.tilesX} × ${tiling.tilesY} tiles (${totalTiles} total), approx <code>${localFormatNumber(approxWidth, 0)} × ${localFormatNumber(approxHeight, 0)}px</code> each (edge tiles adjust as needed).</p>`;
+    }
     this.els.outputText.html(txt);
   }
   async saveOutput(output : Float32Array, states : TileLoadState[]) {
+    const config = this.getTileExportConfig(states[0].width, states[0].height);
+    if (!config.enabled || (config.tilesX === 1 && config.tilesY === 1)) {
+      return this.saveSingleOutput(output, states);
+    }
+    return this.saveTiledOutputs(output, states, config);
+  }
+
+  async saveSingleOutput(output : Float32Array, states : TileLoadState[]) {
     const formatSelection = this.inputs.outputformat?.val()?.toString() ?? 'png16';
     if (formatSelection === 'exr16' || formatSelection === 'exr32') {
       const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
       return this.saveOutputExr(output, states, pixelType);
     }
     return this.saveOutputPng(output, states);
+  }
+
+  async saveTiledOutputs(output : Float32Array, states : TileLoadState[], config: TileExportConfig) {
+    const slices = this.sliceOutputIntoTiles(output, states[0], config);
+    if (!slices.length) {
+      return this.saveSingleOutput(output, states);
+    }
+    const formatSelection = this.inputs.outputformat?.val()?.toString() ?? 'png16';
+    const downloads = slices.map((slice : TileSlice) => {
+      const tileState = {...states[0], width: slice.width, height: slice.height};
+      if (formatSelection === 'exr16' || formatSelection === 'exr32') {
+        const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
+        return this.saveOutputExr(slice.data, [tileState], pixelType, slice);
+      }
+      return this.saveOutputPng(slice.data, [tileState], slice, {suppressPreview: true});
+    });
+    return Promise.all(downloads).then(() => {
+      this.els.outputImage.prepend($('<p>').text(`Saved ${slices.length} tiled files.`));
+    });
+  }
+
+  sliceOutputIntoTiles(output : Float32Array, state : TileLoadState, config : TileExportConfig) : TileSlice[] {
+    const slices : TileSlice[] = [];
+    const totalWidth = state.width;
+    const totalHeight = state.height;
+    const stepX = Math.max(1, Math.floor(config.tileWidth));
+    const stepY = Math.max(1, Math.floor(config.tileHeight));
+    for (let row = 0; row < config.tilesY; row++) {
+      const startY = row * stepY;
+      if (startY >= totalHeight) {
+        break;
+      }
+      const tileHeight = Math.min(stepY, totalHeight - startY);
+      for (let column = 0; column < config.tilesX; column++) {
+        const startX = column * stepX;
+        if (startX >= totalWidth) {
+          break;
+        }
+        const tileWidth = Math.min(stepX, totalWidth - startX);
+        const tileData = new Float32Array(tileWidth * tileHeight);
+        for (let y = 0; y < tileHeight; y++) {
+          const srcStart = (startY + y) * totalWidth + startX;
+          tileData.set(output.subarray(srcStart, srcStart + tileWidth), y * tileWidth);
+        }
+        slices.push({
+          data: tileData,
+          width: tileWidth,
+          height: tileHeight,
+          row: row + 1,
+          column: column + 1,
+          totalRows: config.tilesY,
+          totalColumns: config.tilesX
+        });
+      }
+    }
+    return slices;
+  }
+
+  buildTileSuffix(tileInfo?: TileSlice) : string {
+    if (!tileInfo) {
+      return '';
+    }
+    const rowDigits = Math.max(2, tileInfo.totalRows.toString().length);
+    const colDigits = Math.max(2, tileInfo.totalColumns.toString().length);
+    return `_tile_${this.padNumber(tileInfo.row, rowDigits)}_${this.padNumber(tileInfo.column, colDigits)}`;
+  }
+
+  padNumber(value : number, digits : number) : string {
+    let str = Math.max(0, Math.floor(value)).toString();
+    while (str.length < digits) {
+      str = '0' + str;
+    }
+    return str;
   }
 
   getFilenameArgs(state: TileLoadState) {
@@ -1419,27 +1726,31 @@ export default class App {
     };
   }
 
-  async saveOutputPng(output : Float32Array, states : TileLoadState[]) {
+  async saveOutputPng(output : Float32Array, states : TileLoadState[], tileInfo?: TileSlice, options: {suppressPreview?: boolean} = {}) {
     const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(states[0]));
-    const fn = `${base}_16bit.png`;
+    const suffix = this.buildTileSuffix(tileInfo);
+    const fn = `${base}_16bit${suffix}.png`;
     return App.encodeToPng([PNG.Float32ArrayToPng16Bit(output)], states[0].width, states[0].height, 1, 0, 16).then(a => {
       const blob = new Blob( [ a ] );
-      const url = URL.createObjectURL( blob );
-      const img : HTMLImageElement = new Image();
-      img.src = url;
-      // So the Blob can be Garbage Collected
-      img.onload = e => URL.revokeObjectURL( url );
-
-      this.els.outputImage.append(img);
+      if (!options.suppressPreview) {
+        const url = URL.createObjectURL( blob );
+        const img : HTMLImageElement = new Image();
+        img.src = url;
+        img.onload = e => URL.revokeObjectURL( url );
+        this.els.outputImage.append(img);
+      } else {
+        this.els.outputImage.append($('<p>').text(`Saved ${fn}`));
+      }
       this.download(blob, fn);
     });
   }
 
-  async saveOutputExr(output : Float32Array, states : TileLoadState[], pixelType: ExrPixelType) {
+  async saveOutputExr(output : Float32Array, states : TileLoadState[], pixelType: ExrPixelType, tileInfo?: TileSlice) {
     const state = states[0];
     const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
     const bitSuffix = pixelType === ExrPixelType.Half ? '16bit' : '32bit';
-    const fn = `${base}_${bitSuffix}.exr`;
+    const suffix = this.buildTileSuffix(tileInfo);
+    const fn = `${base}_${bitSuffix}${suffix}.exr`;
     const exrData = mapHeightSamplesToExr(output);
     const exrBuffer = encodeExr({
       width: state.width,
@@ -1517,6 +1828,18 @@ export default class App {
 
     const totalTiles = widthInTiles * heightInTiles;
     this.els.outputText.text(`Loaded ${this.imagesLoaded.length} / ${totalTiles} tiles`);
+  }
+
+  getNumericInputValue(input?: JQuery<HTMLInputElement | HTMLSelectElement>) : number {
+    if (!input || typeof input.val !== 'function') {
+      return 0;
+    }
+    const value = input.val();
+    if (value === undefined || value === null) {
+      return 0;
+    }
+    const parsed = parseFloat(value.toString());
+    return isNaN(parsed) ? 0 : parsed;
   }
 
   static createInput(attrs : Record<string, string> = {type: 'text', class: 'input'}) : JQuery<HTMLInputElement> {

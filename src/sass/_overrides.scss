@@ -121,3 +121,27 @@
     }
   }
 }
+
+.columns-output {
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+
+  &--secondary {
+    margin-top: -0.5rem;
+  }
+}
+
+.tile-option-grid {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.tile-field.is-disabled {
+  opacity: 0.5;
+}
+
+.tilingSummary {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  color: $grey-lighter;
+}
