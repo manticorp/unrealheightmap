@@ -1,3 +1,5 @@
+import 'tippy.js/dist/tippy.css';
+import 'tippy.js/themes/light.css';
 import './sass/main.scss';
 
 import header from "./templates/header.html";

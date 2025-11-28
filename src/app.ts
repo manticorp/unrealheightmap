@@ -8,6 +8,7 @@ import { throttle, debounce } from 'throttle-debounce';
 import * as  L from "leaflet";
 import "leaflet-providers";
 import {format, promiseAllInBatches} from "./helpers";
+import tippy from 'tippy.js';
 
 import * as Comlink from 'comlink';
 import {
@@ -59,6 +60,12 @@ type StoredItemValue = {
 type ImageLocation = TileCoords;
 
 let currentRequests: XMLHttpRequest[] = [];
+
+const deafultTippyOptions = {
+  interactive: true,
+  allowHTML: true,
+  theme: 'light'
+};
 
 export default class App {
   static cache : Record<string, any> = {};
@@ -121,9 +128,9 @@ export default class App {
     this.els.inputContainer = $('<div class="input-container">');
     this.els.container.append(this.els.inputContainer);
 
+    this.createSubmitButton();
     this.createInputOptions();
     this.createOutputOptions();
-    this.createSubmitButton();
     this.resetOutput();
   }
   showHideCurrentLayer() {
@@ -520,18 +527,34 @@ export default class App {
     this.els.columnLng.append(this.els.longitudeControl);
     this.els.columnZoom.append(App.createLabel('Zoom', {for:'zoom'}));
     this.els.columnZoom.append(this.els.zoomControl);
-    this.els.columnOutputZoom.append(App.createLabel('Output Zoom', {for:'outputzoom'}));
+    const outputZoomLabel = App.createLabel('Output Zoom', {for:'outputzoom'});
+    this.els.columnOutputZoom.append(outputZoomLabel);
     this.els.columnOutputZoom.append(this.els.outputzoomControl);
-    this.els.columnMaptype.append(App.createLabel('Map Preview Type', {for:'maptype'}));
+    const mapTypeControlLabel = App.createLabel('Map Preview Type', {for:'maptype'});
+    this.els.columnMaptype.append(mapTypeControlLabel);
     this.els.columnMaptype.append(this.els.maptypeControl);
 
     this.els.columnsLatLngZoom.append(this.els.columnLat);
     this.els.columnsLatLngZoom.append(this.els.columnLng);
-    this.els.columnsLatLngZoom.append(this.els.columnZoom);
+    // this.els.columnsLatLngZoom.append(this.els.columnZoom);
     this.els.columnsLatLngZoom.append(this.els.columnOutputZoom);
     this.els.columnsLatLngZoom.append(this.els.columnMaptype);
 
     this.els.inputContainer.append(this.els.columnsLatLngZoom);
+
+    const outputZoomLabelInfo = $('<span class="info-icon"> ℹ️ </span>');
+    outputZoomLabel.append(outputZoomLabelInfo);
+    tippy(outputZoomLabelInfo[0], {
+      ...deafultTippyOptions,
+      content: 'The zoom level used to generate the heightmap. For a given pixel size, this will change the physical dimensions of the output.'
+    });
+
+    const mapTypeControlLabelInfo = $('<span class="info-icon"> ℹ️ </span>');
+    mapTypeControlLabel.append(mapTypeControlLabelInfo);
+    tippy(mapTypeControlLabelInfo[0], {
+      ...deafultTippyOptions,
+      content: 'This specifies the preview map type AND the type of map used for the albedo export.'
+    });
   }
   createOutputOptions() {
     // output options
@@ -603,7 +626,6 @@ export default class App {
     this.els.inputContainer.append(this.els.columnsDefaultSizes);
 
     this.els.smartNormalisationControl = $(`
-    <label class="label">Normalisation Mode</label>
     <div class="control">
       <div class="select is-fullwidth">
         <select name="smart-normalisation-control">
@@ -657,6 +679,19 @@ export default class App {
       )
     );
 
+
+
+    const normalisationModeLabel = $('<label class="label">Norm. Mode</label>');
+    this.els.smartNormalisationControl.prepend(normalisationModeLabel);
+    console.log(normalisationModeLabel);
+    const normalisationModeLabelInfo = $('<span class="info-icon"> ℹ️ </span>');
+    normalisationModeLabel.append(normalisationModeLabelInfo);
+    tippy(normalisationModeLabelInfo[0], {
+      ...deafultTippyOptions,
+      content: `<div class="content"><p>None = No normalisation - the values in the file = metres above sea level.</p>
+<p>Regular = Normalises the height values to use the full range of the output format (e.g. 0-65535 for 16 bit PNG).</p>
+<p>Smart = Like Regular, but excludes outlier height values (usually errors in the data) from the normalisation calculation to give better results for the majority of terrain.</p></div>`,
+    });
   }
   createSubmitButton() {
     this.els.generatedColumn = $('<div class="column content">');
@@ -665,8 +700,17 @@ export default class App {
     this.els.boundsContent = $('<pre class="boundsContent">');
     this.els.generatedColumn.append(this.els.generatorInfo);
     this.els.generatedColumn.append(this.els.boundsInfo.append(this.els.boundsContent));
-    this.els.generate = $('<button class="button is-primary">Generate Heightmap</button>');
-    this.els.generateAlbedo = $('<button class="button is-secondary">Generate Albedo From View</button>');
+    this.els.generate = $('<button class="button is-primary is-large">Generate Heightmap</button>');
+    this.els.generateAlbedo = $('<button class="button is-secondary is-large">Generate Albedo</sup></button>');
+
+    tippy(this.els.generate[0], {
+      ...deafultTippyOptions,
+      content: 'Start the heightmap exporting process. This will export the orange area in the preview as a heightmap.',
+    });
+    tippy(this.els.generateAlbedo[0], {
+      ...deafultTippyOptions,
+      content: 'Use this to export the visible map in the preview. This is good for exporting satellite imagery or textures for texturing your map afterwards.',
+    });
     this.els.inputContainer.append(
       $('<div class="columns">')
       .append(

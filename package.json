@@ -52,6 +52,7 @@
     "leaflet-providers": "^2.0.0",
     "pako": "^2.1.0",
     "throttle-debounce": "^5.0.0",
+    "tippy.js": "^6.3.7",
     "upng-js": "^2.1.0"
   }
 }
