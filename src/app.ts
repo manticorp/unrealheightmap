@@ -17,7 +17,8 @@ import {
   typedArrayToStlDefaults,
   NormRange,
   normMaxRange,
-  ProcessorWorker
+  ProcessorWorker,
+  ProcessorProgressUpdate
 } from './processor';
 
 const worker = new Worker("public/dist/js/processor.js");
@@ -139,6 +140,7 @@ export default class App {
   layer: string  = 'topo';
   listenHashChange: boolean = false;
   doHeightsDebounced: () => void;
+  lastUiYieldTimestamp: number = 0;
   savedKeys : string[] = [
       'latitude',
       'longitude',
@@ -901,7 +903,7 @@ export default class App {
     this.els.generatedColumn.append(this.els.generatorInfo);
     this.els.generatedColumn.append(this.els.boundsInfo.append(this.els.boundsContent));
     this.els.generate = $('<button class="button is-primary is-large">Generate Heightmap</button>');
-    this.els.generateAlbedo = $('<button class="button is-secondary is-large">Generate Albedo</sup></button>');
+    this.els.generateAlbedo = $('<button class="button is-secondary is-large" data-orig-text="Generate Albedo">Generate Albedo</button>');
 
     tippy(this.els.generate[0], {
       ...deafultTippyOptions,
@@ -1455,6 +1457,7 @@ export default class App {
     }, items, 200, 0).then((result : TileLoadState[]) : Promise<void> => {
       return new Promise((resolve, reject)  => {
         this.els.outputText.html('Generating images (should not take much longer)');
+        this.showProcessingProgress('Stitching tiles…', 0);
         setTimeout(() => {
           resolve(this.generateOutput(result));
         },1);
@@ -1664,6 +1667,7 @@ export default class App {
     this.els.generateAlbedo.text('Generating');
     const state = this.getCurrentState();
     this.resetOutput();
+    this.showProcessingProgress('Preparing albedo tiles…', 0);
     const imageFetches = [];
     const items : (ConfigState & TileCoords & {url: string})[] = [];
 
@@ -1687,7 +1691,7 @@ export default class App {
         this.inputs.zoom.val(oldZoom);
         this.map.setZoom(oldZoom);
         this.els.generateAlbedo.prop('disabled', false);
-        this.els.generateAlbedo.text('Generate Albedo from View');
+        this.els.generateAlbedo.text(this.els.generateAlbedo.data('originalText') ?? 'Generate Albedo');
       });
     }, 1000);
   }
@@ -1711,15 +1715,25 @@ export default class App {
       map[tile.x][tile.y] = tile;
       total++;
     }
+    if (total > 0) {
+      this.showProcessingProgress('Stitching albedo tiles (0%)', 0);
+    }
 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext("2d");
     canvas.width  = states[0].width;
     canvas.height = states[0].height;
 
-    const promises = [];
-
-    let i = 0;
+    const promises : Promise<void>[] = [];
+    let completed = 0;
+    const updateDownloadProgress = async () => {
+      completed += 1;
+      const percent = total ? (completed / total) * 100 : 100;
+      const label = total ? `Stitching albedo tiles (${completed}/${total})` : 'Stitching albedo tiles';
+      this.showProcessingProgress(label, percent);
+      this.els.generateAlbedo.text(`Downloaded ${completed}/${Math.max(total, 1)}`);
+      await this.maybeYieldUi();
+    };
     for (let y = extent.y1; y < extent.y2+1; y ++) {
       for (let x = extent.x1; x < extent.x2+1; x ++) {
         const tile = {
@@ -1737,8 +1751,8 @@ export default class App {
         promises.push(new Promise<void>((resolve, reject) => {
           let img = new Image();
           img.crossOrigin = "Anonymous";
-          img.onload = () => {
-            this.els.generateAlbedo.text(`Downloaded ${i++}/${total}`);
+          img.onload = async () => {
+            await updateDownloadProgress();
             const drawAt = {
               x: Math.floor((tile.x - extent.x1) * tileWidth),
               y: Math.floor((tile.y - extent.y1) * tileWidth)
@@ -1748,6 +1762,7 @@ export default class App {
               drawAt.x,
               drawAt.y
             );
+            await this.maybeYieldUi();
             resolve();
           };
           img.onerror = reject;
@@ -1756,18 +1771,25 @@ export default class App {
       }
     }
     return Promise.all(promises)
-    .then(r => {
-      this.els.generateAlbedo.text(`Getting Image Data`);
+    .then(async (r) => {
+      await this.maybeYieldUi();
+      this.els.generateAlbedo.text('Getting Image Data');
+      this.showProcessingProgress('Finalising albedo image…', 100);
+      await this.maybeYieldUi();
       return ctx.getImageData(0, 0, canvas.width, canvas.height);
     }).catch(e => {
       console.error(e);
     });
   }
   async combineUrlsAndDownload(items : (ConfigState  & TileCoords & {url: string})[]) {
-    //@ts-ignore
-    const output = await this.combineImagesSimple(items);
-    if (output) {
-      return this.saveOutputAlbedo(output, items);
+    try {
+      //@ts-ignore
+      const output = await this.combineImagesSimple(items);
+      if (output) {
+        return this.saveOutputAlbedo(output, items);
+      }
+    } finally {
+      this.hideProcessingProgress();
     }
   }
   async saveOutputAlbedo(output : ImageData, states : ConfigState[]) {
@@ -1782,6 +1804,8 @@ export default class App {
     };
     const fn = format('{lat}_{lng}_{zoom}_{w}_{h}_albedo_{layer}.png', formatArgs);
 
+    this.showProcessingProgress('Encoding albedo PNG…', 100);
+    await this.maybeYieldUi(32);
     //@ts-ignore
     const result = UPNG.encode([output.data.buffer], states[0].width, states[0].height, null);
 
@@ -1823,8 +1847,17 @@ export default class App {
     if (this.inputs.normTo.val() !== "") {
       norm.to = parseFloat(this.inputs.normTo.val().toString());
     }
+    const progressHandler = Comlink.proxy((update: ProcessorProgressUpdate) => {
+      this.updateProcessingProgress(update);
+    });
     //@ts-ignore
-    const output = await processor.combineImages(states, this.inputs.smartNormalisationControl.val(), norm) as NormaliseResult<Float32Array>;
+    let output : NormaliseResult<Float32Array>;
+    try {
+      //@ts-ignore
+      output = await processor.combineImages(states, this.inputs.smartNormalisationControl.val(), norm, progressHandler) as NormaliseResult<Float32Array>;
+    } finally {
+      this.hideProcessingProgress();
+    }
     this.displayHeightData(output, states[0]);
     return this.saveOutput(output.data, states);
   }
@@ -2031,6 +2064,7 @@ export default class App {
 
   resetOutput() {
     this.imagesLoaded = [];
+    this.hideProcessingProgress();
     if (!this.els.outputContainer) {
       this.els.messageStack = $('<div class="message-stack">');
 
@@ -2054,6 +2088,53 @@ export default class App {
     this.els.outputText.empty();
     this.els.outputImage.empty();
     this.els.outputError.empty();
+    delete this.els.processingProgressContainer;
+    delete this.els.processingProgressLabel;
+    delete this.els.processingProgressBar;
+  }
+  ensureProcessingProgressElements() {
+    if (this.els.processingProgressContainer && this.els.processingProgressLabel && this.els.processingProgressBar) {
+      return;
+    }
+    const container = $('<div class="processing-progress">').hide();
+    const label = $('<p class="processing-progress__label">');
+    const bar = $('<progress class="progress is-link" max="100" value="0"></progress>') as JQuery<HTMLProgressElement>;
+    container.append(label, bar);
+    this.els.outputText.append(container);
+    this.els.processingProgressContainer = container;
+    this.els.processingProgressLabel = label;
+    this.els.processingProgressBar = bar;
+  }
+  showProcessingProgress(message : string, percent : number = 0) {
+    if (!this.els.outputText) {
+      return;
+    }
+    this.ensureProcessingProgressElements();
+    this.els.processingProgressLabel?.text(message);
+    this.els.processingProgressBar?.attr('value', `${Math.max(0, Math.min(100, percent))}`);
+    this.els.processingProgressContainer?.show();
+  }
+  updateProcessingProgress(update : ProcessorProgressUpdate) {
+    const total = update.total || 1;
+    const percent = Math.max(0, Math.min(100, (update.completed / total) * 100));
+    const phase = update.phase === 'normalise' ? 'Normalising data' : 'Stitching tiles';
+    this.showProcessingProgress(`${phase} (${Math.round(percent)}%)`, percent);
+  }
+  hideProcessingProgress() {
+    this.els.processingProgressContainer?.hide();
+  }
+  async yieldToBrowser() {
+    return new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  }
+  async maybeYieldUi(minIntervalMs: number = 16) {
+    const now = window.performance?.now ? window.performance.now() : Date.now();
+    if (now - this.lastUiYieldTimestamp < minIntervalMs) {
+      return;
+    }
+    this.lastUiYieldTimestamp = now;
+    await this.yieldToBrowser();
   }
   imageLoaded(state : ConfigState) {
     this.imagesLoaded.push(state);

@@ -20,6 +20,14 @@ export type NormaliseResult<T> = {
   maxAfter: number
 };
 
+export type ProcessorProgressPhase = 'stitch' | 'normalise';
+
+export type ProcessorProgressUpdate = {
+  phase: ProcessorProgressPhase;
+  completed: number;
+  total: number;
+};
+
 export type TypedArrayToStlArgs = {
   width : number,
   depth : number,
@@ -174,12 +182,18 @@ const processor = {
   combineImages(
     states : TileLoadState[],
     normaliseMode : number = NormaliseMode.Regular,
-    norm : NormRange = normDefaults
+    norm : NormRange = normDefaults,
+    progress?: (update: ProcessorProgressUpdate) => void
   ) : NormaliseResult<Float32Array> {
     const area = states[0].width * states[0].height;
     let output = new Float32Array(area);
     const tileWidth = 256;
     const increment = 1/tileWidth;
+    const reportProgress = (phase: ProcessorProgressPhase, completed: number, total: number) => {
+      if (typeof progress === 'function') {
+        progress({phase, completed, total});
+      }
+    };
     const map : Record<number, Record<number, TileLoadState>> = {};
     for (let tile of states) {
       if (!map[tile.x]) {
@@ -195,6 +209,9 @@ const processor = {
       y2: states[0].exactPos.y + states[0].heightInTiles/2
     }
 
+    const totalRows = states[0].height || 0;
+    const rowInterval = Math.max(1, Math.floor(totalRows / 50));
+    let processedRows = 0;
     let i = 0;
     for (let y = extent.y1; y < extent.y2; y += increment) {
       for (let x = extent.x1; x < extent.x2; x += increment) {
@@ -215,6 +232,10 @@ const processor = {
           output[i++] = map[tile.x][tile.y].heights[idx];
         }
       }
+      processedRows++;
+      if (processedRows % rowInterval === 0 || processedRows === totalRows) {
+        reportProgress('stitch', processedRows, Math.max(1, totalRows));
+      }
     }
     let result = {
       data: output,
@@ -223,6 +244,7 @@ const processor = {
       minAfter: Math.pow(2, 32),
       maxAfter: 0,
     };
+    reportProgress('normalise', 0, 1);
     if (
       normaliseMode == NormaliseMode.Regular ||
       (
@@ -243,6 +265,7 @@ const processor = {
       result.maxBefore = result.maxAfter;
       result.minBefore = result.minAfter;
     }
+    reportProgress('normalise', 1, 1);
     return result;
   },
   typedArrayToStl(
