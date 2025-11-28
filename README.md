@@ -1,6 +1,8 @@
-# Unreal Engine 16 Bit Grayscale PNG Heightmap Generator
+# 16/32 Bit Grayscale PNG/EXR Heightmap Generator
 
-A browser-based tool for generating high-quality 16-bit grayscale PNG heightmaps from real-world terrain data. Perfect for creating realistic landscapes in Unreal Engine 5 and other game engines or 3D software.
+A browser-based tool for generating high-quality 16-bit grayscale PNG heightmaps or 16/32-bit EXR heightmaps from real-world terrain data.
+
+Perfect for creating realistic landscapes in Unreal Engine 5 and other game engines or 3D software, such as Terrain3d, Godot4 and Blender.
 
 🌐 **Live Website:** [https://manticorp.github.io/unrealheightmap/](https://manticorp.github.io/unrealheightmap/)
 
@@ -12,7 +14,7 @@ We have started hitting the free tier limits from some map services, so the site
 
 ## ✨ Features
 
-- **High-Quality 16-bit Output** - Generate heightmaps with 65,536 levels of detail (vs only 256 in 8-bit)
+- **High-Quality 16/32-bit Output** - Generate heightmaps with 65,536/4,294,967,296 levels of detail (vs only 256 in 8-bit)
 - **Real-World Terrain Data** - Uses high-quality elevation data from [Mapzen's global elevation service](https://www.mapzen.com/blog/elevation/)
 - **Interactive Map Interface** - Visual selection of terrain areas using an intuitive map interface
 - **Multiple Normalisation Modes** - Choose between None, Regular, or Smart normalisation to optimize your heightmap data
@@ -23,7 +25,7 @@ We have started hitting the free tier limits from some map services, so the site
 
 ## 🎯 Use Cases
 
-- Creating realistic terrain for Unreal Engine 5 landscapes
+- Creating realistic terrain for Unreal Engine 5/Blender/Terrain3D landscapes
 - Game development with accurate real-world topography
 - 3D modeling and visualization projects
 - Geographic information system (GIS) applications
@@ -35,7 +37,7 @@ We have started hitting the free tier limits from some map services, so the site
 2. Use the map to navigate to your desired location or enter coordinates manually
 3. Adjust the output zoom and size to define your export area (shown as an orange rectangle)
 4. Select a normalisation mode appropriate for your use case
-5. Click "Generate" to create and download your 16-bit PNG heightmap
+5. Click "Generate" to create and download your heightmap
 
 For detailed instructions, visit the [Documentation](https://manticorp.github.io/unrealheightmap/instructions.html) page.
 
@@ -93,7 +95,7 @@ npm test
 ### Project Structure
 
 ```
-├── src/                    # Source TypeScript and SASS files
+├── src/                   # Source TypeScript and SASS files
 │   ├── app.ts             # Main application logic
 │   ├── main.ts            # Entry point
 │   ├── png.ts             # PNG processing
@@ -132,9 +134,9 @@ An advanced mode that handles data errors and outliers. Uses a 99.9% window to f
 
 ## 📊 Output Format
 
-- **Format:** 16-bit Grayscale PNG
-- **Bit Depth:** 65,536 levels of detail (2^16)
-- **Precision:** Capable of representing Mount Everest (8,849m) in ~13cm intervals
+- **Format:** 16-bit Grayscale PNG, 16-bit EXR or 32-bit EXR
+- **Bit Depth:** 65,536 levels of detail (2^16) or 4,294,967,296 (2^32)
+- **Precision:** Capable of representing Mount Everest (8,849m) in ~13cm intervals (16 bit)
 - **Source Data:** Mapzen elevation data (24-bit precision, ~4mm fidelity)
 
 ## 🤝 Contributing
@@ -169,4 +171,4 @@ If you find this tool useful, please consider supporting the project:
 
 ---
 
-Made with ❤️ for the Unreal Engine and game development community
+Made with ❤️ for the Unreal Engine, 3D and game development community
