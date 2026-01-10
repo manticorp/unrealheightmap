@@ -1,3 +1,35 @@
+
+<div align="right">
+  <details>
+    <summary >🌐 Language</summary>
+    <div>
+      <div align="center">
+        <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=en">English</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=zh-CN">简体中文</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=zh-TW">繁體中文</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=ja">日本語</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=ko">한국어</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=hi">हिन्दी</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=th">ไทย</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=fr">Français</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=de">Deutsch</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=es">Español</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=it">Italiano</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=ru">Русский</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=pt">Português</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=nl">Nederlands</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=pl">Polski</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=ar">العربية</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=fa">فارسی</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=tr">Türkçe</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=vi">Tiếng Việt</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=id">Bahasa Indonesia</a>
+        | <a href="https://openaitx.github.io/view.html?user=manticorp&project=unrealheightmap&lang=as">অসমীয়া</
+      </div>
+    </div>
+  </details>
+</div>
+
 # 16/32 Bit Grayscale PNG/EXR Heightmap Generator
 
 A browser-based tool for generating high-quality 16-bit grayscale PNG heightmaps or 16/32-bit EXR heightmaps from real-world terrain data.
