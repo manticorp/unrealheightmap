@@ -2252,6 +2252,11 @@ export default class App {
           // If this wasn't already a retry, try again with cache busting
           if (!retryWithCacheBust) {
             console.warn('Bad response detected, retrying with cache bust...', error.message);
+            // Remove failed XHR from tracking before retrying
+            const index = currentRequests.indexOf(xhr);
+            if (index > -1) {
+              currentRequests.splice(index, 1);
+            }
             App.getImageAsBuffer(im, true).then(resolve).catch(reject);
           } else {
             // Already retried, give up
