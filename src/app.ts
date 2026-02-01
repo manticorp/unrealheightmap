@@ -2210,17 +2210,56 @@ export default class App {
     }
     return App.getImageAsBuffer(NextZen.getUrl({x,y,z}));
   }
-  static async getImageAsBuffer(im : string) : Promise<ArrayBuffer> {
+  static async getImageAsBuffer(im : string, retryWithCacheBust: boolean = false) : Promise<ArrayBuffer> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       currentRequests.push(xhr);
-      xhr.open("GET", im);
-      // xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-      // xhr.setRequestHeader('Access-Control-Allow-Origin', '*');
+      
+      // Add cache-busting if this is a retry
+      let url = im;
+      if (retryWithCacheBust) {
+        const separator = im.includes('?') ? '&' : '?';
+        url = `${im}${separator}_cb=${Date.now()}`;
+        console.warn(`Retrying image fetch with cache bust: ${url}`);
+      }
+      
+      xhr.open("GET", url);
+      
+      // Add cache-busting headers on retry
+      if (retryWithCacheBust) {
+        xhr.setRequestHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        xhr.setRequestHeader('Pragma', 'no-cache');
+        xhr.setRequestHeader('Expires', '0');
+      }
+      
       xhr.responseType = "arraybuffer";
 
       // xhr.addEventListener('loadstart', handleEvent);
-      xhr.addEventListener('load', () => resolve(xhr.response));
+      xhr.addEventListener('load', () => {
+        // Validate response
+        const isValidResponse = xhr.status === 200 && 
+                               xhr.response && 
+                               xhr.response.byteLength > 0;
+        
+        if (isValidResponse) {
+          resolve(xhr.response);
+        } else {
+          // Bad response detected
+          const error = new Error(
+            `Invalid response: status ${xhr.status}, size ${xhr.response?.byteLength || 0}`
+          );
+          
+          // If this wasn't already a retry, try again with cache busting
+          if (!retryWithCacheBust) {
+            console.warn('Bad response detected, retrying with cache bust...', error.message);
+            App.getImageAsBuffer(im, true).then(resolve).catch(reject);
+          } else {
+            // Already retried, give up
+            console.error('Retry with cache bust also failed', error.message);
+            reject(error);
+          }
+        }
+      });
       // xhr.addEventListener('loadend', handleEvent);
       xhr.addEventListener('progress', (e) => {
         if (e.type === 'error') {
