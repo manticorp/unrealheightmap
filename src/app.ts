@@ -2074,10 +2074,12 @@ export default class App {
     const useUnreal = this.shouldUseUnrealNaming();
     const rowDigits = Math.max(2, tileInfo.totalRows.toString().length);
     const colDigits = Math.max(2, tileInfo.totalColumns.toString().length);
+    const col0 = tileInfo.column - 1;
+    const row0 = tileInfo.row - 1;
     if (useUnreal) {
-      return `_x${this.padNumber(tileInfo.column, colDigits)}_y${this.padNumber(tileInfo.row, rowDigits)}`;
+      return `_x${this.padNumber(col0, colDigits)}_y${this.padNumber(row0, rowDigits)}`;
     }
-    return `_tile_${this.padNumber(tileInfo.row, rowDigits)}_${this.padNumber(tileInfo.column, colDigits)}`;
+    return `_tile_${this.padNumber(row0, rowDigits)}_${this.padNumber(col0, colDigits)}`;
   }
 
   padNumber(value : number, digits : number) : string {
