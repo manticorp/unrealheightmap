@@ -136,6 +136,7 @@ export default class App {
   mapMarker : L.Marker;
   zoom: {in: L.Marker, out: L.Marker} = {in: null, out: null};
   arrows : L.Marker[] = [];
+  shiftHeld: boolean = false;
   boundingRect : L.Rectangle;
   layers: Record<string, {layer:L.TileLayer, label:string}> = {};
   layer: string  = 'topo';
@@ -335,18 +336,19 @@ export default class App {
     this.arrows[3] = L.marker(curLatLng, {icon: arrowIcons.right});
     this.arrows.map(arrow => arrow.addTo(this.map));
     this.arrows.map((arrow, i) => arrow.on('click', () => {
+      const shiftKey = this.shiftHeld;
       switch(i) {
         case 0:
-          this.arrowClick(1, 0);
+          shiftKey ? this.expandArrowClick(1, 0) : this.arrowClick(1, 0);
           break;
         case 1:
-          this.arrowClick(0, -1);
+          shiftKey ? this.expandArrowClick(0, -1) : this.arrowClick(0, -1);
           break;
         case 2:
-          this.arrowClick(-1, 0);
+          shiftKey ? this.expandArrowClick(-1, 0) : this.arrowClick(-1, 0);
           break;
         case 3:
-          this.arrowClick(0, 1);
+          shiftKey ? this.expandArrowClick(0, 1) : this.arrowClick(0, 1);
           break;
       }
     }));
@@ -377,6 +379,10 @@ export default class App {
     }))
     this.resizeMap();
 
+    document.addEventListener('keydown', (e) => { if (e.key === 'Shift') this.shiftHeld = true; });
+    document.addEventListener('keyup', (e) => { if (e.key === 'Shift') this.shiftHeld = false; });
+    window.addEventListener('blur', () => { this.shiftHeld = false; });
+
     this.updatePhysicalDimensions();
     this.showHideCurrentLayer();
     this.doHeightsDebounced();
@@ -402,6 +408,35 @@ export default class App {
       lng: state.longitude + (right * distance[1])
     }
     this.setPositionTo(newLatLng);
+  }
+  expandArrowClick(up: 1|-1|0, right: 1|-1|0) {
+    const state = this.getCurrentState();
+
+    const newWidthInTiles = Math.max(1, state.widthInTiles + Math.abs(right));
+    const newHeightInTiles = Math.max(1, state.heightInTiles + Math.abs(up));
+
+    const newExactPosX = state.exactPos.x + (right * 0.5);
+    const newExactPosY = state.exactPos.y - (up * 0.5);
+
+    const newWidth = Math.round(Math.min(32516, Math.max(1, newWidthInTiles * NextZen.tileWidth)));
+    const newHeight = Math.round(Math.min(32516, Math.max(1, newHeightInTiles * NextZen.tileHeight)));
+
+    const newLatLng = App.getLatLngFromTileCoords(newExactPosX, newExactPosY, state.zoom);
+
+    this.inputs.width.val(newWidth);
+    this.inputs.height.val(newHeight);
+    this.inputs.latitude.val(newLatLng.latitude);
+    this.inputs.longitude.val(newLatLng.longitude);
+
+    this.map.setView([newLatLng.latitude, newLatLng.longitude]);
+    this.mapMarker.setLatLng([newLatLng.latitude, newLatLng.longitude]);
+
+    this.saveLatLngZoomState();
+    this.storeValue('width', this.inputs.width.val().toString());
+    this.storeValue('height', this.inputs.height.val().toString());
+    this.updatePhysicalDimensions();
+    this.updateTileSummary();
+    this.doHeightsDebounced();
   }
   resizeMap() {
     const mapHeight = Math.min(768, Math.max(256, window.innerHeight));
