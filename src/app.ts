@@ -9,6 +9,7 @@ import * as  L from "leaflet";
 import "leaflet-providers";
 import {format, promiseAllInBatches} from "./helpers";
 import tippy from 'tippy.js';
+import JSZip from 'jszip';
 
 import * as Comlink from 'comlink';
 import {
@@ -1454,7 +1455,7 @@ export default class App {
       .catch((e) => {
         this.displayError({text: `Failed to load image at tile x = ${state.x} y = ${state.y} - please try again`});
       });
-    }, items, 200, 0).then((result : TileLoadState[]) : Promise<void> => {
+    }, items, 200, 0).then((result : TileLoadState[]) => {
       return new Promise((resolve, reject)  => {
         this.els.outputText.html('Generating images (should not take much longer)');
         this.showProcessingProgress('Stitching tiles…', 0);
@@ -1491,8 +1492,12 @@ export default class App {
       minAfter: Number.POSITIVE_INFINITY,
       maxAfter: Number.NEGATIVE_INFINITY,
     };
+    const zip = new JSZip();
     for (let i = 0; i < slices.length; i++) {
-      await this.processTileSequential(state, slices[i], i + 1, slices.length, summary);
+      const result = await this.processTileSequential(state, slices[i], i + 1, slices.length, summary);
+      if (result) {
+        zip.file(result.filename, result.blob);
+      }
     }
     if (summary.count > 0) {
       const summaryResult : NormaliseResult<Float32Array> = {
@@ -1503,6 +1508,11 @@ export default class App {
         maxAfter: summary.maxAfter
       };
       this.displayHeightData(summaryResult, state as unknown as TileLoadState);
+      const zipBlob = await zip.generateAsync({type: 'blob'});
+      const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
+      const zipFilename = `${base}_heightmap.zip`;
+      this.download(zipBlob, zipFilename);
+      this.els.outputImage.prepend($('<p>').text(`Saved ${slices.length} tiled files as ${zipFilename}.`));
     }
   }
 
@@ -1515,7 +1525,7 @@ export default class App {
     const workerStates = this.prepareWorkerStates(results);
     const output = await processor.combineImages(workerStates, this.getNormaliseModeValue(), normRange) as NormaliseResult<Float32Array>;
     this.updateStreamingSummary(summary, output);
-    await this.saveChunkResult(output.data, chunkState, sliceInfo);
+    return this.saveChunkResult(output.data, chunkState, sliceInfo);
   }
 
   getNormaliseModeValue() : NormaliseMode {
@@ -1574,9 +1584,9 @@ export default class App {
     const formatSelection = this.inputs.outputformat?.val()?.toString() ?? 'png16';
     if (formatSelection === 'exr16' || formatSelection === 'exr32') {
       const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
-      return this.saveOutputExr(data, state, pixelType, sliceInfo);
+      return this.saveOutputExr(data, state, pixelType, sliceInfo, {skipDownload: true});
     }
-    return this.saveOutputPng(data, state, sliceInfo, {suppressPreview: true});
+    return this.saveOutputPng(data, state, sliceInfo, {suppressPreview: true, skipDownload: true});
   }
 
   buildChunkState(baseState: ConfigState, sliceInfo: TileSliceInfo) : ConfigState {
@@ -1908,17 +1918,24 @@ export default class App {
       return this.saveSingleOutput(output, states);
     }
     const formatSelection = this.inputs.outputformat?.val()?.toString() ?? 'png16';
-    const downloads = slices.map((slice : TileSlice) => {
+    const zip = new JSZip();
+    const encodePromises = slices.map((slice : TileSlice) => {
       const tileState = {...states[0], width: slice.width, height: slice.height};
       if (formatSelection === 'exr16' || formatSelection === 'exr32') {
         const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
-        return this.saveOutputExr(slice.data, tileState, pixelType, slice);
+        return this.saveOutputExr(slice.data, tileState, pixelType, slice, {skipDownload: true});
       }
-      return this.saveOutputPng(slice.data, tileState, slice, {suppressPreview: true});
+      return this.saveOutputPng(slice.data, tileState, slice, {suppressPreview: true, skipDownload: true});
     });
-    return Promise.all(downloads).then(() => {
-      this.els.outputImage.prepend($('<p>').text(`Saved ${slices.length} tiled files.`));
-    });
+    const results = await Promise.all(encodePromises);
+    for (const result of results) {
+      zip.file(result.filename, result.blob);
+    }
+    const zipBlob = await zip.generateAsync({type: 'blob'});
+    const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(states[0]));
+    const zipFilename = `${base}_heightmap.zip`;
+    this.download(zipBlob, zipFilename);
+    this.els.outputImage.prepend($('<p>').text(`Saved ${slices.length} tiled files as ${zipFilename}.`));
   }
 
   sliceOutputIntoTiles(output : Float32Array, state : TileLoadState, config : TileExportConfig) : TileSlice[] {
@@ -1994,7 +2011,7 @@ export default class App {
     return stateOrStates;
   }
 
-  async saveOutputPng(output : Float32Array, stateOrStates : TileLoadState[] | TileLoadState | ConfigState, tileInfo?: TileSlice | TileSliceInfo, options: {suppressPreview?: boolean} = {}) {
+  async saveOutputPng(output : Float32Array, stateOrStates : TileLoadState[] | TileLoadState | ConfigState, tileInfo?: TileSlice | TileSliceInfo, options: {suppressPreview?: boolean, skipDownload?: boolean} = {}) {
     const state = this.getOutputState(stateOrStates);
     const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
     const suffix = this.buildTileSuffix(tileInfo);
@@ -2010,11 +2027,14 @@ export default class App {
       } else {
         this.els.outputImage.append($('<p>').text(`Saved ${fn}`));
       }
-      this.download(blob, fn);
+      if (!options.skipDownload) {
+        this.download(blob, fn);
+      }
+      return {blob, filename: fn};
     });
   }
 
-  async saveOutputExr(output : Float32Array, stateOrStates : TileLoadState[] | TileLoadState | ConfigState, pixelType: ExrPixelType, tileInfo?: TileSlice | TileSliceInfo) {
+  async saveOutputExr(output : Float32Array, stateOrStates : TileLoadState[] | TileLoadState | ConfigState, pixelType: ExrPixelType, tileInfo?: TileSlice | TileSliceInfo, options: {skipDownload?: boolean} = {}) {
     const state = this.getOutputState(stateOrStates);
     const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
     const bitSuffix = pixelType === ExrPixelType.Half ? '16bit' : '32bit';
@@ -2031,8 +2051,10 @@ export default class App {
     const blob = new Blob([safeBuffer], {type: 'application/octet-stream'});
     const bitLabel = pixelType === ExrPixelType.Half ? '16-bit float' : '32-bit float';
     this.els.outputImage.append($('<p>').text(`Saved ${fn} (${bitLabel} OpenEXR).`));
-    this.download(blob, fn);
-    return Promise.resolve();
+    if (!options.skipDownload) {
+      this.download(blob, fn);
+    }
+    return {blob, filename: fn};
   }
 
   download(contents : Blob, fn : string) {
