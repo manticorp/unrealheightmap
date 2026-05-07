@@ -143,6 +143,7 @@ export default class App {
   doHeightsDebounced: () => void;
   lastUiYieldTimestamp: number = 0;
   tileZipEl: JQuery<HTMLLabelElement>;
+  tilePadEl: JQuery<HTMLLabelElement>;
   savedKeys : string[] = [
         'latitude',
         'longitude',
@@ -156,7 +157,8 @@ export default class App {
         'tileheight',
         'tilecountx',
         'tilecounty',
-        'tilezip'
+        'tilezip',
+        'tilepad'
     ];
   constructor({container} : AppArgs) {
     this.container = container;
@@ -787,6 +789,11 @@ export default class App {
       this.storeValue('tilezip', this.tileZipEl.find('input').is(':checked').toString());
     });
 
+    this.tilePadEl = $(`<label class="checkbox"><input type="checkbox"> Pad tile exports</label>`) as JQuery<HTMLLabelElement>;
+    this.tilePadEl.find('input').on('change', () => {
+      this.storeValue('tilepad', this.tilePadEl.find('input').is(':checked').toString());
+    });
+
     this.els.columnsOutputPrimary = $('<div class="columns columns-output columns-output--primary">');
     this.els.columnsOutputSecondary = $('<div class="columns columns-output columns-output--secondary">');
 
@@ -873,6 +880,7 @@ export default class App {
         )
       )
       .append(this.tileZipEl)
+      .append(this.tilePadEl)
       .append($('<p class="tile-zip-note">').text('Large exports may consume significant browser RAM.'));
 
     this.els.columnsOutputSecondary
@@ -954,6 +962,8 @@ export default class App {
         let value = JSON.parse(val) as StoredItemValue;
         if (key === 'tilezip') {
           this.tileZipEl?.find('input').prop('checked', value.data === 'true');
+        } else if (key === 'tilepad') {
+          this.tilePadEl?.find('input').prop('checked', value.data === 'true');
         } else {
           const input = this.inputs[key];
           if (value.data && input) {
@@ -1498,6 +1508,10 @@ export default class App {
     return zipEnabled;
   }
 
+  shouldPadTiles() {
+    return this.tilePadEl?.find('input')?.is(':checked') ?? false;
+  }
+
   async generateStreamedTiles(state: ConfigState, config: TileExportConfig) {
     const slices = this.getTileSliceInfos(state, config);
     if (!slices.length) {
@@ -1511,9 +1525,12 @@ export default class App {
       maxAfter: Number.NEGATIVE_INFINITY,
     };
     const useZip = this.shouldZipTiles(slices.length);
+    const pad = this.shouldPadTiles();
+    const targetTileWidth = pad ? config.tileWidth : undefined;
+    const targetTileHeight = pad ? config.tileHeight : undefined;
     const zip = useZip ? new JSZip() : null;
     for (let i = 0; i < slices.length; i++) {
-      const result = await this.processTileSequential(state, slices[i], i + 1, slices.length, summary, useZip);
+      const result = await this.processTileSequential(state, slices[i], i + 1, slices.length, summary, useZip, targetTileWidth, targetTileHeight);
       if (result && zip) {
         zip.file(result.filename, result.blob);
       }
@@ -1539,7 +1556,7 @@ export default class App {
     }
   }
 
-  async processTileSequential(baseState: ConfigState, sliceInfo: TileSliceInfo, index: number, total: number, summary: StreamingSummary, useZip: boolean) {
+  async processTileSequential(baseState: ConfigState, sliceInfo: TileSliceInfo, index: number, total: number, summary: StreamingSummary, useZip: boolean, targetTileWidth?: number, targetTileHeight?: number) {
     this.els.outputText.html(`Processing tile ${index}/${total} (row ${sliceInfo.row}, col ${sliceInfo.column})`);
     const chunkState = this.buildChunkState(baseState, sliceInfo);
     const items = this.buildTileFetchList(chunkState);
@@ -1548,7 +1565,7 @@ export default class App {
     const workerStates = this.prepareWorkerStates(results);
     const output = await processor.combineImages(workerStates, this.getNormaliseModeValue(), normRange) as NormaliseResult<Float32Array>;
     this.updateStreamingSummary(summary, output);
-    const result = await this.saveChunkResult(output.data, chunkState, sliceInfo, useZip);
+    const result = await this.saveChunkResult(output.data, chunkState, sliceInfo, useZip, targetTileWidth, targetTileHeight);
     if (!useZip && result) {
       this.download(result.blob, result.filename);
     }
@@ -1607,13 +1624,25 @@ export default class App {
     summary.maxAfter = Math.max(summary.maxAfter, output.maxAfter);
   }
 
-  async saveChunkResult(data: Float32Array, state: ConfigState, sliceInfo: TileSliceInfo, useZip: boolean) {
+  async saveChunkResult(data: Float32Array, state: ConfigState, sliceInfo: TileSliceInfo, useZip: boolean, targetWidth?: number, targetHeight?: number) {
     const formatSelection = this.inputs.outputformat?.val()?.toString() ?? 'png16';
+    const pad = this.shouldPadTiles();
+    const finalWidth = (pad && targetWidth) ? targetWidth : sliceInfo.width;
+    const finalHeight = (pad && targetHeight) ? targetHeight : sliceInfo.height;
+    let finalData = data;
+    if (pad && targetWidth && targetHeight && (sliceInfo.width < targetWidth || sliceInfo.height < targetHeight)) {
+      finalData = new Float32Array(targetWidth * targetHeight);
+      for (let y = 0; y < sliceInfo.height; y++) {
+        finalData.set(data.subarray(y * sliceInfo.width, (y + 1) * sliceInfo.width), y * targetWidth);
+      }
+    }
+    const paddedState = {...state, width: finalWidth, height: finalHeight};
+    const paddedSlice = {...sliceInfo, width: finalWidth, height: finalHeight};
     if (formatSelection === 'exr16' || formatSelection === 'exr32') {
       const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
-      return this.saveOutputExr(data, state, pixelType, sliceInfo, {skipDownload: true});
+      return this.saveOutputExr(finalData, paddedState, pixelType, paddedSlice, {skipDownload: true});
     }
-    return this.saveOutputPng(data, state, sliceInfo, {suppressPreview: true, skipDownload: true});
+    return this.saveOutputPng(finalData, paddedState, paddedSlice, {suppressPreview: true, skipDownload: true});
   }
 
   buildChunkState(baseState: ConfigState, sliceInfo: TileSliceInfo) : ConfigState {
@@ -1988,22 +2017,25 @@ export default class App {
     const totalHeight = state.height;
     const stepX = Math.max(1, Math.floor(config.tileWidth));
     const stepY = Math.max(1, Math.floor(config.tileHeight));
+    const pad = this.shouldPadTiles();
     for (let row = 0; row < config.tilesY; row++) {
       const startY = row * stepY;
       if (startY >= totalHeight) {
         break;
       }
-      const tileHeight = Math.min(stepY, totalHeight - startY);
+      const actualTileHeight = Math.min(stepY, totalHeight - startY);
+      const tileHeight = pad ? stepY : actualTileHeight;
       for (let column = 0; column < config.tilesX; column++) {
         const startX = column * stepX;
         if (startX >= totalWidth) {
           break;
         }
-        const tileWidth = Math.min(stepX, totalWidth - startX);
+        const actualTileWidth = Math.min(stepX, totalWidth - startX);
+        const tileWidth = pad ? stepX : actualTileWidth;
         const tileData = new Float32Array(tileWidth * tileHeight);
-        for (let y = 0; y < tileHeight; y++) {
+        for (let y = 0; y < actualTileHeight; y++) {
           const srcStart = (startY + y) * totalWidth + startX;
-          tileData.set(output.subarray(srcStart, srcStart + tileWidth), y * tileWidth);
+          tileData.set(output.subarray(srcStart, srcStart + actualTileWidth), y * tileWidth);
         }
         slices.push({
           data: tileData,
