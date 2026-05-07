@@ -144,6 +144,7 @@ export default class App {
   lastUiYieldTimestamp: number = 0;
   tileZipEl: JQuery<HTMLLabelElement>;
   tilePadEl: JQuery<HTMLLabelElement>;
+  tileUnrealNameEl: JQuery<HTMLLabelElement>;
   savedKeys : string[] = [
         'latitude',
         'longitude',
@@ -158,7 +159,8 @@ export default class App {
         'tilecountx',
         'tilecounty',
         'tilezip',
-        'tilepad'
+        'tilepad',
+        'tileunrealname'
     ];
   constructor({container} : AppArgs) {
     this.container = container;
@@ -794,6 +796,11 @@ export default class App {
       this.storeValue('tilepad', this.tilePadEl.find('input').is(':checked').toString());
     });
 
+    this.tileUnrealNameEl = $(`<label class="checkbox"><input type="checkbox"> Unreal 5.7+ naming</label>`) as JQuery<HTMLLabelElement>;
+    this.tileUnrealNameEl.find('input').on('change', () => {
+      this.storeValue('tileunrealname', this.tileUnrealNameEl.find('input').is(':checked').toString());
+    });
+
     this.els.columnsOutputPrimary = $('<div class="columns columns-output columns-output--primary">');
     this.els.columnsOutputSecondary = $('<div class="columns columns-output columns-output--secondary">');
 
@@ -881,6 +888,7 @@ export default class App {
       )
       .append(this.tileZipEl)
       .append(this.tilePadEl)
+      .append(this.tileUnrealNameEl)
       .append($('<p class="tile-zip-note">').text('Large exports may consume significant browser RAM.'));
 
     this.els.columnsOutputSecondary
@@ -964,6 +972,8 @@ export default class App {
           this.tileZipEl?.find('input').prop('checked', value.data === 'true');
         } else if (key === 'tilepad') {
           this.tilePadEl?.find('input').prop('checked', value.data === 'true');
+        } else if (key === 'tileunrealname') {
+          this.tileUnrealNameEl?.find('input').prop('checked', value.data === 'true');
         } else {
           const input = this.inputs[key];
           if (value.data && input) {
@@ -1512,6 +1522,10 @@ export default class App {
     return this.tilePadEl?.find('input')?.is(':checked') ?? false;
   }
 
+  shouldUseUnrealNaming() {
+    return this.tileUnrealNameEl?.find('input')?.is(':checked') ?? false;
+  }
+
   async generateStreamedTiles(state: ConfigState, config: TileExportConfig) {
     const slices = this.getTileSliceInfos(state, config);
     if (!slices.length) {
@@ -2057,8 +2071,12 @@ export default class App {
     if (!tileInfo) {
       return '';
     }
+    const useUnreal = this.shouldUseUnrealNaming();
     const rowDigits = Math.max(2, tileInfo.totalRows.toString().length);
     const colDigits = Math.max(2, tileInfo.totalColumns.toString().length);
+    if (useUnreal) {
+      return `_x${this.padNumber(tileInfo.column, colDigits)}_y${this.padNumber(tileInfo.row, rowDigits)}`;
+    }
     return `_tile_${this.padNumber(tileInfo.row, rowDigits)}_${this.padNumber(tileInfo.column, colDigits)}`;
   }
 
@@ -2091,7 +2109,9 @@ export default class App {
     const state = this.getOutputState(stateOrStates);
     const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
     const suffix = this.buildTileSuffix(tileInfo);
-    const fn = `${base}_16bit${suffix}.png`;
+    const useUnreal = this.shouldUseUnrealNaming();
+    const formatLabel = useUnreal ? '' : '_16bit';
+    const fn = `${base}${formatLabel}${suffix}.png`;
     return App.encodeToPng([PNG.Float32ArrayToPng16Bit(output)], state.width, state.height, 1, 0, 16).then(a => {
       const blob = new Blob( [ a ] );
       if (!options.suppressPreview) {
