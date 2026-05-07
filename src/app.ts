@@ -142,20 +142,22 @@ export default class App {
   listenHashChange: boolean = false;
   doHeightsDebounced: () => void;
   lastUiYieldTimestamp: number = 0;
+  tileZipEl: JQuery<HTMLLabelElement>;
   savedKeys : string[] = [
-      'latitude',
-      'longitude',
-      'zoom',
-      'outputzoom',
-      'width',
-      'height',
-      'outputformat',
-      'tilemode',
-      'tilewidth',
-      'tileheight',
-      'tilecountx',
-      'tilecounty'
-  ];
+        'latitude',
+        'longitude',
+        'zoom',
+        'outputzoom',
+        'width',
+        'height',
+        'outputformat',
+        'tilemode',
+        'tilewidth',
+        'tileheight',
+        'tilecountx',
+        'tilecounty',
+        'tilezip'
+    ];
   constructor({container} : AppArgs) {
     this.container = container;
     this.meterFormatter = new Intl.NumberFormat(undefined, {style:'unit', unit: 'meter'});
@@ -780,6 +782,11 @@ export default class App {
       value: '1'
     });
 
+    this.tileZipEl = $(`<label class="checkbox"><input type="checkbox"> Zip Exports?</label>`) as JQuery<HTMLLabelElement>;
+    this.tileZipEl.find('input').on('change', () => {
+      this.storeValue('tilezip', this.tileZipEl.find('input').is(':checked').toString());
+    });
+
     this.els.columnsOutputPrimary = $('<div class="columns columns-output columns-output--primary">');
     this.els.columnsOutputSecondary = $('<div class="columns columns-output columns-output--secondary">');
 
@@ -864,7 +871,9 @@ export default class App {
         $('<div class="control">').append(
           $('<div class="select is-fullwidth">').append(this.inputs.tileMode)
         )
-      );
+      )
+      .append(this.tileZipEl)
+      .append($('<p class="tile-zip-note">').text('Large exports may consume significant browser RAM.'));
 
     this.els.columnsOutputSecondary
       .append(tileModeColumn)
@@ -943,9 +952,13 @@ export default class App {
       let val = localStorage.getItem(key);
       if (val) {
         let value = JSON.parse(val) as StoredItemValue;
-        const input = this.inputs[key];
-        if (value.data && input) {
-          input.val(value.data);
+        if (key === 'tilezip') {
+          this.tileZipEl?.find('input').prop('checked', value.data === 'true');
+        } else {
+          const input = this.inputs[key];
+          if (value.data && input) {
+            input.val(value.data);
+          }
         }
       }
     }
@@ -1480,6 +1493,11 @@ export default class App {
     return mode === NormaliseMode.Off || this.hasManualNormRange();
   }
 
+  shouldZipTiles(_tileCount: number) {
+    const zipEnabled = this.tileZipEl?.find('input')?.is(':checked') ?? false;
+    return zipEnabled;
+  }
+
   async generateStreamedTiles(state: ConfigState, config: TileExportConfig) {
     const slices = this.getTileSliceInfos(state, config);
     if (!slices.length) {
@@ -1492,10 +1510,11 @@ export default class App {
       minAfter: Number.POSITIVE_INFINITY,
       maxAfter: Number.NEGATIVE_INFINITY,
     };
-    const zip = new JSZip();
+    const useZip = this.shouldZipTiles(slices.length);
+    const zip = useZip ? new JSZip() : null;
     for (let i = 0; i < slices.length; i++) {
-      const result = await this.processTileSequential(state, slices[i], i + 1, slices.length, summary);
-      if (result) {
+      const result = await this.processTileSequential(state, slices[i], i + 1, slices.length, summary, useZip);
+      if (result && zip) {
         zip.file(result.filename, result.blob);
       }
     }
@@ -1508,15 +1527,19 @@ export default class App {
         maxAfter: summary.maxAfter
       };
       this.displayHeightData(summaryResult, state as unknown as TileLoadState);
-      const zipBlob = await zip.generateAsync({type: 'blob'});
-      const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
-      const zipFilename = `${base}_heightmap.zip`;
-      this.download(zipBlob, zipFilename);
-      this.els.outputImage.prepend($('<p>').text(`Saved ${slices.length} tiled files as ${zipFilename}.`));
+      if (useZip && zip) {
+        const zipBlob = await zip.generateAsync({type: 'blob'});
+        const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
+        const zipFilename = `${base}_heightmap.zip`;
+        this.download(zipBlob, zipFilename);
+        this.els.outputImage.prepend($('<p>').text(`Saved ${slices.length} tiled files as ${zipFilename}.`));
+      } else {
+        this.els.outputImage.prepend($('<p>').text(`Saved ${slices.length} tiled files.`));
+      }
     }
   }
 
-  async processTileSequential(baseState: ConfigState, sliceInfo: TileSliceInfo, index: number, total: number, summary: StreamingSummary) {
+  async processTileSequential(baseState: ConfigState, sliceInfo: TileSliceInfo, index: number, total: number, summary: StreamingSummary, useZip: boolean) {
     this.els.outputText.html(`Processing tile ${index}/${total} (row ${sliceInfo.row}, col ${sliceInfo.column})`);
     const chunkState = this.buildChunkState(baseState, sliceInfo);
     const items = this.buildTileFetchList(chunkState);
@@ -1525,7 +1548,11 @@ export default class App {
     const workerStates = this.prepareWorkerStates(results);
     const output = await processor.combineImages(workerStates, this.getNormaliseModeValue(), normRange) as NormaliseResult<Float32Array>;
     this.updateStreamingSummary(summary, output);
-    return this.saveChunkResult(output.data, chunkState, sliceInfo);
+    const result = await this.saveChunkResult(output.data, chunkState, sliceInfo, useZip);
+    if (!useZip && result) {
+      this.download(result.blob, result.filename);
+    }
+    return result;
   }
 
   getNormaliseModeValue() : NormaliseMode {
@@ -1580,7 +1607,7 @@ export default class App {
     summary.maxAfter = Math.max(summary.maxAfter, output.maxAfter);
   }
 
-  async saveChunkResult(data: Float32Array, state: ConfigState, sliceInfo: TileSliceInfo) {
+  async saveChunkResult(data: Float32Array, state: ConfigState, sliceInfo: TileSliceInfo, useZip: boolean) {
     const formatSelection = this.inputs.outputformat?.val()?.toString() ?? 'png16';
     if (formatSelection === 'exr16' || formatSelection === 'exr32') {
       const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
@@ -1918,24 +1945,41 @@ export default class App {
       return this.saveSingleOutput(output, states);
     }
     const formatSelection = this.inputs.outputformat?.val()?.toString() ?? 'png16';
-    const zip = new JSZip();
-    const encodePromises = slices.map((slice : TileSlice) => {
-      const tileState = {...states[0], width: slice.width, height: slice.height};
-      if (formatSelection === 'exr16' || formatSelection === 'exr32') {
-        const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
-        return this.saveOutputExr(slice.data, tileState, pixelType, slice, {skipDownload: true});
+    const useZip = this.shouldZipTiles(slices.length);
+    if (useZip) {
+      const zip = new JSZip();
+      const encodePromises = slices.map((slice : TileSlice) => {
+        const tileState = {...states[0], width: slice.width, height: slice.height};
+        if (formatSelection === 'exr16' || formatSelection === 'exr32') {
+          const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
+          return this.saveOutputExr(slice.data, tileState, pixelType, slice, {skipDownload: true});
+        }
+        return this.saveOutputPng(slice.data, tileState, slice, {suppressPreview: true, skipDownload: true});
+      });
+      const results = await Promise.all(encodePromises);
+      for (const result of results) {
+        zip.file(result.filename, result.blob);
       }
-      return this.saveOutputPng(slice.data, tileState, slice, {suppressPreview: true, skipDownload: true});
-    });
-    const results = await Promise.all(encodePromises);
-    for (const result of results) {
-      zip.file(result.filename, result.blob);
+      const zipBlob = await zip.generateAsync({type: 'blob'});
+      const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(states[0]));
+      const zipFilename = `${base}_heightmap.zip`;
+      this.download(zipBlob, zipFilename);
+      this.els.outputImage.prepend($('<p>').text(`Saved ${slices.length} tiled files as ${zipFilename}.`));
+    } else {
+      const encodePromises = slices.map((slice : TileSlice) => {
+        const tileState = {...states[0], width: slice.width, height: slice.height};
+        if (formatSelection === 'exr16' || formatSelection === 'exr32') {
+          const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
+          return this.saveOutputExr(slice.data, tileState, pixelType, slice, {skipDownload: true});
+        }
+        return this.saveOutputPng(slice.data, tileState, slice, {suppressPreview: true, skipDownload: true});
+      });
+      const results = await Promise.all(encodePromises);
+      for (const result of results) {
+        this.download(result.blob, result.filename);
+      }
+      this.els.outputImage.prepend($('<p>').text(`Saved ${slices.length} tiled files.`));
     }
-    const zipBlob = await zip.generateAsync({type: 'blob'});
-    const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(states[0]));
-    const zipFilename = `${base}_heightmap.zip`;
-    this.download(zipBlob, zipFilename);
-    this.els.outputImage.prepend($('<p>').text(`Saved ${slices.length} tiled files as ${zipFilename}.`));
   }
 
   sliceOutputIntoTiles(output : Float32Array, state : TileLoadState, config : TileExportConfig) : TileSlice[] {
