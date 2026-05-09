@@ -412,31 +412,16 @@ export default class App {
   expandArrowClick(up: 1|-1|0, right: 1|-1|0) {
     const state = this.getCurrentState();
 
-    const newWidthInTiles = Math.max(1, state.widthInTiles + Math.abs(right));
-    const newHeightInTiles = Math.max(1, state.heightInTiles + Math.abs(up));
-
-    const newExactPosX = state.exactPos.x + (right * 0.5);
-    const newExactPosY = state.exactPos.y - (up * 0.5);
-
-    const newWidth = Math.round(Math.min(32516, Math.max(1, newWidthInTiles * NextZen.tileWidth)));
-    const newHeight = Math.round(Math.min(32516, Math.max(1, newHeightInTiles * NextZen.tileHeight)));
-
-    const newLatLng = App.getLatLngFromTileCoords(newExactPosX, newExactPosY, state.zoom);
+    const newWidth = Math.round(Math.min(32516, Math.max(1, (state.widthInTiles + Math.abs(right)) * NextZen.tileWidth)));
+    const newHeight = Math.round(Math.min(32516, Math.max(1, (state.heightInTiles + Math.abs(up)) * NextZen.tileHeight)));
 
     this.inputs.width.val(newWidth);
     this.inputs.height.val(newHeight);
-    this.inputs.latitude.val(newLatLng.latitude);
-    this.inputs.longitude.val(newLatLng.longitude);
 
-    this.map.setView([newLatLng.latitude, newLatLng.longitude]);
-    this.mapMarker.setLatLng([newLatLng.latitude, newLatLng.longitude]);
-
-    this.saveLatLngZoomState();
     this.storeValue('width', this.inputs.width.val().toString());
     this.storeValue('height', this.inputs.height.val().toString());
     this.updatePhysicalDimensions();
     this.updateTileSummary();
-    this.doHeightsDebounced();
   }
   resizeMap() {
     const mapHeight = Math.min(768, Math.max(256, window.innerHeight));
@@ -487,6 +472,7 @@ export default class App {
       this.els.generatorInfo.html(infoHtml);
     }
     this.updateTileSummary(state);
+    this.els.scaleInfoValues?.html('');
   }
   createOutputZoomControls(curLatLng: L.LatLngExpression) {
     if (!this.map) {
@@ -962,6 +948,18 @@ export default class App {
     this.els.boundsInfo = $('<details class="boundsInfo"><summary>Bounds (click to expand):</summary></details>');
     this.els.boundsContent = $('<pre class="boundsContent">');
     this.els.generatedColumn.append(this.els.generatorInfo);
+    this.els.scaleInfo = $('<div class="scaleInfo" style="font-size: 0.85em; margin-top: 0.5em;">');
+    const scaleInfoLabel = $('<span style="font-weight: 600;">Approx. UE scale:</span> ');
+    const scaleInfoIcon = $('<span class="info-icon"> ℹ️ </span>');
+    tippy(scaleInfoIcon[0], {
+      ...deafultTippyOptions,
+      content: 'This is an approximation based on the current preview. The heightmap generation process will calculate and display the actual scale values.'
+    });
+    scaleInfoLabel.append(scaleInfoIcon);
+    this.els.scaleInfo.append(scaleInfoLabel);
+    this.els.scaleInfoValues = $('<span>');
+    this.els.scaleInfo.append(this.els.scaleInfoValues);
+    this.els.generatedColumn.append(this.els.scaleInfo);
     this.els.generatedColumn.append(this.els.boundsInfo.append(this.els.boundsContent));
     this.els.generate = $('<button class="button is-primary is-large">Generate Heightmap</button>');
     this.els.generateAlbedo = $('<button class="button is-secondary is-large" data-orig-text="Generate Albedo">Generate Albedo</button>');
@@ -1421,6 +1419,7 @@ export default class App {
     const outputZoomLevel = parseInt(this.inputs.outputzoom.val().toString());
     if (outputZoomLevel > 15) {
        this.els.generatorInfo.find('.heights').text('');
+       this.els.scaleInfoValues?.html('');
        return;
     }
     let state = this.getCurrentState(1);
@@ -1476,6 +1475,14 @@ export default class App {
         const fmt = this.meterFormatter;
         const txt = `, Height range: ${fmt.format(output.minBefore)} to ${fmt.format(output.maxBefore)}`;
         this.els.generatorInfo.find('.heights').text(txt);
+        const range = output.maxBefore - output.minBefore;
+        const unrealZscaleFactor = 0.001953125;
+        const zScale = Math.max(0, unrealZscaleFactor * range * 100);
+        const origPixelWidth = parseInt(this.inputs.width.val().toString());
+        const xyScale = Math.max(0, (state.phys.width * 100) / origPixelWidth);
+        this.els.scaleInfoValues.html(
+          `Z <code>${localFormatNumber(zScale, 2)}</code> · XY <code>${localFormatNumber(xyScale, 2)}</code>`
+        );
       });
     }).catch(e => {
       console.error('Failed to load images', e);
