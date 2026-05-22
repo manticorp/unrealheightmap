@@ -9,6 +9,7 @@ import * as  L from "leaflet";
 import "leaflet-providers";
 import {format, promiseAllInBatches} from "./helpers";
 import tippy from 'tippy.js';
+import JSZip from 'jszip';
 
 import * as Comlink from 'comlink';
 import {
@@ -135,26 +136,33 @@ export default class App {
   mapMarker : L.Marker;
   zoom: {in: L.Marker, out: L.Marker} = {in: null, out: null};
   arrows : L.Marker[] = [];
+  shiftHeld: boolean = false;
   boundingRect : L.Rectangle;
   layers: Record<string, {layer:L.TileLayer, label:string}> = {};
   layer: string  = 'topo';
   listenHashChange: boolean = false;
   doHeightsDebounced: () => void;
   lastUiYieldTimestamp: number = 0;
+  tileZipEl: JQuery<HTMLLabelElement>;
+  tilePadEl: JQuery<HTMLLabelElement>;
+  tileUnrealNameEl: JQuery<HTMLLabelElement>;
   savedKeys : string[] = [
-      'latitude',
-      'longitude',
-      'zoom',
-      'outputzoom',
-      'width',
-      'height',
-      'outputformat',
-      'tilemode',
-      'tilewidth',
-      'tileheight',
-      'tilecountx',
-      'tilecounty'
-  ];
+        'latitude',
+        'longitude',
+        'zoom',
+        'outputzoom',
+        'width',
+        'height',
+        'outputformat',
+        'tilemode',
+        'tilewidth',
+        'tileheight',
+        'tilecountx',
+        'tilecounty',
+        'tilezip',
+        'tilepad',
+        'tileunrealname'
+    ];
   constructor({container} : AppArgs) {
     this.container = container;
     this.meterFormatter = new Intl.NumberFormat(undefined, {style:'unit', unit: 'meter'});
@@ -328,18 +336,19 @@ export default class App {
     this.arrows[3] = L.marker(curLatLng, {icon: arrowIcons.right});
     this.arrows.map(arrow => arrow.addTo(this.map));
     this.arrows.map((arrow, i) => arrow.on('click', () => {
+      const shiftKey = this.shiftHeld;
       switch(i) {
         case 0:
-          this.arrowClick(1, 0);
+          shiftKey ? this.expandArrowClick(1, 0) : this.arrowClick(1, 0);
           break;
         case 1:
-          this.arrowClick(0, -1);
+          shiftKey ? this.expandArrowClick(0, -1) : this.arrowClick(0, -1);
           break;
         case 2:
-          this.arrowClick(-1, 0);
+          shiftKey ? this.expandArrowClick(-1, 0) : this.arrowClick(-1, 0);
           break;
         case 3:
-          this.arrowClick(0, 1);
+          shiftKey ? this.expandArrowClick(0, 1) : this.arrowClick(0, 1);
           break;
       }
     }));
@@ -370,6 +379,10 @@ export default class App {
     }))
     this.resizeMap();
 
+    document.addEventListener('keydown', (e) => { if (e.key === 'Shift') this.shiftHeld = true; });
+    document.addEventListener('keyup', (e) => { if (e.key === 'Shift') this.shiftHeld = false; });
+    window.addEventListener('blur', () => { this.shiftHeld = false; });
+
     this.updatePhysicalDimensions();
     this.showHideCurrentLayer();
     this.doHeightsDebounced();
@@ -395,6 +408,20 @@ export default class App {
       lng: state.longitude + (right * distance[1])
     }
     this.setPositionTo(newLatLng);
+  }
+  expandArrowClick(up: 1|-1|0, right: 1|-1|0) {
+    const state = this.getCurrentState();
+
+    const newWidth = Math.round(Math.min(32516, Math.max(1, (state.widthInTiles + Math.abs(right)) * NextZen.tileWidth)));
+    const newHeight = Math.round(Math.min(32516, Math.max(1, (state.heightInTiles + Math.abs(up)) * NextZen.tileHeight)));
+
+    this.inputs.width.val(newWidth);
+    this.inputs.height.val(newHeight);
+
+    this.storeValue('width', this.inputs.width.val().toString());
+    this.storeValue('height', this.inputs.height.val().toString());
+    this.updatePhysicalDimensions();
+    this.updateTileSummary();
   }
   resizeMap() {
     const mapHeight = Math.min(768, Math.max(256, window.innerHeight));
@@ -445,6 +472,7 @@ export default class App {
       this.els.generatorInfo.html(infoHtml);
     }
     this.updateTileSummary(state);
+    this.els.scaleInfoValues?.html('');
   }
   createOutputZoomControls(curLatLng: L.LatLngExpression) {
     if (!this.map) {
@@ -779,6 +807,21 @@ export default class App {
       value: '1'
     });
 
+    this.tileZipEl = $(`<label class="checkbox"><input type="checkbox"> Zip Exports?</label>`) as JQuery<HTMLLabelElement>;
+    this.tileZipEl.find('input').on('change', () => {
+      this.storeValue('tilezip', this.tileZipEl.find('input').is(':checked').toString());
+    });
+
+    this.tilePadEl = $(`<label class="checkbox"><input type="checkbox"> Pad tile exports</label>`) as JQuery<HTMLLabelElement>;
+    this.tilePadEl.find('input').on('change', () => {
+      this.storeValue('tilepad', this.tilePadEl.find('input').is(':checked').toString());
+    });
+
+    this.tileUnrealNameEl = $(`<label class="checkbox"><input type="checkbox"> Unreal 5.7+ naming</label>`) as JQuery<HTMLLabelElement>;
+    this.tileUnrealNameEl.find('input').on('change', () => {
+      this.storeValue('tileunrealname', this.tileUnrealNameEl.find('input').is(':checked').toString());
+    });
+
     this.els.columnsOutputPrimary = $('<div class="columns columns-output columns-output--primary">');
     this.els.columnsOutputSecondary = $('<div class="columns columns-output columns-output--secondary">');
 
@@ -863,7 +906,11 @@ export default class App {
         $('<div class="control">').append(
           $('<div class="select is-fullwidth">').append(this.inputs.tileMode)
         )
-      );
+      )
+      .append(this.tileZipEl)
+      .append(this.tilePadEl)
+      .append(this.tileUnrealNameEl)
+      .append($('<p class="tile-zip-note">').text('Large exports may consume significant browser RAM.'));
 
     this.els.columnsOutputSecondary
       .append(tileModeColumn)
@@ -901,6 +948,18 @@ export default class App {
     this.els.boundsInfo = $('<details class="boundsInfo"><summary>Bounds (click to expand):</summary></details>');
     this.els.boundsContent = $('<pre class="boundsContent">');
     this.els.generatedColumn.append(this.els.generatorInfo);
+    this.els.scaleInfo = $('<div class="scaleInfo" style="font-size: 0.85em; margin-top: 0.5em;">');
+    const scaleInfoLabel = $('<span style="font-weight: 600;">Approx. UE scale:</span> ');
+    const scaleInfoIcon = $('<span class="info-icon"> ℹ️ </span>');
+    tippy(scaleInfoIcon[0], {
+      ...deafultTippyOptions,
+      content: 'This is an approximation based on the current preview. The heightmap generation process will calculate and display the actual scale values.'
+    });
+    scaleInfoLabel.append(scaleInfoIcon);
+    this.els.scaleInfo.append(scaleInfoLabel);
+    this.els.scaleInfoValues = $('<span>');
+    this.els.scaleInfo.append(this.els.scaleInfoValues);
+    this.els.generatedColumn.append(this.els.scaleInfo);
     this.els.generatedColumn.append(this.els.boundsInfo.append(this.els.boundsContent));
     this.els.generate = $('<button class="button is-primary is-large">Generate Heightmap</button>');
     this.els.generateAlbedo = $('<button class="button is-secondary is-large" data-orig-text="Generate Albedo">Generate Albedo</button>');
@@ -942,9 +1001,17 @@ export default class App {
       let val = localStorage.getItem(key);
       if (val) {
         let value = JSON.parse(val) as StoredItemValue;
-        const input = this.inputs[key];
-        if (value.data && input) {
-          input.val(value.data);
+        if (key === 'tilezip') {
+          this.tileZipEl?.find('input').prop('checked', value.data === 'true');
+        } else if (key === 'tilepad') {
+          this.tilePadEl?.find('input').prop('checked', value.data === 'true');
+        } else if (key === 'tileunrealname') {
+          this.tileUnrealNameEl?.find('input').prop('checked', value.data === 'true');
+        } else {
+          const input = this.inputs[key];
+          if (value.data && input) {
+            input.val(value.data);
+          }
         }
       }
     }
@@ -1352,6 +1419,7 @@ export default class App {
     const outputZoomLevel = parseInt(this.inputs.outputzoom.val().toString());
     if (outputZoomLevel > 15) {
        this.els.generatorInfo.find('.heights').text('');
+       this.els.scaleInfoValues?.html('');
        return;
     }
     let state = this.getCurrentState(1);
@@ -1407,6 +1475,14 @@ export default class App {
         const fmt = this.meterFormatter;
         const txt = `, Height range: ${fmt.format(output.minBefore)} to ${fmt.format(output.maxBefore)}`;
         this.els.generatorInfo.find('.heights').text(txt);
+        const range = output.maxBefore - output.minBefore;
+        const unrealZscaleFactor = 0.001953125;
+        const zScale = Math.max(0, unrealZscaleFactor * range * 100);
+        const origPixelWidth = parseInt(this.inputs.width.val().toString());
+        const xyScale = Math.max(0, (state.phys.width * 100) / origPixelWidth);
+        this.els.scaleInfoValues.html(
+          `Z <code>${localFormatNumber(zScale, 2)}</code> · XY <code>${localFormatNumber(xyScale, 2)}</code>`
+        );
       });
     }).catch(e => {
       console.error('Failed to load images', e);
@@ -1454,7 +1530,7 @@ export default class App {
       .catch((e) => {
         this.displayError({text: `Failed to load image at tile x = ${state.x} y = ${state.y} - please try again`});
       });
-    }, items, 200, 0).then((result : TileLoadState[]) : Promise<void> => {
+    }, items, 200, 0).then((result : TileLoadState[]) => {
       return new Promise((resolve, reject)  => {
         this.els.outputText.html('Generating images (should not take much longer)');
         this.showProcessingProgress('Stitching tiles…', 0);
@@ -1479,6 +1555,19 @@ export default class App {
     return mode === NormaliseMode.Off || this.hasManualNormRange();
   }
 
+  shouldZipTiles(_tileCount: number) {
+    const zipEnabled = this.tileZipEl?.find('input')?.is(':checked') ?? false;
+    return zipEnabled;
+  }
+
+  shouldPadTiles() {
+    return this.tilePadEl?.find('input')?.is(':checked') ?? false;
+  }
+
+  shouldUseUnrealNaming() {
+    return this.tileUnrealNameEl?.find('input')?.is(':checked') ?? false;
+  }
+
   async generateStreamedTiles(state: ConfigState, config: TileExportConfig) {
     const slices = this.getTileSliceInfos(state, config);
     if (!slices.length) {
@@ -1491,8 +1580,16 @@ export default class App {
       minAfter: Number.POSITIVE_INFINITY,
       maxAfter: Number.NEGATIVE_INFINITY,
     };
+    const useZip = this.shouldZipTiles(slices.length);
+    const pad = this.shouldPadTiles();
+    const targetTileWidth = pad ? config.tileWidth : undefined;
+    const targetTileHeight = pad ? config.tileHeight : undefined;
+    const zip = useZip ? new JSZip() : null;
     for (let i = 0; i < slices.length; i++) {
-      await this.processTileSequential(state, slices[i], i + 1, slices.length, summary);
+      const result = await this.processTileSequential(state, slices[i], i + 1, slices.length, summary, useZip, targetTileWidth, targetTileHeight);
+      if (result && zip) {
+        zip.file(result.filename, result.blob);
+      }
     }
     if (summary.count > 0) {
       const summaryResult : NormaliseResult<Float32Array> = {
@@ -1503,10 +1600,19 @@ export default class App {
         maxAfter: summary.maxAfter
       };
       this.displayHeightData(summaryResult, state as unknown as TileLoadState);
+      if (useZip && zip) {
+        const zipBlob = await zip.generateAsync({type: 'blob'});
+        const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
+        const zipFilename = `${base}_heightmap.zip`;
+        this.download(zipBlob, zipFilename);
+        this.els.outputImage.prepend($('<p>').text(`Saved ${slices.length} tiled files as ${zipFilename}.`));
+      } else {
+        this.els.outputImage.prepend($('<p>').text(`Saved ${slices.length} tiled files.`));
+      }
     }
   }
 
-  async processTileSequential(baseState: ConfigState, sliceInfo: TileSliceInfo, index: number, total: number, summary: StreamingSummary) {
+  async processTileSequential(baseState: ConfigState, sliceInfo: TileSliceInfo, index: number, total: number, summary: StreamingSummary, useZip: boolean, targetTileWidth?: number, targetTileHeight?: number) {
     this.els.outputText.html(`Processing tile ${index}/${total} (row ${sliceInfo.row}, col ${sliceInfo.column})`);
     const chunkState = this.buildChunkState(baseState, sliceInfo);
     const items = this.buildTileFetchList(chunkState);
@@ -1515,7 +1621,11 @@ export default class App {
     const workerStates = this.prepareWorkerStates(results);
     const output = await processor.combineImages(workerStates, this.getNormaliseModeValue(), normRange) as NormaliseResult<Float32Array>;
     this.updateStreamingSummary(summary, output);
-    await this.saveChunkResult(output.data, chunkState, sliceInfo);
+    const result = await this.saveChunkResult(output.data, chunkState, sliceInfo, useZip, targetTileWidth, targetTileHeight);
+    if (!useZip && result) {
+      this.download(result.blob, result.filename);
+    }
+    return result;
   }
 
   getNormaliseModeValue() : NormaliseMode {
@@ -1570,13 +1680,25 @@ export default class App {
     summary.maxAfter = Math.max(summary.maxAfter, output.maxAfter);
   }
 
-  async saveChunkResult(data: Float32Array, state: ConfigState, sliceInfo: TileSliceInfo) {
+  async saveChunkResult(data: Float32Array, state: ConfigState, sliceInfo: TileSliceInfo, useZip: boolean, targetWidth?: number, targetHeight?: number) {
     const formatSelection = this.inputs.outputformat?.val()?.toString() ?? 'png16';
+    const pad = this.shouldPadTiles();
+    const finalWidth = (pad && targetWidth) ? targetWidth : sliceInfo.width;
+    const finalHeight = (pad && targetHeight) ? targetHeight : sliceInfo.height;
+    let finalData = data;
+    if (pad && targetWidth && targetHeight && (sliceInfo.width < targetWidth || sliceInfo.height < targetHeight)) {
+      finalData = new Float32Array(targetWidth * targetHeight);
+      for (let y = 0; y < sliceInfo.height; y++) {
+        finalData.set(data.subarray(y * sliceInfo.width, (y + 1) * sliceInfo.width), y * targetWidth);
+      }
+    }
+    const paddedState = {...state, width: finalWidth, height: finalHeight};
+    const paddedSlice = {...sliceInfo, width: finalWidth, height: finalHeight};
     if (formatSelection === 'exr16' || formatSelection === 'exr32') {
       const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
-      return this.saveOutputExr(data, state, pixelType, sliceInfo);
+      return this.saveOutputExr(finalData, paddedState, pixelType, paddedSlice, {skipDownload: true});
     }
-    return this.saveOutputPng(data, state, sliceInfo, {suppressPreview: true});
+    return this.saveOutputPng(finalData, paddedState, paddedSlice, {suppressPreview: true, skipDownload: true});
   }
 
   buildChunkState(baseState: ConfigState, sliceInfo: TileSliceInfo) : ConfigState {
@@ -1908,17 +2030,41 @@ export default class App {
       return this.saveSingleOutput(output, states);
     }
     const formatSelection = this.inputs.outputformat?.val()?.toString() ?? 'png16';
-    const downloads = slices.map((slice : TileSlice) => {
-      const tileState = {...states[0], width: slice.width, height: slice.height};
-      if (formatSelection === 'exr16' || formatSelection === 'exr32') {
-        const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
-        return this.saveOutputExr(slice.data, tileState, pixelType, slice);
+    const useZip = this.shouldZipTiles(slices.length);
+    if (useZip) {
+      const zip = new JSZip();
+      const encodePromises = slices.map((slice : TileSlice) => {
+        const tileState = {...states[0], width: slice.width, height: slice.height};
+        if (formatSelection === 'exr16' || formatSelection === 'exr32') {
+          const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
+          return this.saveOutputExr(slice.data, tileState, pixelType, slice, {skipDownload: true});
+        }
+        return this.saveOutputPng(slice.data, tileState, slice, {suppressPreview: true, skipDownload: true});
+      });
+      const results = await Promise.all(encodePromises);
+      for (const result of results) {
+        zip.file(result.filename, result.blob);
       }
-      return this.saveOutputPng(slice.data, tileState, slice, {suppressPreview: true});
-    });
-    return Promise.all(downloads).then(() => {
+      const zipBlob = await zip.generateAsync({type: 'blob'});
+      const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(states[0]));
+      const zipFilename = `${base}_heightmap.zip`;
+      this.download(zipBlob, zipFilename);
+      this.els.outputImage.prepend($('<p>').text(`Saved ${slices.length} tiled files as ${zipFilename}.`));
+    } else {
+      const encodePromises = slices.map((slice : TileSlice) => {
+        const tileState = {...states[0], width: slice.width, height: slice.height};
+        if (formatSelection === 'exr16' || formatSelection === 'exr32') {
+          const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
+          return this.saveOutputExr(slice.data, tileState, pixelType, slice, {skipDownload: true});
+        }
+        return this.saveOutputPng(slice.data, tileState, slice, {suppressPreview: true, skipDownload: true});
+      });
+      const results = await Promise.all(encodePromises);
+      for (const result of results) {
+        this.download(result.blob, result.filename);
+      }
       this.els.outputImage.prepend($('<p>').text(`Saved ${slices.length} tiled files.`));
-    });
+    }
   }
 
   sliceOutputIntoTiles(output : Float32Array, state : TileLoadState, config : TileExportConfig) : TileSlice[] {
@@ -1927,22 +2073,25 @@ export default class App {
     const totalHeight = state.height;
     const stepX = Math.max(1, Math.floor(config.tileWidth));
     const stepY = Math.max(1, Math.floor(config.tileHeight));
+    const pad = this.shouldPadTiles();
     for (let row = 0; row < config.tilesY; row++) {
       const startY = row * stepY;
       if (startY >= totalHeight) {
         break;
       }
-      const tileHeight = Math.min(stepY, totalHeight - startY);
+      const actualTileHeight = Math.min(stepY, totalHeight - startY);
+      const tileHeight = pad ? stepY : actualTileHeight;
       for (let column = 0; column < config.tilesX; column++) {
         const startX = column * stepX;
         if (startX >= totalWidth) {
           break;
         }
-        const tileWidth = Math.min(stepX, totalWidth - startX);
+        const actualTileWidth = Math.min(stepX, totalWidth - startX);
+        const tileWidth = pad ? stepX : actualTileWidth;
         const tileData = new Float32Array(tileWidth * tileHeight);
-        for (let y = 0; y < tileHeight; y++) {
+        for (let y = 0; y < actualTileHeight; y++) {
           const srcStart = (startY + y) * totalWidth + startX;
-          tileData.set(output.subarray(srcStart, srcStart + tileWidth), y * tileWidth);
+          tileData.set(output.subarray(srcStart, srcStart + actualTileWidth), y * tileWidth);
         }
         slices.push({
           data: tileData,
@@ -1964,9 +2113,15 @@ export default class App {
     if (!tileInfo) {
       return '';
     }
+    const useUnreal = this.shouldUseUnrealNaming();
     const rowDigits = Math.max(2, tileInfo.totalRows.toString().length);
     const colDigits = Math.max(2, tileInfo.totalColumns.toString().length);
-    return `_tile_${this.padNumber(tileInfo.row, rowDigits)}_${this.padNumber(tileInfo.column, colDigits)}`;
+    const col0 = tileInfo.column - 1;
+    const row0 = tileInfo.row - 1;
+    if (useUnreal) {
+      return `_x${this.padNumber(col0, colDigits)}_y${this.padNumber(row0, rowDigits)}`;
+    }
+    return `_tile_${this.padNumber(row0, rowDigits)}_${this.padNumber(col0, colDigits)}`;
   }
 
   padNumber(value : number, digits : number) : string {
@@ -1994,11 +2149,13 @@ export default class App {
     return stateOrStates;
   }
 
-  async saveOutputPng(output : Float32Array, stateOrStates : TileLoadState[] | TileLoadState | ConfigState, tileInfo?: TileSlice | TileSliceInfo, options: {suppressPreview?: boolean} = {}) {
+  async saveOutputPng(output : Float32Array, stateOrStates : TileLoadState[] | TileLoadState | ConfigState, tileInfo?: TileSlice | TileSliceInfo, options: {suppressPreview?: boolean, skipDownload?: boolean} = {}) {
     const state = this.getOutputState(stateOrStates);
     const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
     const suffix = this.buildTileSuffix(tileInfo);
-    const fn = `${base}_16bit${suffix}.png`;
+    const useUnreal = this.shouldUseUnrealNaming();
+    const formatLabel = useUnreal ? '' : '_16bit';
+    const fn = `${base}${formatLabel}${suffix}.png`;
     return App.encodeToPng([PNG.Float32ArrayToPng16Bit(output)], state.width, state.height, 1, 0, 16).then(a => {
       const blob = new Blob( [ a ] );
       if (!options.suppressPreview) {
@@ -2010,11 +2167,14 @@ export default class App {
       } else {
         this.els.outputImage.append($('<p>').text(`Saved ${fn}`));
       }
-      this.download(blob, fn);
+      if (!options.skipDownload) {
+        this.download(blob, fn);
+      }
+      return {blob, filename: fn};
     });
   }
 
-  async saveOutputExr(output : Float32Array, stateOrStates : TileLoadState[] | TileLoadState | ConfigState, pixelType: ExrPixelType, tileInfo?: TileSlice | TileSliceInfo) {
+  async saveOutputExr(output : Float32Array, stateOrStates : TileLoadState[] | TileLoadState | ConfigState, pixelType: ExrPixelType, tileInfo?: TileSlice | TileSliceInfo, options: {skipDownload?: boolean} = {}) {
     const state = this.getOutputState(stateOrStates);
     const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
     const bitSuffix = pixelType === ExrPixelType.Half ? '16bit' : '32bit';
@@ -2031,8 +2191,10 @@ export default class App {
     const blob = new Blob([safeBuffer], {type: 'application/octet-stream'});
     const bitLabel = pixelType === ExrPixelType.Half ? '16-bit float' : '32-bit float';
     this.els.outputImage.append($('<p>').text(`Saved ${fn} (${bitLabel} OpenEXR).`));
-    this.download(blob, fn);
-    return Promise.resolve();
+    if (!options.skipDownload) {
+      this.download(blob, fn);
+    }
+    return {blob, filename: fn};
   }
 
   download(contents : Blob, fn : string) {
