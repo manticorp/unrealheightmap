@@ -1274,6 +1274,9 @@ export default class App {
         this.insertValuesFromUrlHash();
         this.listenHashChange = false;
         this.setMapViewFromInputs();
+        // The map may not move (e.g. only output zoom/size changed), so refresh the readouts explicitly
+        this.updatePhysicalDimensions();
+        this.updateTileSummary();
         this.listenHashChange = true;
       }
     }));
@@ -1668,6 +1671,9 @@ export default class App {
       const result = await this.processTileSequential(state, slices[i], i + 1, slices.length, summary, useZip, targetTileWidth, targetTileHeight);
       if (result && zip) {
         zip.file(result.filename, result.blob);
+        for (const geo of result.georef) {
+          zip.file(geo.filename, geo.blob);
+        }
       }
     }
     if (summary.count > 0) {
@@ -1701,10 +1707,15 @@ export default class App {
     const output = await processor.combineImages(workerStates, this.getNormaliseModeValue(), normRange) as NormaliseResult<Float32Array>;
     this.updateStreamingSummary(summary, output);
     const result = await this.saveChunkResult(output.data, chunkState, sliceInfo, useZip, targetTileWidth, targetTileHeight);
-    if (!useZip && result) {
-      this.download(result.blob, result.filename);
+    if (!result) {
+      return null;
     }
-    return result;
+    const georef = this.buildGeoreferenceFiles(chunkState, result.filename);
+    if (!useZip) {
+      this.download(result.blob, result.filename);
+      this.appendGeoreferenceLinks(georef);
+    }
+    return {...result, georef};
   }
 
   getNormaliseModeValue() : NormaliseMode {
@@ -2018,7 +2029,9 @@ export default class App {
     img.onload = e => URL.revokeObjectURL( url );
 
     this.els.outputImage.append(img);
-    return this.download(blob, fn);
+    const downloaded = this.download(blob, fn);
+    this.appendGeoreferenceLinks(this.buildGeoreferenceFiles(s, fn));
+    return downloaded;
   }
   displayError(message : {text: string}) {
     trackEvent('error');
@@ -2098,11 +2111,15 @@ export default class App {
 
   async saveSingleOutput(output : Float32Array, states : TileLoadState[]) {
     const formatSelection = this.inputs.outputformat?.val()?.toString() ?? 'png16';
+    let result : {blob: Blob, filename: string};
     if (formatSelection === 'exr16' || formatSelection === 'exr32') {
       const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
-      return this.saveOutputExr(output, states, pixelType);
+      result = await this.saveOutputExr(output, states, pixelType);
+    } else {
+      result = await this.saveOutputPng(output, states);
     }
-    return this.saveOutputPng(output, states);
+    this.appendGeoreferenceLinks(this.buildGeoreferenceFiles(states[0], result.filename));
+    return result;
   }
 
   async saveTiledOutputs(output : Float32Array, states : TileLoadState[], config: TileExportConfig) {
@@ -2123,9 +2140,12 @@ export default class App {
         return this.saveOutputPng(slice.data, tileState, slice, {suppressPreview: true, skipDownload: true});
       });
       const results = await Promise.all(encodePromises);
-      for (const result of results) {
+      results.forEach((result, i) => {
         zip.file(result.filename, result.blob);
-      }
+        for (const geo of this.buildGeoreferenceFiles(states[0], result.filename, slices[i].startX, slices[i].startY)) {
+          zip.file(geo.filename, geo.blob);
+        }
+      });
       const zipBlob = await zip.generateAsync({type: 'blob'});
       const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(states[0]));
       const zipFilename = `${base}_heightmap.zip`;
@@ -2141,9 +2161,12 @@ export default class App {
         return this.saveOutputPng(slice.data, tileState, slice, {suppressPreview: true, skipDownload: true});
       });
       const results = await Promise.all(encodePromises);
-      for (const result of results) {
+      const geoFiles : {filename: string, blob: Blob}[] = [];
+      results.forEach((result, i) => {
         this.download(result.blob, result.filename);
-      }
+        geoFiles.push(...this.buildGeoreferenceFiles(states[0], result.filename, slices[i].startX, slices[i].startY));
+      });
+      this.appendGeoreferenceLinks(geoFiles);
       this.els.outputImage.prepend($('<p>').text(`Saved ${slices.length} tiled files.`));
     }
   }
@@ -2276,6 +2299,56 @@ export default class App {
       this.download(blob, fn);
     }
     return {blob, filename: fn};
+  }
+
+  // ESRI WKT for EPSG:3857, so GIS tools (QGIS etc.) pick up the CRS automatically.
+  static readonly EPSG3857_PRJ = 'PROJCS["WGS_1984_Web_Mercator_Auxiliary_Sphere",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Mercator_Auxiliary_Sphere"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",0.0],PARAMETER["Standard_Parallel_1",0.0],PARAMETER["Auxiliary_Sphere_Type",0.0],UNIT["Meter",1.0]]';
+
+  /**
+   * Build a world file (.pgw/.wld) and .prj for an export, georeferencing it in EPSG:3857.
+   * The extent is derived from the exact slippy-map tile coordinates the image was stitched from;
+   * one output pixel is 1/256 of a tile at state.z. startX/startY offset into the image for tiles.
+   */
+  buildGeoreferenceFiles(state : ConfigState, imageFilename : string, startX : number = 0, startY : number = 0) : {filename: string, blob: Blob}[] {
+    const earthCircumference = 2 * Math.PI * 6378137;
+    const originShift = earthCircumference / 2;
+    const tileSizeMetres = earthCircumference / Math.pow(2, state.z);
+    const pixelSize = tileSizeMetres / NextZen.tileWidth;
+    const leftTileX = state.exactPos.x - state.widthInTiles / 2;
+    const topTileY = state.exactPos.y - state.heightInTiles / 2;
+    const left = leftTileX * tileSizeMetres - originShift + startX * pixelSize;
+    const top = originShift - topTileY * tileSizeMetres - startY * pixelSize;
+    // World file: x pixel size, rotation terms, negative y pixel size, then the centre of the top-left pixel.
+    const worldFile = [
+      pixelSize,
+      0,
+      0,
+      -pixelSize,
+      left + pixelSize / 2,
+      top - pixelSize / 2,
+    ].map(v => v.toFixed(10)).join('\n') + '\n';
+    const base = imageFilename.replace(/\.[^.]+$/, '');
+    const ext = imageFilename.split('.').pop()?.toLowerCase();
+    const worldExt = ext === 'png' ? 'pgw' : 'wld';
+    return [
+      {filename: `${base}.${worldExt}`, blob: new Blob([worldFile], {type: 'text/plain'})},
+      {filename: `${base}.prj`, blob: new Blob([App.EPSG3857_PRJ], {type: 'text/plain'})},
+    ];
+  }
+
+  /** Show download links for georeferencing files (links rather than auto-downloads, to avoid multi-download prompts). */
+  appendGeoreferenceLinks(files : {filename: string, blob: Blob}[]) {
+    const p = $('<p class="georefLinks">').text('Georeferencing (EPSG:3857) for QGIS/GIS: ');
+    files.forEach((file, i) => {
+      if (i > 0) p.append(' · ');
+      const link = $('<a href="#">').text(file.filename);
+      link.on('click', (e) => {
+        e.preventDefault();
+        this.download(file.blob, file.filename);
+      });
+      p.append(link);
+    });
+    this.els.outputImage.append(p);
   }
 
   download(contents : Blob, fn : string) {
