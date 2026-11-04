@@ -54,6 +54,10 @@ We have started hitting the free tier limits from some map services, so the site
 - **Browser-Based** - No installation required, works entirely in your web browser
 - **Real-Time Preview** - See the area you're exporting with an overlay on the map
 - **Copy & Paste Coordinates** - Support for multiple coordinate formats including DMS and decimal degrees
+- **Place Search** - Find mountains, valleys and towns by name, or type coordinates
+- **Shareable Links** - The URL holds your location and export settings; copy it to share or bookmark an exact export
+- **Water Handling** - Flatten everything below a water level and export a water mask
+- **Extra Texture Maps** - Normal map (DirectX or OpenGL), slope, curvature and height-band masks for landscape materials and layer weightmaps
 
 ## 🎯 Use Cases
 

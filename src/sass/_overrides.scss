@@ -158,3 +158,76 @@
   color: $grey-light;
 }
 
+
+.extra-maps-note {
+  font-size: 0.85rem;
+  color: $grey-lighter;
+}
+
+.search-row {
+  margin-bottom: 0;
+  align-items: flex-start;
+}
+
+.place-search {
+  position: relative;
+
+  .icon.is-left {
+    font-size: 0.9rem;
+  }
+
+  &__results {
+    position: absolute;
+    z-index: 1100; // above Leaflet panes and controls
+    top: 2.6rem;
+    left: 0;
+    right: 0;
+    margin: 0;
+    padding: 0.25rem 0;
+    list-style: none;
+    background: $grey-dark;
+    border: 1px solid $grey;
+    border-radius: $radius;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.4);
+    max-height: 20rem;
+    overflow-y: auto;
+  }
+
+  &__item {
+    padding: 0.4rem 0.75rem;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+
+    &:hover,
+    &.is-active {
+      background: $grey;
+    }
+  }
+
+  &__label {
+    color: $grey-lighter;
+  }
+
+  &__detail {
+    font-size: 0.8rem;
+    color: $grey-light;
+  }
+
+  &__message {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.85rem;
+    color: $grey-light;
+  }
+
+  &__credit {
+    margin-top: 0.25rem;
+    font-size: 0.7rem;
+    color: $grey-light;
+
+    a {
+      color: $grey-light;
+      text-decoration: underline;
+    }
+  }
+}

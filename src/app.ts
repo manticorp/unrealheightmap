@@ -11,6 +11,9 @@ import {format, promiseAllInBatches} from "./helpers";
 import {trackEvent, trackControl} from "./analytics";
 import tippy from 'tippy.js';
 import JSZip from 'jszip';
+import {SETTINGS, SettingKey, SettingValues, buildHash, parseHash} from "./url-state";
+import {DerivedMap, DerivedMapOptions, NormalMapConvention, ProcessOptions, parseHeightBands, wantsDerivedMaps} from "./derived-maps";
+import {PlaceSearch} from "./place-search";
 
 import * as Comlink from 'comlink';
 import {
@@ -141,30 +144,13 @@ export default class App {
   boundingRect : L.Rectangle;
   layers: Record<string, {layer:L.TileLayer, label:string}> = {};
   layer: string  = 'topo';
-  listenHashChange: boolean = false;
   lastWrittenHash: string = '';
   doHeightsDebounced: () => void;
   lastUiYieldTimestamp: number = 0;
   tileZipEl: JQuery<HTMLLabelElement>;
   tilePadEl: JQuery<HTMLLabelElement>;
   tileUnrealNameEl: JQuery<HTMLLabelElement>;
-  savedKeys : string[] = [
-        'latitude',
-        'longitude',
-        'zoom',
-        'outputzoom',
-        'width',
-        'height',
-        'outputformat',
-        'tilemode',
-        'tilewidth',
-        'tileheight',
-        'tilecountx',
-        'tilecounty',
-        'tilezip',
-        'tilepad',
-        'tileunrealname'
-    ];
+  placeSearch: PlaceSearch;
   constructor({container} : AppArgs) {
     this.container = container;
     this.meterFormatter = new Intl.NumberFormat(undefined, {style:'unit', unit: 'meter'});
@@ -173,7 +159,7 @@ export default class App {
     this.insertSavedValues();
     this.createMap();
     this.hookControls();
-    this.listenHashChange = true;
+    this.writeHash();
   }
   createAppElements() {
     this.els.container = $(this.container);
@@ -181,9 +167,59 @@ export default class App {
     this.els.container.append(this.els.inputContainer);
 
     this.createSubmitButton();
+    this.createSearchBar();
     this.createInputOptions();
     this.createOutputOptions();
+    this.createExtraOutputOptions();
     this.resetOutput();
+  }
+  createSearchBar() {
+    this.els.searchRow = $('<div class="columns search-row">');
+    const searchColumn = $('<div class="column field">')
+      .append(App.createLabel('Search for a place', {for: 'place-search'}));
+    this.placeSearch = new PlaceSearch({
+      onSelect: (place) => {
+        trackEvent('search/select');
+        if (place.bounds) {
+          this.map.fitBounds(place.bounds, {maxZoom: 14});
+        } else {
+          this.map.setView(place.center, Math.max(this.map.getZoom(), 11));
+        }
+        this.setPositionTo(this.map.getCenter());
+      },
+      parseCoordinates: (text) => {
+        const latLng = this.getLatLngFromText(text);
+        return latLng ? {lat: latLng.latitude, lng: latLng.longitude} : null;
+      },
+    });
+    searchColumn.append(this.placeSearch.el);
+
+    this.els.copyLink = $('<button class="button" type="button">Copy share link</button>');
+    tippy(this.els.copyLink[0], {
+      ...deafultTippyOptions,
+      content: 'Copies a link to this exact location and export settings. The address bar also stays up to date, so you can bookmark it.',
+    });
+    this.els.copyLink.on('click', () => this.copyShareLink());
+    const copyColumn = $('<div class="column is-narrow field">')
+      .append($('<label class="label">&nbsp;</label>'))
+      .append($('<div class="control">').append(this.els.copyLink));
+
+    this.els.searchRow.append(searchColumn).append(copyColumn);
+    this.els.inputContainer.append(this.els.searchRow);
+  }
+  async copyShareLink() {
+    this.writeHash();
+    trackEvent('share/copy-link');
+    const url = location.href;
+    const original = 'Copy share link';
+    try {
+      await navigator.clipboard.writeText(url);
+      this.els.copyLink.text('Link copied!');
+    } catch (e) {
+      // Clipboard can be blocked (e.g. non-secure context): fall back to a prompt
+      window.prompt('Copy this link:', url);
+    }
+    setTimeout(() => this.els.copyLink.text(original), 2000);
   }
   showHideCurrentLayer() {
     this.layer = this.inputs.maptype.val().toString();
@@ -955,7 +991,6 @@ export default class App {
 
     const normalisationModeLabel = $('<label class="label">Norm. Mode</label>');
     this.els.smartNormalisationControl.prepend(normalisationModeLabel);
-    console.log(normalisationModeLabel);
     const normalisationModeLabelInfo = $('<span class="info-icon"> ℹ️ </span>');
     normalisationModeLabel.append(normalisationModeLabelInfo);
     tippy(normalisationModeLabelInfo[0], {
@@ -964,6 +999,139 @@ export default class App {
 <p>Regular = Normalises the height values to use the full range of the output format (e.g. 0-65535 for 16 bit PNG).</p>
 <p>Smart = Like Regular, but excludes outlier height values (usually errors in the data) from the normalisation calculation to give better results for the majority of terrain.</p></div>`,
     });
+  }
+  static createCheckbox(label : string, name : string) : {label: JQuery<HTMLLabelElement>, input: JQuery<HTMLInputElement>} {
+    const el = $(`<label class="checkbox"><input type="checkbox" name="${name}"> </label>`) as JQuery<HTMLLabelElement>;
+    el.append(document.createTextNode(label));
+    return {label: el, input: el.find('input') as JQuery<HTMLInputElement>};
+  }
+  static withInfo(label : JQuery<HTMLElement>, content : string) : JQuery<HTMLElement> {
+    const info = $('<span class="info-icon"> ℹ️ </span>');
+    label.append(info);
+    tippy(info[0], {...deafultTippyOptions, content});
+    return label;
+  }
+  createExtraOutputOptions() {
+    this.inputs.waterLevel = App.createInput({
+      name: 'waterlevel',
+      type: 'number',
+      step: '0.1',
+      value: '0',
+    });
+    const flatten = App.createCheckbox('Flatten below water level', 'flattenwater');
+    const waterMask = App.createCheckbox('Water mask', 'watermask');
+    this.inputs.flattenWater = flatten.input;
+    this.inputs.waterMask = waterMask.input;
+
+    this.inputs.normalMap = $(`<select name="normalmap">
+      <option value="off" selected>Off</option>
+      <option value="directx">DirectX (Unreal)</option>
+      <option value="opengl">OpenGL (Godot, Blender, Unity)</option>
+    </select>`) as JQuery<HTMLSelectElement>;
+    const slope = App.createCheckbox('Slope', 'slopemap');
+    const curvature = App.createCheckbox('Curvature', 'curvaturemap');
+    this.inputs.slopeMap = slope.input;
+    this.inputs.curvatureMap = curvature.input;
+
+    this.inputs.heightBands = App.createInput({
+      name: 'heightbands',
+      type: 'text',
+      placeholder: 'e.g. 500, 1500',
+    });
+
+    App.withInfo(flatten.label, 'Raises everything below the water level up to it. Sea beds otherwise eat a large part of the height range, leaving less precision for the land. Applied before normalisation, so the Z scale shown afterwards accounts for it.');
+    App.withInfo(waterMask.label, 'Exports a black and white PNG that is white wherever the terrain is at or below the water level. Good for placing a water plane or painting a shoreline layer. Lakes above sea level are not detected unless you raise the water level to their surface.');
+
+    const waterColumn = $('<div class="column field">')
+      .append(App.withInfo(App.createLabel('Water Level (m)', {for: 'waterlevel'}), 'Height in metres treated as the water surface. 0 is sea level.'))
+      .append($('<div class="control">').append(this.inputs.waterLevel))
+      .append(flatten.label)
+      .append(waterMask.label);
+
+    const mapsColumn = $('<div class="column field">')
+      .append(App.withInfo(App.createLabel('Normal Map', {for: 'normalmap'}), 'An RGB normal map of the terrain. Unreal uses DirectX (green down). Godot, Blender and Unity use OpenGL (green up).'))
+      .append($('<div class="control">').append($('<div class="select is-fullwidth">').append(this.inputs.normalMap)))
+      .append(App.withInfo(slope.label, 'Greyscale slope steepness: black is flat, white is vertical (0 to 90°). Use it to put rock on cliffs and grass on flat ground.'))
+      .append(App.withInfo(curvature.label, 'Mid-grey is flat, brighter is ridges and peaks, darker is valleys and gullies. Good for erosion, snow or moss masks.'));
+
+    const bandsColumn = $('<div class="column field">')
+      .append(App.withInfo(App.createLabel('Height Bands (m)', {for: 'heightbands'}), 'Comma-separated heights in metres. Each one splits the terrain into another layer mask, e.g. "500, 1500" gives below 500 m, 500 to 1500 m and above 1500 m. The masks blend smoothly at each edge and add up to full white, so they work as Unreal landscape layer weightmaps.'))
+      .append($('<div class="control">').append(this.inputs.heightBands));
+
+    this.els.extraMapsSummary = $('<p class="extra-maps-note">');
+    const summaryColumn = $('<div class="column field">')
+      .append($('<label class="label">Extra Outputs</label>'))
+      .append(this.els.extraMapsSummary);
+
+    this.els.columnsOutputExtra = $('<div class="columns columns-output columns-output--extra">')
+      .append(waterColumn)
+      .append(mapsColumn)
+      .append(bandsColumn)
+      .append(summaryColumn);
+    this.els.inputContainer.append(this.els.columnsOutputExtra);
+    this.updateExtraMapsSummary();
+  }
+  hookExtraOutputControls(doHeightsDebounced : () => void) {
+    const watch = (key : SettingKey, input : JQuery<HTMLElement>, refreshHeights = false) => {
+      input.on('change input', debounce(30, () => {
+        const value = this.readSetting(key) ?? '';
+        this.storeValue(key, value);
+        trackControl(key, App.isCheckbox(input) ? (value === '1' ? 'on' : 'off') : (key === 'normalmap' ? value : undefined));
+        this.updateExtraMapsSummary();
+        if (refreshHeights) {
+          doHeightsDebounced();
+        }
+      }));
+    };
+    watch('waterlevel', this.inputs.waterLevel, true);
+    watch('flattenwater', this.inputs.flattenWater, true);
+    watch('watermask', this.inputs.waterMask);
+    watch('normalmap', this.inputs.normalMap);
+    watch('slopemap', this.inputs.slopeMap);
+    watch('curvaturemap', this.inputs.curvatureMap);
+    watch('heightbands', this.inputs.heightBands);
+  }
+  getWaterLevel() : number {
+    const level = parseFloat(this.inputs.waterLevel?.val()?.toString() ?? '0');
+    return Number.isFinite(level) ? level : 0;
+  }
+  getDerivedMapOptions() : DerivedMapOptions {
+    return {
+      normal: (this.inputs.normalMap?.val()?.toString() || 'off') as NormalMapConvention,
+      slope: this.inputs.slopeMap?.is(':checked') ?? false,
+      curvature: this.inputs.curvatureMap?.is(':checked') ?? false,
+      waterMask: this.inputs.waterMask?.is(':checked') ?? false,
+      heightBands: parseHeightBands(this.inputs.heightBands?.val()?.toString() ?? ''),
+    };
+  }
+  /** Options for the worker: water handling plus any extra maps, sized for this export. */
+  getProcessOptions(state : ConfigState, includeMaps : boolean = true) : ProcessOptions {
+    return {
+      water: {
+        level: this.getWaterLevel(),
+        flatten: this.inputs.flattenWater?.is(':checked') ?? false,
+      },
+      maps: includeMaps ? this.getDerivedMapOptions() : undefined,
+      metresPerPixel: {
+        x: state.phys.width / state.width,
+        y: state.phys.height / state.height,
+      },
+    };
+  }
+  updateExtraMapsSummary() {
+    if (!this.els.extraMapsSummary) {
+      return;
+    }
+    const maps = this.getDerivedMapOptions();
+    const names : string[] = [];
+    if (maps.normal !== 'off') names.push(`normal (${maps.normal === 'directx' ? 'DirectX' : 'OpenGL'})`);
+    if (maps.slope) names.push('slope');
+    if (maps.curvature) names.push('curvature');
+    if (maps.waterMask) names.push('water mask');
+    if (maps.heightBands.length) names.push(`${maps.heightBands.length + 1} height bands`);
+    this.els.extraMapsSummary.text(names.length
+      ? `Also exports: ${names.join(', ')}. Saved as 8-bit PNGs alongside the heightmap.`
+      : 'No extra maps selected.');
   }
   createSubmitButton() {
     this.els.generatedColumn = $('<div class="column content">');
@@ -1013,70 +1181,131 @@ export default class App {
       .append(this.els.generatedColumn)
     );
   }
-  getInputState() {
-    const state : Record<string,any> = {};
-    for (let key of this.savedKeys) {
-      const input = this.inputs[key];
-      if (input) {
-        state[key] = input.val();
+  /** The form control behind each shareable setting. */
+  getSettingControl(key : SettingKey) : JQuery<HTMLInputElement|HTMLSelectElement> | undefined {
+    const controls : Record<SettingKey, JQuery<HTMLInputElement|HTMLSelectElement> | undefined> = {
+      latitude: this.inputs.latitude,
+      longitude: this.inputs.longitude,
+      zoom: this.inputs.zoom,
+      outputzoom: this.inputs.outputzoom,
+      width: this.inputs.width,
+      height: this.inputs.height,
+      outputformat: this.inputs.outputformat,
+      maptype: this.inputs.maptype,
+      normmode: this.inputs.smartNormalisationControl,
+      normfrom: this.inputs.normFrom,
+      normto: this.inputs.normTo,
+      tilemode: this.inputs.tileMode,
+      tilewidth: this.inputs.tileWidth,
+      tileheight: this.inputs.tileHeight,
+      tilecountx: this.inputs.tileCountX,
+      tilecounty: this.inputs.tileCountY,
+      tilezip: this.tileZipEl?.find('input') as JQuery<HTMLInputElement>,
+      tilepad: this.tilePadEl?.find('input') as JQuery<HTMLInputElement>,
+      tileunrealname: this.tileUnrealNameEl?.find('input') as JQuery<HTMLInputElement>,
+      waterlevel: this.inputs.waterLevel,
+      flattenwater: this.inputs.flattenWater,
+      watermask: this.inputs.waterMask,
+      normalmap: this.inputs.normalMap,
+      slopemap: this.inputs.slopeMap,
+      curvaturemap: this.inputs.curvatureMap,
+      heightbands: this.inputs.heightBands,
+    };
+    return controls[key];
+  }
+  static isCheckbox(el : JQuery<HTMLElement>) : boolean {
+    return !!el && el.is(':checkbox');
+  }
+  readSetting(key : SettingKey) : string | undefined {
+    const el = this.getSettingControl(key);
+    if (!el || !el.length) {
+      return undefined;
+    }
+    if (App.isCheckbox(el)) {
+      return el.is(':checked') ? '1' : '0';
+    }
+    return (el.val() ?? '').toString();
+  }
+  writeSetting(key : SettingKey, value : string) {
+    const el = this.getSettingControl(key);
+    if (!el || !el.length || App.isFocused(el)) {
+      return;
+    }
+    if (App.isCheckbox(el)) {
+      el.prop('checked', value === '1' || value === 'true');
+      return;
+    }
+    // Ignore values a <select> doesn't offer (e.g. a renamed map layer in an old link)
+    if (el.is('select') && !el.find('option').filter((_, o) => (o as HTMLOptionElement).value === value).length) {
+      return;
+    }
+    el.val(value);
+  }
+  readSettings() : SettingValues {
+    const values : SettingValues = {};
+    for (const key of Object.keys(SETTINGS) as SettingKey[]) {
+      const value = this.readSetting(key);
+      if (value !== undefined) {
+        values[key] = value;
       }
     }
-    return state;
+    return values;
   }
   insertSavedValues() {
-    for (let key of this.savedKeys) {
-      let val = localStorage.getItem(key);
-      if (val) {
-        let value = JSON.parse(val) as StoredItemValue;
-        if (key === 'tilezip') {
-          this.tileZipEl?.find('input').prop('checked', value.data === 'true');
-        } else if (key === 'tilepad') {
-          this.tilePadEl?.find('input').prop('checked', value.data === 'true');
-        } else if (key === 'tileunrealname') {
-          this.tileUnrealNameEl?.find('input').prop('checked', value.data === 'true');
-        } else {
-          const input = this.inputs[key];
-          if (value.data && input) {
-            input.val(value.data);
+    for (const key of Object.keys(SETTINGS) as SettingKey[]) {
+      try {
+        const val = localStorage.getItem(key);
+        if (val) {
+          const value = JSON.parse(val) as StoredItemValue;
+          if (value.data !== undefined && value.data !== null && value.data !== '') {
+            this.writeSetting(key, value.data);
           }
         }
+      } catch (e) {
+        // Corrupt or blocked storage: fall back to defaults
       }
     }
     this.insertValuesFromUrlHash();
+    this.toggleTileInputs();
+    this.updateTileSummary();
+    this.updateExtraMapsSummary();
   }
   insertValuesFromUrlHash() {
-    const state = this.parseHash(location.hash);
-    for (let [key, value] of Object.entries(state)) {
-      const input = this.inputs[key];
-      if (value && input && !App.isFocused(input)) {
-        input.val(value);
+    const values = parseHash(location.hash);
+    if (!Object.keys(values).length) {
+      return;
+    }
+    // Links leave out default values to stay short, so anything missing means
+    // "default" rather than "whatever this browser used last time".
+    for (const key of Object.keys(SETTINGS) as SettingKey[]) {
+      const value = values[key] ?? SETTINGS[key].default;
+      if (value !== null) {
+        this.writeSetting(key, value);
       }
     }
     this.toggleTileInputs();
     this.updateTileSummary();
+    this.updateExtraMapsSummary();
   }
-  parseHash(hashstr : string) {
-    const pairs = hashstr.replace(/^#/,'').replace(/^\//, '').split('/');
-    const out : Record<string,string> = {};
-    for (let i = 0; i < pairs.length; i+=2) {
-      out[pairs[i]] = pairs[i+1];
+  /** Mirror the current settings into the address bar without adding history entries. */
+  writeHash() {
+    const hash = buildHash(this.readSettings());
+    if (hash !== location.hash) {
+      history.replaceState(null, '', hash);
     }
-    return out;
-  }
-  objectToHash(hashobj : Record<string,any>) {
-    return '#' + Object.entries(hashobj).flat().join("/");
+    this.lastWrittenHash = location.hash;
   }
   storeValue(key : string, data : string, expires : number = null) {
     expires = expires || ((new Date()).getTime())+(1000*60*60*24*30);
     let storedItem : StoredItemValue = {key, data, expires};
-    localStorage.setItem(key, JSON.stringify(storedItem));
-    this.listenHashChange = false;
-    location.hash = this.objectToHash(this.getInputState());
-    this.lastWrittenHash = location.hash;
-    setTimeout(() => {
-      this.listenHashChange = true;
-    }, 1);
+    try {
+      localStorage.setItem(key, JSON.stringify(storedItem));
+    } catch (e) {
+      // Storage may be full or disabled; the URL still carries the state
+    }
+    this.writeHashThrottled();
   }
+  writeHashThrottled = throttle(250, () => this.writeHash());
   saveLatLngZoomState() {
     this.storeValue('latitude', this.inputs.latitude.val().toString());
     this.storeValue('longitude', this.inputs.longitude.val().toString());
@@ -1232,12 +1461,20 @@ export default class App {
     this.inputs.smartNormalisationControl.on('change', () => {
       const labels : Record<string, string> = {'0': 'off', '1': 'regular', '3': 'smart'};
       const val = this.inputs.smartNormalisationControl.val().toString();
+      this.storeValue('normmode', val);
       trackControl('normalisation', labels[val] ?? val);
     });
 
-    this.inputs.normFrom.add(this.inputs.normTo).on('change input', () => {
+    this.inputs.normFrom.on('change input', () => {
+      this.storeValue('normfrom', this.inputs.normFrom.val().toString());
       trackControl('norm-range');
     });
+    this.inputs.normTo.on('change input', () => {
+      this.storeValue('normto', this.inputs.normTo.val().toString());
+      trackControl('norm-range');
+    });
+
+    this.hookExtraOutputControls(doHeightsDebounced);
 
     window.addEventListener('paste', (event : ClipboardEvent) => {
       // @ts-ignore
@@ -1269,15 +1506,18 @@ export default class App {
     });
 
     window.addEventListener('hashchange', debounce(50, (event : HashChangeEvent) => {
-      // Ignore hash changes we wrote ourselves; only react to external ones (deep links, back/forward)
-      if (this.listenHashChange && location.hash !== this.lastWrittenHash) {
+      // We write the hash with replaceState (which fires no event), so this only
+      // runs for external changes: a pasted link, or back/forward.
+      if (location.hash !== this.lastWrittenHash) {
+        this.lastWrittenHash = location.hash;
         this.insertValuesFromUrlHash();
-        this.listenHashChange = false;
+        this.showHideCurrentLayer();
         this.setMapViewFromInputs();
         // The map may not move (e.g. only output zoom/size changed), so refresh the readouts explicitly
         this.updatePhysicalDimensions();
         this.updateTileSummary();
-        this.listenHashChange = true;
+        this.doDisEnableControls();
+        doHeightsDebounced();
       }
     }));
 
@@ -1552,7 +1792,7 @@ export default class App {
         });
       }
       //@ts-ignore
-      return processor.combineImages(resultToSend, NormaliseMode.SmartWindow)
+      return processor.combineImages(resultToSend, NormaliseMode.SmartWindow, undefined, undefined, this.getProcessOptions(state, false))
       .then((output : NormaliseResult<Float32Array>) => {
         const fmt = this.meterFormatter;
         const txt = `, Height range: ${fmt.format(output.minBefore)} to ${fmt.format(output.maxBefore)}`;
@@ -1667,8 +1907,12 @@ export default class App {
     const targetTileWidth = pad ? config.tileWidth : undefined;
     const targetTileHeight = pad ? config.tileHeight : undefined;
     const zip = useZip ? new JSZip() : null;
+    const mapFiles : {filename: string, blob: Blob}[] = [];
     for (let i = 0; i < slices.length; i++) {
       const result = await this.processTileSequential(state, slices[i], i + 1, slices.length, summary, useZip, targetTileWidth, targetTileHeight);
+      if (result) {
+        mapFiles.push(...result.maps);
+      }
       if (result && zip) {
         zip.file(result.filename, result.blob);
         for (const geo of result.georef) {
@@ -1676,6 +1920,7 @@ export default class App {
         }
       }
     }
+    await this.deliverDerivedMaps(mapFiles, state);
     if (summary.count > 0) {
       const summaryResult : NormaliseResult<Float32Array> = {
         data: new Float32Array(0),
@@ -1704,7 +1949,7 @@ export default class App {
     const normRange = this.getNormRangeFromInputs();
     const results = await promiseAllInBatches((item) => this.fetchImage(item, chunkState), items, 200, 0);
     const workerStates = this.prepareWorkerStates(results);
-    const output = await processor.combineImages(workerStates, this.getNormaliseModeValue(), normRange) as NormaliseResult<Float32Array>;
+    const output = await processor.combineImages(workerStates, this.getNormaliseModeValue(), normRange, undefined, this.getProcessOptions(chunkState)) as NormaliseResult<Float32Array>;
     this.updateStreamingSummary(summary, output);
     const result = await this.saveChunkResult(output.data, chunkState, sliceInfo, useZip, targetTileWidth, targetTileHeight);
     if (!result) {
@@ -1715,7 +1960,10 @@ export default class App {
       this.download(result.blob, result.filename);
       this.appendGeoreferenceLinks(georef);
     }
-    return {...result, georef};
+    const maps = output.maps?.length
+      ? await this.encodeDerivedMaps(output.maps, chunkState, sliceInfo.width, sliceInfo.height, sliceInfo, targetTileWidth, targetTileHeight)
+      : [];
+    return {...result, georef, maps};
   }
 
   getNormaliseModeValue() : NormaliseMode {
@@ -2069,12 +2317,87 @@ export default class App {
     let output : NormaliseResult<Float32Array>;
     try {
       //@ts-ignore
-      output = await processor.combineImages(states, this.inputs.smartNormalisationControl.val(), norm, progressHandler) as NormaliseResult<Float32Array>;
+      output = await processor.combineImages(states, this.inputs.smartNormalisationControl.val(), norm, progressHandler, this.getProcessOptions(states[0])) as NormaliseResult<Float32Array>;
     } finally {
       this.hideProcessingProgress();
     }
     this.displayHeightData(output, states[0]);
-    return this.saveOutput(output.data, states);
+    const saved = await this.saveOutput(output.data, states);
+    if (output.maps?.length) {
+      await this.saveDerivedMaps(output.maps, states[0]);
+    }
+    return saved;
+  }
+  /** Encode the extra maps for a full (unsliced) export, splitting them into tiles when tiling is on. */
+  async saveDerivedMaps(maps : DerivedMap[], state : ConfigState) {
+    const config = this.getTileExportConfig(state.width, state.height);
+    const files : {filename: string, blob: Blob}[] = [];
+    if (!config.enabled || (config.tilesX === 1 && config.tilesY === 1)) {
+      files.push(...await this.encodeDerivedMaps(maps, state, state.width, state.height));
+    } else {
+      const pad = this.shouldPadTiles();
+      for (const tile of this.getTileLayout(state.width, state.height, config)) {
+        const tileMaps = maps.map(map => ({
+          ...map,
+          data: App.cropChannels(map.data, state.width, map.channels, tile.startX, tile.startY, tile.width, tile.height),
+        }));
+        files.push(...await this.encodeDerivedMaps(tileMaps, state, tile.width, tile.height, tile,
+          pad ? config.tileWidth : undefined, pad ? config.tileHeight : undefined));
+      }
+    }
+    await this.deliverDerivedMaps(files, state);
+  }
+  static cropChannels(data : Uint8Array, srcWidth : number, channels : number, x : number, y : number, w : number, h : number) : Uint8Array {
+    const out = new Uint8Array(w * h * channels);
+    for (let row = 0; row < h; row++) {
+      const start = ((y + row) * srcWidth + x) * channels;
+      out.set(data.subarray(start, start + w * channels), row * w * channels);
+    }
+    return out;
+  }
+  /** Encode maps as 8-bit PNGs, padding to the tile size if asked (matching padded heightmap tiles). */
+  async encodeDerivedMaps(maps : DerivedMap[], state : ConfigState, width : number, height : number, tileInfo? : TileSliceInfo, padWidth? : number, padHeight? : number) {
+    const outW = padWidth && padWidth > width ? padWidth : width;
+    const outH = padHeight && padHeight > height ? padHeight : height;
+    // Same base name as the matching heightmap file, so they sort together
+    const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs({...state, width: outW, height: outH}));
+    const suffix = this.buildTileSuffix(tileInfo);
+    const files : {filename: string, blob: Blob}[] = [];
+    for (const map of maps) {
+      let data = map.data;
+      if (outW !== width || outH !== height) {
+        data = new Uint8Array(outW * outH * map.channels);
+        for (let row = 0; row < height; row++) {
+          data.set(map.data.subarray(row * width * map.channels, (row + 1) * width * map.channels), row * outW * map.channels);
+        }
+      }
+      const png = await App.encodeToPng([data], outW, outH, map.channels, 0, 8);
+      files.push({filename: `${base}_${map.name}${suffix}.png`, blob: new Blob([png], {type: 'image/png'})});
+      await this.maybeYieldUi();
+    }
+    return files;
+  }
+  /** One map downloads as-is; several are bundled into a zip to avoid a burst of download prompts. */
+  async deliverDerivedMaps(files : {filename: string, blob: Blob}[], state : ConfigState) {
+    if (!files.length) {
+      return;
+    }
+    const list = $('<p class="derivedMaps">').text('Extra maps: ');
+    if (files.length === 1) {
+      this.download(files[0].blob, files[0].filename);
+      list.append(document.createTextNode(files[0].filename));
+    } else {
+      const zip = new JSZip();
+      for (const file of files) {
+        zip.file(file.filename, file.blob);
+      }
+      const zipBlob = await zip.generateAsync({type: 'blob'});
+      const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
+      const zipFilename = `${base}_maps.zip`;
+      this.download(zipBlob, zipFilename);
+      list.append(document.createTextNode(`${files.length} files saved as ${zipFilename}`));
+    }
+    this.els.outputImage.append(list);
   }
   displayHeightData(output : NormaliseResult<Float32Array>, state: TileLoadState) {
     const fmt = this.meterFormatter;
@@ -2171,36 +2494,24 @@ export default class App {
     }
   }
 
-  sliceOutputIntoTiles(output : Float32Array, state : TileLoadState, config : TileExportConfig) : TileSlice[] {
-    const slices : TileSlice[] = [];
-    const totalWidth = state.width;
-    const totalHeight = state.height;
+  /** Where each tile sits in the full image. Width/height are the unpadded sizes. */
+  getTileLayout(totalWidth : number, totalHeight : number, config : TileExportConfig) : TileSliceInfo[] {
+    const layout : TileSliceInfo[] = [];
     const stepX = Math.max(1, Math.floor(config.tileWidth));
     const stepY = Math.max(1, Math.floor(config.tileHeight));
-    const pad = this.shouldPadTiles();
     for (let row = 0; row < config.tilesY; row++) {
       const startY = row * stepY;
       if (startY >= totalHeight) {
         break;
       }
-      const actualTileHeight = Math.min(stepY, totalHeight - startY);
-      const tileHeight = pad ? stepY : actualTileHeight;
       for (let column = 0; column < config.tilesX; column++) {
         const startX = column * stepX;
         if (startX >= totalWidth) {
           break;
         }
-        const actualTileWidth = Math.min(stepX, totalWidth - startX);
-        const tileWidth = pad ? stepX : actualTileWidth;
-        const tileData = new Float32Array(tileWidth * tileHeight);
-        for (let y = 0; y < actualTileHeight; y++) {
-          const srcStart = (startY + y) * totalWidth + startX;
-          tileData.set(output.subarray(srcStart, srcStart + actualTileWidth), y * tileWidth);
-        }
-        slices.push({
-          data: tileData,
-          width: tileWidth,
-          height: tileHeight,
+        layout.push({
+          width: Math.min(stepX, totalWidth - startX),
+          height: Math.min(stepY, totalHeight - startY),
           startX,
           startY,
           row: row + 1,
@@ -2210,7 +2521,23 @@ export default class App {
         });
       }
     }
-    return slices;
+    return layout;
+  }
+  sliceOutputIntoTiles(output : Float32Array, state : TileLoadState, config : TileExportConfig) : TileSlice[] {
+    const totalWidth = state.width;
+    const pad = this.shouldPadTiles();
+    const stepX = Math.max(1, Math.floor(config.tileWidth));
+    const stepY = Math.max(1, Math.floor(config.tileHeight));
+    return this.getTileLayout(state.width, state.height, config).map(tile => {
+      const tileWidth = pad ? stepX : tile.width;
+      const tileHeight = pad ? stepY : tile.height;
+      const tileData = new Float32Array(tileWidth * tileHeight);
+      for (let y = 0; y < tile.height; y++) {
+        const srcStart = (tile.startY + y) * totalWidth + tile.startX;
+        tileData.set(output.subarray(srcStart, srcStart + tile.width), y * tileWidth);
+      }
+      return {...tile, data: tileData, width: tileWidth, height: tileHeight};
+    });
   }
 
   buildTileSuffix(tileInfo?: TileSlice | TileSliceInfo) : string {

@@ -11,16 +11,25 @@ import {
   } from "./helpers";
 
 import PNG from "./png";
+import {
+  ProcessOptions,
+  DerivedMap,
+  computeDerivedMaps,
+  flattenBelow,
+  wantsDerivedMaps,
+} from "./derived-maps";
 
 export type NormaliseResult<T> = {
   data: T,
   minBefore: number,
   maxBefore: number,
   minAfter: number,
-  maxAfter: number
+  maxAfter: number,
+  /** Extra maps requested through ProcessOptions.maps, same size as data. */
+  maps?: DerivedMap[]
 };
 
-export type ProcessorProgressPhase = 'stitch' | 'normalise';
+export type ProcessorProgressPhase = 'stitch' | 'normalise' | 'maps';
 
 export type ProcessorProgressUpdate = {
   phase: ProcessorProgressPhase;
@@ -183,7 +192,8 @@ const processor = {
     states : TileLoadState[],
     normaliseMode : number = NormaliseMode.Regular,
     norm : NormRange = normDefaults,
-    progress?: (update: ProcessorProgressUpdate) => void
+    progress?: (update: ProcessorProgressUpdate) => void,
+    options: ProcessOptions = {}
   ) : NormaliseResult<Float32Array> {
     const area = states[0].width * states[0].height;
     let output = new Float32Array(area);
@@ -237,7 +247,25 @@ const processor = {
         reportProgress('stitch', processedRows, Math.max(1, totalRows));
       }
     }
-    let result = {
+    // Derived maps and the water mask need real heights, so build them
+    // before flattening or normalising touches the data.
+    let maps : DerivedMap[] | undefined;
+    if (wantsDerivedMaps(options.maps)) {
+      reportProgress('maps', 0, 1);
+      maps = computeDerivedMaps(
+        output,
+        states[0].width,
+        states[0].height,
+        options.maps,
+        options.metresPerPixel ?? {x: 1, y: 1},
+        options.water?.level ?? 0
+      );
+      reportProgress('maps', 1, 1);
+    }
+    if (options.water?.flatten) {
+      flattenBelow(output, options.water.level);
+    }
+    let result : NormaliseResult<Float32Array> = {
       data: output,
       minBefore: Math.pow(2, 32),
       maxBefore: 0,
@@ -266,6 +294,10 @@ const processor = {
       result.minBefore = result.minAfter;
     }
     reportProgress('normalise', 1, 1);
+    if (maps) {
+      result.maps = maps;
+      return Comlink.transfer(result, [result.data.buffer, ...maps.map(m => m.data.buffer)]);
+    }
     return result;
   },
   typedArrayToStl(
