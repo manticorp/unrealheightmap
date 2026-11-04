@@ -8,6 +8,7 @@ import { throttle, debounce } from 'throttle-debounce';
 import * as  L from "leaflet";
 import "leaflet-providers";
 import {format, promiseAllInBatches} from "./helpers";
+import {trackEvent, trackControl} from "./analytics";
 import tippy from 'tippy.js';
 import JSZip from 'jszip';
 
@@ -337,6 +338,7 @@ export default class App {
     this.arrows.map(arrow => arrow.addTo(this.map));
     this.arrows.map((arrow, i) => arrow.on('click', () => {
       const shiftKey = this.shiftHeld;
+      trackEvent(shiftKey ? 'map/arrow-expand' : 'map/arrow-move');
       switch(i) {
         case 0:
           shiftKey ? this.expandArrowClick(1, 0) : this.arrowClick(1, 0);
@@ -354,6 +356,7 @@ export default class App {
     }));
 
     this.map.on('click', debounce(100, (e) => {
+      trackEvent('map/click');
       this.setPositionTo(e.latlng);
     }));
 
@@ -490,10 +493,12 @@ export default class App {
     })});
 
     this.zoom.in.on('click', () => {
+      trackEvent('map/output-zoom-in');
       this.adjustOutputZoom(1);
     });
 
     this.zoom.out.on('click', () => {
+      trackEvent('map/output-zoom-out');
       this.adjustOutputZoom(-1);
     });
 
@@ -810,16 +815,19 @@ export default class App {
     this.tileZipEl = $(`<label class="checkbox"><input type="checkbox"> Zip Exports?</label>`) as JQuery<HTMLLabelElement>;
     this.tileZipEl.find('input').on('change', () => {
       this.storeValue('tilezip', this.tileZipEl.find('input').is(':checked').toString());
+      trackControl('tile-zip', this.tileZipEl.find('input').is(':checked') ? 'on' : 'off');
     });
 
     this.tilePadEl = $(`<label class="checkbox"><input type="checkbox"> Pad tile exports</label>`) as JQuery<HTMLLabelElement>;
     this.tilePadEl.find('input').on('change', () => {
       this.storeValue('tilepad', this.tilePadEl.find('input').is(':checked').toString());
+      trackControl('tile-pad', this.tilePadEl.find('input').is(':checked') ? 'on' : 'off');
     });
 
     this.tileUnrealNameEl = $(`<label class="checkbox"><input type="checkbox"> Unreal 5.7+ naming</label>`) as JQuery<HTMLLabelElement>;
     this.tileUnrealNameEl.find('input').on('change', () => {
       this.storeValue('tileunrealname', this.tileUnrealNameEl.find('input').is(':checked').toString());
+      trackControl('tile-unreal-naming', this.tileUnrealNameEl.find('input').is(':checked') ? 'on' : 'off');
     });
 
     this.els.columnsOutputPrimary = $('<div class="columns columns-output columns-output--primary">');
@@ -1072,6 +1080,7 @@ export default class App {
     });
     this.inputs.defaultSize.on('change input', debounce(100, () => {
       const val = this.inputs.defaultSize.val();
+      trackControl('default-size', val?.toString().replace(' x ', 'x'));
       if (val && typeof val === 'string' && val.trim() !== '') {
         const parts = val.split(" x ");
         if (parts.length === 2) {
@@ -1087,47 +1096,57 @@ export default class App {
     }));
 
     this.els.generate.on('click touchend', debounce(100, () => {
+      const tiling = this.inputs.tileMode.val()?.toString() || 'off';
+      trackEvent(`generate/heightmap/${this.inputs.outputformat.val()}/${tiling === 'off' ? 'single' : 'tiled'}`);
       this.generate();
     }));
 
     this.els.generateAlbedo.on('click touchend', debounce(100, () => {
+      trackEvent(`generate/albedo/${this.inputs.maptype.val()}`);
       this.generateAlbedo();
     }));
 
     this.inputs.maptype.on('change input', debounce(30, () => {
       this.storeValue('maptype', this.inputs.maptype.val().toString());
+      trackControl('maptype', this.inputs.maptype.val().toString());
       this.showHideCurrentLayer();
       doHeightsDebounced();
     }));
 
     this.inputs.tileMode.on('change input', debounce(30, () => {
       this.storeValue('tilemode', this.inputs.tileMode.val()?.toString() || 'off');
+      trackControl('tilemode', this.inputs.tileMode.val()?.toString() || 'off');
       this.toggleTileInputs();
       this.updateTileSummary();
     }));
 
     this.inputs.tileWidth.on('change input', debounce(30, () => {
       this.storeValue('tilewidth', this.inputs.tileWidth.val().toString());
+      trackControl('tile-size');
       this.updateTileSummary();
     }));
 
     this.inputs.tileHeight.on('change input', debounce(30, () => {
       this.storeValue('tileheight', this.inputs.tileHeight.val().toString());
+      trackControl('tile-size');
       this.updateTileSummary();
     }));
 
     this.inputs.tileCountX.on('change input', debounce(30, () => {
       this.storeValue('tilecountx', this.inputs.tileCountX.val().toString());
+      trackControl('tile-count');
       this.updateTileSummary();
     }));
 
     this.inputs.tileCountY.on('change input', debounce(30, () => {
       this.storeValue('tilecounty', this.inputs.tileCountY.val().toString());
+      trackControl('tile-count');
       this.updateTileSummary();
     }));
 
     this.inputs.latitude.on('change input', debounce(30, () => {
       this.storeValue('latitude', this.inputs.latitude.val().toString());
+      trackControl('coords');
       this.map.setView({
         lat: parseFloat(this.inputs.latitude.val().toString()),
         lng: parseFloat(this.inputs.longitude.val().toString())
@@ -1138,6 +1157,7 @@ export default class App {
 
     this.inputs.longitude.on('change input', debounce(30, () => {
       this.storeValue('longitude', this.inputs.longitude.val().toString());
+      trackControl('coords');
       this.map.setView({
         lat: parseFloat(this.inputs.latitude.val().toString()),
         lng: parseFloat(this.inputs.longitude.val().toString())
@@ -1149,6 +1169,7 @@ export default class App {
 
     this.inputs.zoom.on('change input', debounce(30, () => {
       this.storeValue('zoom', this.inputs.zoom.val().toString());
+      trackControl('zoom');
       this.map.setZoom(parseInt(this.inputs.zoom.val().toString()));
       this.updatePhysicalDimensions();
       this.updateTileSummary();
@@ -1157,6 +1178,7 @@ export default class App {
 
     this.inputs.outputzoom.on('change input', debounce(30, () => {
       this.storeValue('outputzoom', this.inputs.outputzoom.val().toString());
+      trackControl('outputzoom', this.inputs.outputzoom.val().toString());
       this.updatePhysicalDimensions();
       this.doDisEnableControls();
       doHeightsDebounced();
@@ -1164,6 +1186,7 @@ export default class App {
 
     this.inputs.width.on('change input', debounce(30, () => {
       this.storeValue('width', this.inputs.width.val().toString());
+      trackControl('output-size');
       this.updatePhysicalDimensions();
       this.updateTileSummary();
       doHeightsDebounced();
@@ -1171,6 +1194,7 @@ export default class App {
 
     this.inputs.height.on('change input', debounce(30, () => {
       this.storeValue('height', this.inputs.height.val().toString());
+      trackControl('output-size');
       this.updatePhysicalDimensions();
       this.updateTileSummary();
       doHeightsDebounced();
@@ -1178,7 +1202,18 @@ export default class App {
 
     this.inputs.outputformat.on('change input', debounce(30, () => {
       this.storeValue('outputformat', this.inputs.outputformat.val().toString());
+      trackControl('outputformat', this.inputs.outputformat.val().toString());
     }));
+
+    this.inputs.smartNormalisationControl.on('change', () => {
+      const labels : Record<string, string> = {'0': 'off', '1': 'regular', '3': 'smart'};
+      const val = this.inputs.smartNormalisationControl.val().toString();
+      trackControl('normalisation', labels[val] ?? val);
+    });
+
+    this.inputs.normFrom.add(this.inputs.normTo).on('change input', () => {
+      trackControl('norm-range');
+    });
 
     window.addEventListener('paste', (event : ClipboardEvent) => {
       // @ts-ignore
@@ -1187,6 +1222,7 @@ export default class App {
         if (this.isPasteableText(paste)) {
           const latLng = this.getLatLngFromText(paste);
           console.log('Pasted latLng', latLng);
+          trackEvent('coords/paste');
 
           this.storeValue('latitude', latLng.latitude.toString());
           this.storeValue('longitude', latLng.longitude.toString());
@@ -1942,6 +1978,7 @@ export default class App {
     return this.download(blob, fn);
   }
   displayError(message : {text: string}) {
+    trackEvent('error');
     this.els.outputError.text(message.text);
 
     const errEl = $(`<article class="message is-danger">
@@ -2198,6 +2235,8 @@ export default class App {
   }
 
   download(contents : Blob, fn : string) {
+    const ext = fn.split('.').pop()?.toLowerCase();
+    trackEvent(/_albedo_/.test(fn) ? 'download/albedo' : `download/${ext}`);
     const blobUrl = URL.createObjectURL(contents);
 
     // Create a link element
