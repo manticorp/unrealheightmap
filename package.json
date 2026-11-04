@@ -12,6 +12,7 @@
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^24.10.1",
+    "@types/three": "^0.170.0",
     "bulma": "^0.9.4",
     "css-loader": "^6.7.3",
     "html-loader": "^4.2.0",
@@ -46,6 +47,7 @@
     "leaflet": "^1.9.4",
     "leaflet-providers": "^2.0.0",
     "pako": "^2.1.0",
+    "three": "^0.170.0",
     "throttle-debounce": "^5.0.0",
     "tippy.js": "^6.3.7",
     "upng-js": "^2.1.0"

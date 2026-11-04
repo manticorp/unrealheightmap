@@ -58,6 +58,8 @@ We have started hitting the free tier limits from some map services, so the site
 - **Shareable Links** - The URL holds your location and export settings; copy it to share or bookmark an exact export
 - **Water Handling** - Flatten everything below a water level and export a water mask
 - **Extra Texture Maps** - Normal map (DirectX or OpenGL), slope, curvature and height-band masks for landscape materials and layer weightmaps
+- **3D Preview** - Orbit around the export area in 3D before downloading anything
+- **3D Model Export** - STL for 3D printing (top surface only, or a watertight solid with a base of chosen thickness, sized in mm), plus OBJ and GLB/glTF with UVs for Blender and game engines
 
 ## 🎯 Use Cases
 

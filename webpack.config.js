@@ -9,7 +9,9 @@ module.exports = {
   mode: 'development',
   output: {
     path: path.resolve(__dirname, 'public', 'dist'),
-    filename: 'js/[name].js'
+    filename: 'js/[name].js',
+    // Lazily loaded code (the three.js 3D preview) lands next to the main bundle
+    chunkFilename: 'js/[name].js'
   },
   resolve: {
     extensions: ['.tsx', '.ts', '.js']

@@ -37,15 +37,5 @@ document.addEventListener('DOMContentLoaded', () => {
     //@ts-ignore
     window.app = app;
 
-    // const url = 'public/test/tiny16bitpng.png';
-    // App.getPngFromUrl(url).then(png => {
-    //   return app.typedArrayToStl(
-    //     png.getImageDataTransformed(),
-    //     png.getWidth(),
-    //     png.getHeight()
-    //   );
-    // }).then((stlData) => {
-    //   return app.download(new Blob([stlData]), 'stl.stl');
-    // });
   }
 });

@@ -18,6 +18,14 @@ import {
   flattenBelow,
   wantsDerivedMaps,
 } from "./derived-maps";
+import {
+  MeshFormat,
+  MeshInput,
+  MeshOptions,
+  buildMesh,
+  computeVertexNormals,
+  encodeMesh,
+} from "./mesh";
 
 export type NormaliseResult<T> = {
   data: T,
@@ -37,19 +45,6 @@ export type ProcessorProgressUpdate = {
   total: number;
 };
 
-export type TypedArrayToStlArgs = {
-  width : number,
-  depth : number,
-  height: number
-};
-export const typedArrayToStlDefaults : TypedArrayToStlArgs = {
-  width : 100,
-  depth : 100,
-  height : 10,
-};
-
-export type vec3 = [number, number, number];
-export type trivec3 = [vec3, vec3, vec3, vec3];
 
 export type NormRange = {from : number|null|undefined, to : number|null|undefined};
 export const normMaxRange : NormRange = {from: -10929, to: 8848};
@@ -300,66 +295,36 @@ const processor = {
     }
     return result;
   },
-  typedArrayToStl(
-    points: TypedArray,
-    widthpx : number,
-    heightpx : number,
-    {width, depth, height} : TypedArrayToStlArgs = typedArrayToStlDefaults
-  ) : ArrayBuffer {
-    const dataLength = ((widthpx) * (heightpx)) * 50;
-    console.log(points.length, dataLength);
-    const size = 80 + 4 + dataLength;
-    const result = new ArrayBuffer(dataLength);
-    const dv = new DataView(result);
-    dv.setUint32(80, (widthpx-1)*(heightpx-1), true);
-
-    //@ts-ignore
-    const max = points.reduce((acc, point) => Math.max(point, acc), 0);
-
-    const o = (x : number, y : number) : number => (y * widthpx) + x;
-    const n = (p1 : vec3, p2 : vec3, p3: vec3) : vec3 => {
-      const A = [p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]];
-      const B = [p3[0] - p1[0], p3[1] - p1[1], p3[2] - p1[2]];
-      return [
-        A[1] * B[2] - A[2] * B[1],
-        A[2] * B[0] - A[0] * B[2],
-        A[0] * B[1] - A[1] * B[0]
-      ]
-    }
-    const pt = (tris : trivec3, off : number) => {
-      tris.flat().forEach((flt : number, i : number) => {
-        dv.setFloat32(off + (i * 4), flt, true);
-      });
-      // dv.setUint16(off+48, 0, true);
-    }
-
-    let off = 84;
-    for (let x = 0; x < (widthpx - 1); x += 2) {
-      for (let y = 0; y < (heightpx - 1); y++) {
-        const tri1 : trivec3 = [
-          [0,0,0], // normal
-          [  x,   y, points[o(x,y)]/max], // v1
-          [x+1,   y, points[o(x+1,y)]/max], // v2
-          [  x, y+1, points[o(x,y+1)]/max], // v3
-        ];
-        // tri1[0] = n(tri1[1], tri1[2], tri1[3]);
-        pt(tri1, off);
-        off += 50;
-
-        const tri2 : trivec3 = [
-          [0,0,0], // normal
-          [x+1,   y, points[o(x+1,y)]/max], // v1
-          [x+1, y+1, points[o(x+1,y+1)]/max], // v2
-          [  x, y+1, points[o(x,y+1)]/max], // v3
-        ];
-        // tri2[0] = n(tri2[1], tri2[2], tri2[3]);
-        pt(tri2, off);
-        off += 50;
-      }
-    }
-
-    return result;
+  /** Build a mesh and encode it as STL/OBJ/GLB, ready to download. */
+  buildMeshFile(input : MeshInput, options : MeshOptions, format : MeshFormat, name : string) {
+    const mesh = buildMesh(input, options);
+    const buffer = encodeMesh(mesh, format, name);
+    return Comlink.transfer({
+      buffer,
+      gridWidth: mesh.gridWidth,
+      gridHeight: mesh.gridHeight,
+      triangles: mesh.indices.length / 3,
+      units: mesh.units,
+    }, [buffer]);
+  },
+  /** Build a mesh for the on-screen preview (Z-up, with smooth normals). */
+  buildPreviewMesh(input : MeshInput, options : MeshOptions) {
+    const mesh = buildMesh(input, options);
+    const normals = computeVertexNormals(mesh);
+    return Comlink.transfer({
+      positions: mesh.positions,
+      normals,
+      uvs: mesh.uvs,
+      indices: mesh.indices,
+      topVertexCount: mesh.topVertexCount,
+      gridWidth: mesh.gridWidth,
+      gridHeight: mesh.gridHeight,
+      gridHeights: mesh.gridHeights,
+      units: mesh.units,
+      unitsPerMetre: mesh.unitsPerMetre,
+    }, [mesh.positions.buffer, normals.buffer, mesh.uvs.buffer, mesh.indices.buffer, mesh.gridHeights.buffer]);
   }
+
 }
 
 export type ProcessorWorker = typeof processor;

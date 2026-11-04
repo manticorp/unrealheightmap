@@ -16,7 +16,9 @@ export type SettingKey =
   | 'tilemode' | 'tilewidth' | 'tileheight' | 'tilecountx' | 'tilecounty'
   | 'tilezip' | 'tilepad' | 'tileunrealname'
   | 'waterlevel' | 'flattenwater' | 'watermask'
-  | 'normalmap' | 'slopemap' | 'curvaturemap' | 'heightbands';
+  | 'normalmap' | 'slopemap' | 'curvaturemap' | 'heightbands'
+  | 'meshformat' | 'meshres' | 'meshsolid' | 'basethickness'
+  | 'meshscale' | 'printwidth' | 'exaggeration';
 
 type SettingDef = {
   /** Short name used in the URL. */
@@ -52,6 +54,13 @@ export const SETTINGS: Record<SettingKey, SettingDef> = {
   slopemap:       {param: 'slope', default: '0'},
   curvaturemap:   {param: 'curv',  default: '0'},
   heightbands:    {param: 'bands', default: ''},
+  meshformat:     {param: 'mesh',  default: 'stl'},
+  meshres:        {param: 'mres',  default: '512'},
+  meshsolid:      {param: 'solid', default: '1'},
+  basethickness:  {param: 'base',  default: '2'},
+  meshscale:      {param: 'scale', default: 'print'},
+  printwidth:     {param: 'pw',    default: '150'},
+  exaggeration:   {param: 'exag',  default: '1'},
 };
 
 const PARAM_TO_KEY: Record<string, SettingKey> = Object.fromEntries(

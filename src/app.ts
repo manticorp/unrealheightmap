@@ -14,13 +14,14 @@ import JSZip from 'jszip';
 import {SETTINGS, SettingKey, SettingValues, buildHash, parseHash} from "./url-state";
 import {DerivedMap, DerivedMapOptions, NormalMapConvention, ProcessOptions, parseHeightBands, wantsDerivedMaps} from "./derived-maps";
 import {PlaceSearch} from "./place-search";
+import {MeshFormat, MeshOptions, MeshScale, MeshInput, defaultMeshOptions, estimateFileBytes, meshGridSize, triangleCount} from "./mesh";
+import type {TerrainPreview, PreviewMeshData} from "./preview3d";
 
 import * as Comlink from 'comlink';
 import {
   NormaliseResult,
-  TypedArrayToStlArgs,
-  typedArrayToStlDefaults,
   NormRange,
+  normDefaults,
   normMaxRange,
   ProcessorWorker,
   ProcessorProgressUpdate
@@ -151,6 +152,9 @@ export default class App {
   tilePadEl: JQuery<HTMLLabelElement>;
   tileUnrealNameEl: JQuery<HTMLLabelElement>;
   placeSearch: PlaceSearch;
+  preview: TerrainPreview | null = null;
+  previewCache: {key: string, input: MeshInput} | null = null;
+  previewBusy: boolean = false;
   constructor({container} : AppArgs) {
     this.container = container;
     this.meterFormatter = new Intl.NumberFormat(undefined, {style:'unit', unit: 'meter'});
@@ -171,6 +175,7 @@ export default class App {
     this.createInputOptions();
     this.createOutputOptions();
     this.createExtraOutputOptions();
+    this.createMeshOptions();
     this.resetOutput();
   }
   createSearchBar() {
@@ -1133,6 +1138,308 @@ export default class App {
       ? `Also exports: ${names.join(', ')}. Saved as 8-bit PNGs alongside the heightmap.`
       : 'No extra maps selected.');
   }
+  createMeshOptions() {
+    this.inputs.meshFormat = $(`<select name="meshformat">
+      <option value="stl" selected>STL (3D printing)</option>
+      <option value="obj">OBJ (Blender, most 3D apps)</option>
+      <option value="glb">GLB / glTF (engines, web)</option>
+    </select>`) as JQuery<HTMLSelectElement>;
+    this.inputs.meshRes = $(`<select name="meshres">
+      <option value="128">128</option>
+      <option value="256">256</option>
+      <option value="512" selected>512</option>
+      <option value="1024">1024</option>
+      <option value="2048">2048</option>
+    </select>`) as JQuery<HTMLSelectElement>;
+    this.inputs.meshSolid = $(`<select name="meshsolid">
+      <option value="1" selected>Solid with base</option>
+      <option value="0">Top surface only</option>
+    </select>`) as JQuery<HTMLSelectElement>;
+    this.inputs.baseThickness = App.createInput({name: 'basethickness', type: 'number', min: '0', step: '0.1', value: '2'});
+    this.inputs.meshScale = $(`<select name="meshscale">
+      <option value="print" selected>Print size (mm)</option>
+      <option value="real">Real world (metres)</option>
+    </select>`) as JQuery<HTMLSelectElement>;
+    this.inputs.printWidth = App.createInput({name: 'printwidth', type: 'number', min: '1', step: '1', value: '150'});
+    this.inputs.exaggeration = App.createInput({name: 'exaggeration', type: 'number', min: '0.1', max: '20', step: '0.1', value: '1'});
+
+    const select = (input : JQuery<HTMLElement>) => $('<div class="control">').append($('<div class="select is-fullwidth">').append(input));
+    const control = (input : JQuery<HTMLElement>) => $('<div class="control">').append(input);
+
+    const formatColumn = $('<div class="column field">')
+      .append(App.withInfo(App.createLabel('3D Model Format', {for: 'meshformat'}), 'STL for slicers and 3D printing. OBJ for Blender and most 3D apps (Y up, with UVs, so you can drape the albedo or normal map on it). GLB is a single-file glTF for game engines and the web.'))
+      .append(select(this.inputs.meshFormat))
+      .append(App.withInfo(App.createLabel('Mesh Resolution', {for: 'meshres'}), 'Vertices along the longer side. Higher is more detailed but larger and slower. 512 is plenty for most prints.'))
+      .append(select(this.inputs.meshRes));
+
+    this.els.baseThicknessLabel = App.createLabel('Base Thickness (mm)', {for: 'basethickness'});
+    this.els.baseThicknessColumn = $('<div class="column field">')
+      .append(App.withInfo(App.createLabel('Shape', {for: 'meshsolid'}), '"Solid with base" closes the model with walls and a flat bottom so it can be printed. "Top surface only" is just the terrain skin, which is what you usually want in Blender or an engine.'))
+      .append(select(this.inputs.meshSolid))
+      .append(App.withInfo(this.els.baseThicknessLabel, 'Extra material under the lowest point of the terrain, so thin areas still print solidly.'))
+      .append(control(this.inputs.baseThickness));
+
+    this.els.printWidthColumn = $('<div class="field">')
+      .append(App.withInfo(App.createLabel('Print Width (mm)', {for: 'printwidth'}), 'Length of the longer side of the printed model. Heights scale with it, so the model stays true to life (before exaggeration).'))
+      .append(control(this.inputs.printWidth));
+    const scaleColumn = $('<div class="column field">')
+      .append(App.withInfo(App.createLabel('Scale', {for: 'meshscale'}), 'Print size scales the model to a width in millimetres. Real world keeps it 1:1 in metres.'))
+      .append(select(this.inputs.meshScale))
+      .append(this.els.printWidthColumn);
+
+    this.els.previewButton = $('<button class="button is-info" type="button">3D Preview</button>');
+    this.els.meshButton = $('<button class="button is-primary" type="button">Export 3D Model</button>');
+    this.els.meshEstimate = $('<p class="mesh-estimate">');
+    const actionsColumn = $('<div class="column field">')
+      .append(App.withInfo(App.createLabel('Height Exaggeration', {for: 'exaggeration'}), 'Multiplies heights only. 1 is true to life; 1.5 to 3 often reads better on small prints of gentle terrain.'))
+      .append(control(this.inputs.exaggeration))
+      .append($('<div class="buttons mesh-buttons">').append(this.els.previewButton).append(this.els.meshButton))
+      .append(this.els.meshEstimate);
+
+    this.els.columnsMesh = $('<div class="columns columns-output columns-output--mesh">')
+      .append(formatColumn)
+      .append(this.els.baseThicknessColumn)
+      .append(scaleColumn)
+      .append(actionsColumn);
+
+    this.els.previewContainer = $('<div class="preview3d">').hide();
+    this.els.previewCanvas = $('<div class="preview3d__canvas">');
+    this.els.previewStatus = $('<div class="preview3d__status">');
+    this.els.previewToolbar = $('<div class="preview3d__toolbar">');
+    this.els.previewRefresh = $('<button class="button is-small" type="button">Refresh</button>');
+    this.els.previewReset = $('<button class="button is-small" type="button">Reset view</button>');
+    this.els.previewClose = $('<button class="button is-small" type="button" aria-label="Close preview">Close</button>');
+    this.els.previewInfo = $('<span class="preview3d__info">');
+    this.els.previewToolbar.append(this.els.previewInfo, this.els.previewRefresh, this.els.previewReset, this.els.previewClose);
+    this.els.previewContainer.append(this.els.previewToolbar, this.els.previewCanvas, this.els.previewStatus);
+
+    this.els.inputContainer.append($('<h3 class="subtitle is-5 mesh-heading">3D Model</h3>'));
+    this.els.inputContainer.append(this.els.columnsMesh);
+    this.els.inputContainer.append(this.els.previewContainer);
+    this.toggleMeshInputs();
+  }
+  hookMeshControls() {
+    const meshKeys : [SettingKey, JQuery<HTMLElement>][] = [
+      ['meshformat', this.inputs.meshFormat],
+      ['meshres', this.inputs.meshRes],
+      ['meshsolid', this.inputs.meshSolid],
+      ['basethickness', this.inputs.baseThickness],
+      ['meshscale', this.inputs.meshScale],
+      ['printwidth', this.inputs.printWidth],
+      ['exaggeration', this.inputs.exaggeration],
+    ];
+    const rebuildPreview = debounce(150, () => this.rebuildPreviewMesh(false));
+    for (const [key, input] of meshKeys) {
+      input.on('change input', debounce(30, () => {
+        const value = this.readSetting(key) ?? '';
+        this.storeValue(key, value);
+        if (input.is('select')) {
+          trackControl(key, value);
+        }
+        this.toggleMeshInputs();
+        this.updateMeshEstimate();
+        rebuildPreview();
+      }));
+    }
+    this.els.meshButton.on('click', debounce(100, () => {
+      trackEvent(`generate/mesh/${this.inputs.meshFormat.val()}/${this.getMeshOptions().solid ? 'solid' : 'surface'}`);
+      this.exportMesh();
+    }));
+    this.els.previewButton.on('click', debounce(100, () => {
+      trackEvent('preview/3d');
+      this.openPreview();
+    }));
+    this.els.previewRefresh.on('click', () => this.refreshPreview());
+    this.els.previewReset.on('click', () => this.preview?.frameMesh());
+    this.els.previewClose.on('click', () => this.closePreview());
+    // Keep the size estimate current as the area changes
+    [this.inputs.width, this.inputs.height, this.inputs.outputzoom].forEach(input => {
+      input.on('change input', debounce(60, () => this.updateMeshEstimate()));
+    });
+    this.updateMeshEstimate();
+  }
+  getMeshOptions() : MeshOptions {
+    const num = (input : JQuery<HTMLElement>, fallback : number) => {
+      const v = parseFloat((input?.val() ?? '').toString());
+      return Number.isFinite(v) ? v : fallback;
+    };
+    return {
+      resolution: Math.max(2, Math.round(num(this.inputs.meshRes, defaultMeshOptions.resolution))),
+      solid: (this.inputs.meshSolid?.val() ?? '1').toString() === '1',
+      baseThickness: Math.max(0, num(this.inputs.baseThickness, defaultMeshOptions.baseThickness)),
+      scale: ((this.inputs.meshScale?.val() ?? 'print').toString() as MeshScale),
+      printWidth: Math.max(1, num(this.inputs.printWidth, defaultMeshOptions.printWidth)),
+      exaggeration: Math.max(0.01, num(this.inputs.exaggeration, defaultMeshOptions.exaggeration)),
+    };
+  }
+  getMeshFormat() : MeshFormat {
+    return ((this.inputs.meshFormat?.val() ?? 'stl').toString() as MeshFormat);
+  }
+  toggleMeshInputs() {
+    if (!this.inputs.meshSolid) return;
+    const opts = this.getMeshOptions();
+    this.inputs.baseThickness.prop('disabled', !opts.solid);
+    this.els.baseThicknessLabel.contents().first()[0].textContent = `Base Thickness (${opts.scale === 'print' ? 'mm' : 'm'})`;
+    this.els.printWidthColumn.toggleClass('is-disabled', opts.scale !== 'print');
+    this.inputs.printWidth.prop('disabled', opts.scale !== 'print');
+  }
+  updateMeshEstimate() {
+    if (!this.els.meshEstimate || !this.inputs.width) return;
+    const state = this.getCurrentState();
+    const opts = this.getMeshOptions();
+    const grid = meshGridSize(state.width, state.height, opts.resolution);
+    const tris = triangleCount(grid.width, grid.height, opts.solid);
+    const bytes = estimateFileBytes(this.getMeshFormat(), grid.width, grid.height, opts.solid);
+    const mb = bytes / (1024 * 1024);
+    let footprint : string;
+    if (opts.scale === 'print') {
+      const longest = Math.max(state.phys.width, state.phys.height) || 1;
+      footprint = `${localFormatNumber(state.phys.width / longest * opts.printWidth, 0)} × ${localFormatNumber(state.phys.height / longest * opts.printWidth, 0)} mm`;
+    } else {
+      footprint = `${localFormatNumber(state.phys.width / 1000, 2)} × ${localFormatNumber(state.phys.height / 1000, 2)} km`;
+    }
+    this.els.meshEstimate.text(`${grid.width} × ${grid.height} vertices, ${localFormatNumber(tris, 0)} triangles, ~${localFormatNumber(mb, mb < 10 ? 1 : 0)} MB. Footprint ${footprint}.`);
+    this.els.meshEstimate.toggleClass('is-warning', mb > 250);
+  }
+  /**
+   * Fetch real heights in metres for the current area, at a zoom just detailed
+   * enough for `targetResolution` samples on the longer side. Water flattening
+   * is applied; normalisation is not.
+   */
+  async fetchRawHeights(targetResolution : number, onProgress? : (message : string, percent : number) => void) : Promise<MeshInput> {
+    const full = this.getCurrentState();
+    // Drop whole zoom levels while the grid stays at least as big as needed
+    let scale = 1;
+    while (Math.max(full.width, full.height) * scale / 2 >= targetResolution && full.z + Math.log2(scale / 2) >= 1) {
+      scale /= 2;
+    }
+    const state = this.getCurrentState(scale);
+    const items = this.buildTileFetchList(state);
+    let loaded = 0;
+    const results = await promiseAllInBatches((item) => this.fetchImage(item, state).then(r => {
+      loaded++;
+      onProgress?.(`Downloading terrain tiles (${loaded}/${items.length})`, loaded / items.length * 80);
+      return r;
+    }), items, 200, 0);
+    onProgress?.('Stitching terrain…', 85);
+    const output = await processor.combineImages(
+      this.prepareWorkerStates(results),
+      NormaliseMode.Off,
+      normDefaults,
+      undefined,
+      this.getProcessOptions(state, false)
+    ) as NormaliseResult<Float32Array>;
+    return {
+      heights: output.data,
+      width: state.width,
+      height: state.height,
+      physWidth: state.phys.width,
+      physHeight: state.phys.height,
+    };
+  }
+  async exportMesh() {
+    if (parseInt(this.inputs.outputzoom.val().toString()) > 15) {
+      this.displayError({text: 'Cannot export a 3D model for output zoom > 15'});
+      return;
+    }
+    const button = this.els.meshButton;
+    button.prop('disabled', true).addClass('is-loading');
+    this.resetOutput();
+    try {
+      const opts = this.getMeshOptions();
+      const meshFormat = this.getMeshFormat();
+      const input = await this.fetchRawHeights(opts.resolution, (msg, pct) => this.showProcessingProgress(msg, pct));
+      this.showProcessingProgress(`Building ${meshFormat.toUpperCase()} mesh…`, 92);
+      const state = this.getCurrentState();
+      const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
+      const name = `${base}_terrain_${opts.solid ? 'solid' : 'surface'}`;
+      const result = await processor.buildMeshFile(input, opts, meshFormat, name);
+      this.hideProcessingProgress();
+      const filename = `${name}.${meshFormat}`;
+      const blob = new Blob([result.buffer], {type: meshFormat === 'obj' ? 'text/plain' : 'application/octet-stream'});
+      this.download(blob, filename);
+      const sizeMb = blob.size / (1024 * 1024);
+      const unitsText = result.units === 'mm' ? 'millimetres' : 'metres';
+      this.els.outputText.html('');
+      this.els.outputText.append($('<p>').text(
+        `Saved ${filename}: ${result.gridWidth} × ${result.gridHeight} vertices, ${localFormatNumber(result.triangles, 0)} triangles, ${localFormatNumber(sizeMb, 1)} MB. Units: ${unitsText}.`
+      ));
+      if (meshFormat !== 'stl') {
+        this.els.outputText.append($('<p>').text('Y is up and the model is centred on the origin. UVs cover the top surface 0–1, so an albedo or normal map exported for the same area lines up directly.'));
+      }
+    } catch (e) {
+      console.error('Failed to export mesh', e);
+      this.hideProcessingProgress();
+      this.displayError({text: 'Could not build the 3D model. Please try again, or lower the mesh resolution.'});
+    } finally {
+      button.prop('disabled', false).removeClass('is-loading');
+      currentRequests = [];
+    }
+  }
+  /** Identifies the terrain the preview was built from, so we know when it's stale. */
+  getPreviewKey() : string {
+    const s = this.readSettings();
+    return [s.latitude, s.longitude, s.outputzoom, s.width, s.height, s.waterlevel, s.flattenwater]
+      .map(v => v ?? '').join('|');
+  }
+  async openPreview() {
+    this.els.previewContainer.show();
+    this.els.previewContainer[0].scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    if (!this.preview) {
+      this.els.previewStatus.text('Loading 3D viewer…').show();
+      try {
+        const {TerrainPreview} = await import(/* webpackChunkName: "preview3d" */ './preview3d');
+        this.preview = new TerrainPreview(this.els.previewCanvas[0]);
+        await this.preview.init();
+      } catch (e) {
+        console.error('Failed to start 3D preview', e);
+        this.els.previewStatus.text('Sorry, the 3D preview could not start in this browser (WebGL is needed).');
+        this.preview = null;
+        return;
+      }
+    }
+    await this.refreshPreview();
+  }
+  closePreview() {
+    this.els.previewContainer.hide();
+  }
+  async refreshPreview() {
+    if (this.previewBusy) return;
+    if (parseInt(this.inputs.outputzoom.val().toString()) > 15) {
+      this.els.previewStatus.text('Output zoom is too high (>15) to preview.').show();
+      return;
+    }
+    this.previewBusy = true;
+    this.els.previewStatus.text('Loading terrain…').show();
+    try {
+      const key = this.getPreviewKey();
+      // The preview stays light: at most 384 vertices a side
+      const input = await this.fetchRawHeights(Math.min(384, this.getMeshOptions().resolution),
+        (msg) => this.els.previewStatus.text(msg));
+      this.previewCache = {key, input};
+      await this.rebuildPreviewMesh(true);
+    } catch (e) {
+      console.error('Preview failed', e);
+      this.els.previewStatus.text('Could not load terrain for the preview. Please try again.').show();
+    } finally {
+      this.previewBusy = false;
+      currentRequests = [];
+    }
+  }
+  async rebuildPreviewMesh(reframe : boolean) {
+    if (!this.preview || !this.previewCache || !this.els.previewContainer.is(':visible')) return;
+    const opts = this.getMeshOptions();
+    const previewOpts : MeshOptions = {...opts, resolution: Math.min(384, opts.resolution)};
+    const cache = this.previewCache.input;
+    // Send a copy: the cache is reused for later option changes
+    const data = await processor.buildPreviewMesh({...cache, heights: cache.heights.slice(0)}, previewOpts) as PreviewMeshData & {gridWidth: number, gridHeight: number};
+    const flatten = this.inputs.flattenWater?.is(':checked') ?? false;
+    const showWater = flatten || (this.inputs.waterMask?.is(':checked') ?? false);
+    this.preview.setMesh(data, {waterLevel: showWater ? this.getWaterLevel() : null}, reframe);
+    const stale = this.previewCache.key !== this.getPreviewKey();
+    this.els.previewInfo.text(`Preview ${data.gridWidth} × ${data.gridHeight}${stale ? ' · area changed, press Refresh' : ''}. Drag to orbit, right-drag to pan, scroll to zoom.`);
+    this.els.previewStatus.hide();
+  }
   createSubmitButton() {
     this.els.generatedColumn = $('<div class="column content">');
     this.els.generatorInfo = $('<div class="generatorInfo">');
@@ -1210,6 +1517,13 @@ export default class App {
       slopemap: this.inputs.slopeMap,
       curvaturemap: this.inputs.curvatureMap,
       heightbands: this.inputs.heightBands,
+      meshformat: this.inputs.meshFormat,
+      meshres: this.inputs.meshRes,
+      meshsolid: this.inputs.meshSolid,
+      basethickness: this.inputs.baseThickness,
+      meshscale: this.inputs.meshScale,
+      printwidth: this.inputs.printWidth,
+      exaggeration: this.inputs.exaggeration,
     };
     return controls[key];
   }
@@ -1475,6 +1789,7 @@ export default class App {
     });
 
     this.hookExtraOutputControls(doHeightsDebounced);
+    this.hookMeshControls();
 
     window.addEventListener('paste', (event : ClipboardEvent) => {
       // @ts-ignore
@@ -2951,13 +3266,5 @@ export default class App {
   ) : Promise<any> {
     return UPNG.encodeLL(bufs, width, height, colourChannel, alphaChannel, depth, dels, tabs)
   }
-  async typedArrayToStl(
-    points: TypedArray,
-    widthpx : number,
-    heightpx : number,
-    {width, depth, height} : TypedArrayToStlArgs = typedArrayToStlDefaults
-  ) {
-    //@ts-ignore
-    return await processor.typedArrayToStl(points, widthpx, heightpx, {width, depth, height});
-  }
+
 }

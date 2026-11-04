@@ -231,3 +231,72 @@
     }
   }
 }
+
+.mesh-heading {
+  margin-top: 0.5rem;
+  margin-bottom: 0.75rem !important;
+}
+
+.mesh-buttons {
+  margin-top: 0.75rem;
+  margin-bottom: 0.25rem !important;
+}
+
+.mesh-estimate {
+  font-size: 0.8rem;
+  color: $grey-light;
+
+  &.is-warning {
+    color: $yellow;
+  }
+}
+
+.field.is-disabled {
+  opacity: 0.5;
+}
+
+.preview3d {
+  position: relative;
+  margin-bottom: 1.5rem;
+  border: 1px solid $grey;
+  border-radius: $radius;
+  overflow: hidden;
+  background: $grey-darker;
+
+  &__toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    background: $grey-dark;
+    border-bottom: 1px solid $grey;
+  }
+
+  &__info {
+    flex: 1;
+    font-size: 0.8rem;
+    color: $grey-light;
+  }
+
+  &__canvas {
+    height: min(70vh, 560px);
+    min-height: 280px;
+    touch-action: none;
+
+    canvas {
+      display: block;
+    }
+  }
+
+  &__status {
+    position: absolute;
+    left: 50%;
+    top: 55%;
+    transform: translate(-50%, -50%);
+    padding: 0.5rem 1rem;
+    border-radius: $radius;
+    background: rgba(0, 0, 0, 0.6);
+    color: $grey-lighter;
+    pointer-events: none;
+  }
+}
