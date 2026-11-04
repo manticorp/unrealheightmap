@@ -16,6 +16,7 @@ import {DerivedMap, DerivedMapOptions, NormalMapConvention, ProcessOptions, pars
 import {PlaceSearch} from "./place-search";
 import {MeshFormat, MeshOptions, MeshScale, MeshInput, defaultMeshOptions, estimateFileBytes, meshGridSize, triangleCount} from "./mesh";
 import type {TerrainPreview, PreviewMeshData} from "./preview3d";
+import {AwsTerrainSource, ElevationSource, ElevationSourceId, MapterhornSource, metresPerPixel} from "./elevation";
 
 import * as Comlink from 'comlink';
 import {
@@ -155,6 +156,10 @@ export default class App {
   preview: TerrainPreview | null = null;
   previewCache: {key: string, input: MeshInput} | null = null;
   previewBusy: boolean = false;
+  elevationSources: Record<ElevationSourceId, ElevationSource> = {
+    aws: new AwsTerrainSource((z, x, y) => App.getImageAsBuffer(NextZen.getUrl({x, y, z})).then(buffer => PNG.fromBuffer(buffer).terrariumToGrayscale())),
+    mapterhorn: new MapterhornSource(),
+  };
   constructor({container} : AppArgs) {
     this.container = container;
     this.meterFormatter = new Intl.NumberFormat(undefined, {style:'unit', unit: 'meter'});
@@ -318,7 +323,7 @@ export default class App {
           maxZoom: 15
         }
       ),
-      label: 'Terrarium (used for the heightmap export)'
+      label: 'Terrarium (AWS elevation tiles, raw)'
     };
   }
   createMap() {
@@ -736,6 +741,12 @@ export default class App {
       value: '13'
     });
 
+    this.inputs.elevSource = $(`<select name="elevsource">
+      <option value="aws" selected>AWS Terrain Tiles (Mapzen)</option>
+      <option value="mapterhorn">Mapterhorn (Copernicus 30 m + lidar)</option>
+    </select>`) as JQuery<HTMLSelectElement>;
+    this.els.elevSourceNote = $('<p class="elevation-note">');
+
     this.inputs.maptype = $('<select>') as JQuery<HTMLSelectElement>;
     for (let [type, layer] of Object.entries(this.layers)) {
       this.inputs.maptype.append(`<option value="${type}">${layer.label}</option>`);
@@ -767,10 +778,20 @@ export default class App {
     this.els.columnMaptype.append(mapTypeControlLabel);
     this.els.columnMaptype.append(this.els.maptypeControl);
 
+    const elevSourceLabel = App.createLabel('Elevation Data', {for: 'elevsource'});
+    App.withInfo(elevSourceLabel, `<div class="content"><p><b>AWS Terrain Tiles</b>: the original Mapzen data. Global, mostly 30 to 90 m, with 3 to 10 m in the USA. Output zoom up to 15.</p>
+<p><b>Mapterhorn</b>: Copernicus GLO-30 worldwide, plus 0.25 to 10 m lidar for the USA (USGS 3DEP), the UK, most of Europe, Japan, New Zealand and more. Output zoom up to 18. Where only 30 m data exists, higher zooms are smoothly upscaled. Copernicus is a surface model, so forests and buildings can show as bumps.</p>
+<p>See <a href="https://mapterhorn.com" target="_blank" rel="noopener">mapterhorn.com</a> for coverage.</p></div>`);
+    this.els.columnElevSource = $('<div class="column field">')
+      .append(elevSourceLabel)
+      .append($('<div class="control">').append($('<div class="select is-fullwidth">').append(this.inputs.elevSource)))
+      .append(this.els.elevSourceNote);
+
     this.els.columnsLatLngZoom.append(this.els.columnLat);
     this.els.columnsLatLngZoom.append(this.els.columnLng);
     // this.els.columnsLatLngZoom.append(this.els.columnZoom);
     this.els.columnsLatLngZoom.append(this.els.columnOutputZoom);
+    this.els.columnsLatLngZoom.append(this.els.columnElevSource);
     this.els.columnsLatLngZoom.append(this.els.columnMaptype);
 
     this.els.inputContainer.append(this.els.columnsLatLngZoom);
@@ -1306,7 +1327,7 @@ export default class App {
    * enough for `targetResolution` samples on the longer side. Water flattening
    * is applied; normalisation is not.
    */
-  async fetchRawHeights(targetResolution : number, onProgress? : (message : string, percent : number) => void) : Promise<MeshInput> {
+  async fetchRawHeights(targetResolution : number, onProgress? : (message : string, percent : number) => void) : Promise<MeshInput & {zoom: number}> {
     const full = this.getCurrentState();
     // Drop whole zoom levels while the grid stays at least as big as needed
     let scale = 1;
@@ -1329,17 +1350,19 @@ export default class App {
       undefined,
       this.getProcessOptions(state, false)
     ) as NormaliseResult<Float32Array>;
+    const width = Math.round(state.width);
     return {
       heights: output.data,
-      width: state.width,
-      height: state.height,
+      width,
+      height: Math.floor(output.data.length / width),
       physWidth: state.phys.width,
       physHeight: state.phys.height,
+      zoom: state.z,
     };
   }
   async exportMesh() {
-    if (parseInt(this.inputs.outputzoom.val().toString()) > 15) {
-      this.displayError({text: 'Cannot export a 3D model for output zoom > 15'});
+    if (this.isOutputZoomTooHigh()) {
+      this.displayError({text: `Cannot export a 3D model above output zoom ${this.getMaxOutputZoom()} with this elevation source`});
       return;
     }
     const button = this.els.meshButton;
@@ -1348,6 +1371,7 @@ export default class App {
     try {
       const opts = this.getMeshOptions();
       const meshFormat = this.getMeshFormat();
+      this.getElevationSource().resetStats();
       const input = await this.fetchRawHeights(opts.resolution, (msg, pct) => this.showProcessingProgress(msg, pct));
       this.showProcessingProgress(`Building ${meshFormat.toUpperCase()} mesh…`, 92);
       const state = this.getCurrentState();
@@ -1364,6 +1388,7 @@ export default class App {
       this.els.outputText.append($('<p>').text(
         `Saved ${filename}: ${result.gridWidth} × ${result.gridHeight} vertices, ${localFormatNumber(result.triangles, 0)} triangles, ${localFormatNumber(sizeMb, 1)} MB. Units: ${unitsText}.`
       ));
+      this.els.outputText.append($('<p>').html(`${this.describeElevationDetail(state.latitude, input.zoom)} ${this.getElevationSource().attributionHtml}`));
       if (meshFormat !== 'stl') {
         this.els.outputText.append($('<p>').text('Y is up and the model is centred on the origin. UVs cover the top surface 0–1, so an albedo or normal map exported for the same area lines up directly.'));
       }
@@ -1379,7 +1404,7 @@ export default class App {
   /** Identifies the terrain the preview was built from, so we know when it's stale. */
   getPreviewKey() : string {
     const s = this.readSettings();
-    return [s.latitude, s.longitude, s.outputzoom, s.width, s.height, s.waterlevel, s.flattenwater]
+    return [s.elevsource, s.latitude, s.longitude, s.outputzoom, s.width, s.height, s.waterlevel, s.flattenwater]
       .map(v => v ?? '').join('|');
   }
   async openPreview() {
@@ -1405,8 +1430,8 @@ export default class App {
   }
   async refreshPreview() {
     if (this.previewBusy) return;
-    if (parseInt(this.inputs.outputzoom.val().toString()) > 15) {
-      this.els.previewStatus.text('Output zoom is too high (>15) to preview.').show();
+    if (this.isOutputZoomTooHigh()) {
+      this.els.previewStatus.text(`Output zoom is too high (>${this.getMaxOutputZoom()}) for this elevation source.`).show();
       return;
     }
     this.previewBusy = true;
@@ -1495,6 +1520,7 @@ export default class App {
       longitude: this.inputs.longitude,
       zoom: this.inputs.zoom,
       outputzoom: this.inputs.outputzoom,
+      elevsource: this.inputs.elevSource,
       width: this.inputs.width,
       height: this.inputs.height,
       outputformat: this.inputs.outputformat,
@@ -1600,6 +1626,9 @@ export default class App {
     this.toggleTileInputs();
     this.updateTileSummary();
     this.updateExtraMapsSummary();
+    this.toggleMeshInputs();
+    this.updateMeshEstimate();
+    this.updateElevationSourceNote();
   }
   /** Mirror the current settings into the address bar without adding history entries. */
   writeHash() {
@@ -1626,11 +1655,11 @@ export default class App {
     this.storeValue('zoom', this.inputs.zoom.val().toString());
   }
   doDisEnableControls() {
-    const outputZoomLevel = parseInt(this.inputs.outputzoom.val().toString());
-    if (outputZoomLevel > 15) {
+    const max = this.getMaxOutputZoom();
+    if (this.isOutputZoomTooHigh()) {
       this.els.generate.prop('disabled', true);
-      this.els.generate.prop('title', 'Cannot generate heightmap for output zoom > 15');
-      this.els.generate.text('Output Zoom too high (>15)');
+      this.els.generate.prop('title', `Cannot generate heightmap above output zoom ${max} with this elevation source`);
+      this.els.generate.text(`Output Zoom too high (>${max})`);
     } else {
       this.els.generate.prop('disabled', false);
       this.els.generate.prop('title', 'Generate heightmap');
@@ -1766,6 +1795,16 @@ export default class App {
       this.updateTileSummary();
       doHeightsDebounced();
     }));
+
+    this.inputs.elevSource.on('change', () => {
+      const value = this.inputs.elevSource.val().toString();
+      this.storeValue('elevsource', value);
+      trackControl('elevsource', value);
+      this.updateElevationSourceNote();
+      this.doDisEnableControls();
+      doHeightsDebounced();
+    });
+    this.updateElevationSourceNote();
 
     this.inputs.outputformat.on('change input', debounce(30, () => {
       this.storeValue('outputformat', this.inputs.outputformat.val().toString());
@@ -1960,8 +1999,9 @@ export default class App {
     state.longitude = parseFloat(this.inputs.longitude.val().toString());
     state.z         = newZ;
     state.zoom      = newZ;
-    state.width     = parseInt(this.inputs.width.val().toString()) * scale;
-    state.height    = parseInt(this.inputs.height.val().toString()) * scale;
+    // Whole pixels: a scaled-down grid (e.g. 2017 px at 1/4) must not end up fractional
+    state.width     = Math.max(1, Math.round(parseInt(this.inputs.width.val().toString()) * scale));
+    state.height    = Math.max(1, Math.round(parseInt(this.inputs.height.val().toString()) * scale));
 
     state.exactPos = App.getTileCoordsFromLatLngExact(state.latitude, state.longitude, state.zoom);
     state.widthInTiles = state.width/NextZen.tileWidth;
@@ -2031,7 +2071,54 @@ export default class App {
     const d = R * c; // in metres
     return d;
   }
+  updateElevationSourceNote() {
+    const source = this.getElevationSource();
+    this.els.elevSourceNote?.html(`${source.attributionHtml}. Output zoom up to ${source.maxZoom}.`);
+  }
+  /** One line saying how detailed the data behind the last export really was. */
+  describeElevationDetail(latitude : number, outputZoom : number) : string {
+    const source = this.getElevationSource();
+    const stats = source.getStats();
+    if (stats.bestZoom === null) {
+      return '';
+    }
+    const fmt = (z : number) => `${localFormatNumber(metresPerPixel(z, latitude), metresPerPixel(z, latitude) < 10 ? 1 : 0)} m/px`;
+    const detail = stats.bestZoom === stats.worstZoom
+      ? `source tiles ~${fmt(stats.bestZoom)}`
+      : `source tiles from ~${fmt(stats.bestZoom)} to ~${fmt(stats.worstZoom)} across the area`;
+    const upscaled = stats.worstZoom < outputZoom
+      ? ` The output (~${fmt(outputZoom)}) is finer than some of the source data, so those parts are smoothly upscaled.`
+      : '';
+    return `Elevation data: ${source.label}, ${detail}.${upscaled}`;
+  }
+  getElevationSource() : ElevationSource {
+    const id = (this.inputs.elevSource?.val() ?? 'aws').toString() as ElevationSourceId;
+    return this.elevationSources[id] ?? this.elevationSources.aws;
+  }
+  /** Highest output zoom the selected elevation source has real data for. */
+  getMaxOutputZoom() : number {
+    return this.getElevationSource().maxZoom;
+  }
+  isOutputZoomTooHigh() : boolean {
+    return parseInt(this.inputs.outputzoom.val().toString()) > this.getMaxOutputZoom();
+  }
   async fetchImage({x,y,z} : TileCoords, state : ConfigState) : Promise<TileLoadState> {
+    if (state.type === 'heightmap') {
+      return new Promise((resolve, reject) => {
+        this.getElevationSource().getTile(z, x, y).then(heights => {
+          resolve({...state, x, y, buffer: new ArrayBuffer(0), heights});
+        }).catch(e => {
+          for (let r of currentRequests) {
+            r.abort();
+          }
+          if (e && e.type === 'abort') {
+            return;
+          }
+          console.error(e);
+          reject({...state, x, y, z});
+        });
+      });
+    }
     return new Promise((resolve, reject) => {
       App.getImageAt({z, y, x}, state).then(buffer => {
         const png = PNG.fromBuffer(buffer);
@@ -2053,8 +2140,7 @@ export default class App {
     });
   }
   getApproxHeightsForState() {
-    const outputZoomLevel = parseInt(this.inputs.outputzoom.val().toString());
-    if (outputZoomLevel > 15) {
+    if (this.isOutputZoomTooHigh()) {
        this.els.generatorInfo.find('.heights').text('');
        this.els.scaleInfoValues?.html('');
        return;
@@ -2129,6 +2215,7 @@ export default class App {
   }
   generate() {
     this.els.generate.prop('disabled', true);
+    this.getElevationSource().resetStats();
     const state = this.getCurrentState();
     this.resetOutput();
     const tileConfig = this.getTileExportConfig(state.width, state.height);
@@ -2730,6 +2817,10 @@ export default class App {
     <p>i.e. if you printed this 100mm wide, it would have to be <code>${localFormatNumber(range/state.phys.width * 100, 3)}</code>mm tall to be physically accurate</p>
     <p>Projection: <code>EPSG:3857</code> (Web Mercator). See "Bounds &amp; projection" above for the extent to georeference in QGIS/GIS tools.</p>
     `;
+    const detail = this.describeElevationDetail(state.latitude, state.zoom);
+    if (detail) {
+      txt += `<p>${detail}</p><p class="elevation-note">${this.getElevationSource().attributionHtml}</p>`;
+    }
     const tiling = this.getTileExportConfig(state.width, state.height);
     if (tiling.enabled) {
       const totalTiles = tiling.tilesX * tiling.tilesY;

@@ -47,7 +47,7 @@ We have started hitting the free tier limits from some map services, so the site
 ## ✨ Features
 
 - **High-Quality 16/32-bit Output** - Generate heightmaps with 65,536/4,294,967,296 levels of detail (vs only 256 in 8-bit)
-- **Real-World Terrain Data** - Uses high-quality elevation data from [Mapzen's global elevation service](https://www.mapzen.com/blog/elevation/)
+- **Real-World Terrain Data** - Choose between [Mapzen's global elevation tiles](https://www.mapzen.com/blog/elevation/) and [Mapterhorn](https://mapterhorn.com), which adds Copernicus GLO-30 worldwide plus 0.25–10 m lidar for the USA (USGS 3DEP), the UK, most of Europe, Japan, New Zealand and more, at output zooms up to 18
 - **Interactive Map Interface** - Visual selection of terrain areas using an intuitive map interface
 - **Multiple Normalisation Modes** - Choose between None, Regular, or Smart normalisation to optimize your heightmap data
 - **Flexible Output Sizes** - Preset sizes for Unreal Engine or custom dimensions up to 8129×8129 pixels

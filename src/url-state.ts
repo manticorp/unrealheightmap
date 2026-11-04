@@ -18,7 +18,8 @@ export type SettingKey =
   | 'waterlevel' | 'flattenwater' | 'watermask'
   | 'normalmap' | 'slopemap' | 'curvaturemap' | 'heightbands'
   | 'meshformat' | 'meshres' | 'meshsolid' | 'basethickness'
-  | 'meshscale' | 'printwidth' | 'exaggeration';
+  | 'meshscale' | 'printwidth' | 'exaggeration'
+  | 'elevsource';
 
 type SettingDef = {
   /** Short name used in the URL. */
@@ -32,6 +33,7 @@ export const SETTINGS: Record<SettingKey, SettingDef> = {
   longitude:      {param: 'lng',   default: null},
   zoom:           {param: 'z',     default: null},
   outputzoom:     {param: 'oz',    default: null},
+  elevsource:     {param: 'dem',   default: 'aws'},
   width:          {param: 'w',     default: null},
   height:         {param: 'h',     default: null},
   outputformat:   {param: 'fmt',   default: 'png16'},

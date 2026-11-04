@@ -12,3 +12,6 @@ npm-debug.log
 _gh_pages
 _site
 node_modules
+
+# Promo assets and renders (large, generated)
+promo/

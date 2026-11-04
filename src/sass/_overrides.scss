@@ -300,3 +300,14 @@
     pointer-events: none;
   }
 }
+
+.elevation-note {
+  margin-top: 0.25rem;
+  font-size: 0.7rem;
+  color: $grey-light;
+
+  a {
+    color: $grey-light;
+    text-decoration: underline;
+  }
+}
