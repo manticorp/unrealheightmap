@@ -137,6 +137,12 @@
           <p>You can use these to import into other game engines, and also 3D software such as Blender.</p>
         </details>
         <details>
+          <summary>What projection is the output in? (QGIS / GIS import)</summary>
+          <p>All exports (heightmaps and albedo) are in <strong>EPSG:3857</strong> (WGS 84 / Pseudo-Mercator, "Web Mercator"), the same projection as the source map tiles.</p>
+          <p>To use an export in QGIS, set the layer CRS to EPSG:3857 and georeference it with the extent shown under "Bounds &amp; projection" on the generator page (xmin, ymin, xmax, ymax in metres).</p>
+          <p>Note that EPSG:3857 units are not true ground metres: distances are stretched by roughly 1/cos(latitude). Reproject (e.g. to a local UTM zone) before measuring distances or applying earth-curvature corrections.</p>
+        </details>
+        <details>
           <summary>Why wouldn't I use the tangrams heightmapper website output?</summary>
           Unfortunately, because of the way it generates images, the output from <a href="http://tangrams.github.io/heightmapper" rel="noopener" target="_blank">heightmapper</a> is 1) noisy, 2) only 8 bit, resulting in poor quality landscapes and jagged areas. In 8 bit, a 1000m tall mountain would have jagged edges every 4m in height.
         </details>

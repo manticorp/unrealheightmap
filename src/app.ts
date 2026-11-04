@@ -142,6 +142,7 @@ export default class App {
   layers: Record<string, {layer:L.TileLayer, label:string}> = {};
   layer: string  = 'topo';
   listenHashChange: boolean = false;
+  lastWrittenHash: string = '';
   doHeightsDebounced: () => void;
   lastUiYieldTimestamp: number = 0;
   tileZipEl: JQuery<HTMLLabelElement>;
@@ -366,9 +367,16 @@ export default class App {
       const lat = (((nlat % 180) + 180) % 180) - 90;
       const nlng = center.lng + 180;
       const lng = (((nlng % 360) + 360) % 360) - 180;
-      this.inputs.latitude.val(lat);
-      this.inputs.longitude.val(lng);
-      this.inputs.zoom.val(this.map.getZoom());
+      // Don't overwrite an input the user is currently typing in (#7)
+      if (!App.isFocused(this.inputs.latitude)) {
+        this.inputs.latitude.val(lat);
+      }
+      if (!App.isFocused(this.inputs.longitude)) {
+        this.inputs.longitude.val(lng);
+      }
+      if (!App.isFocused(this.inputs.zoom)) {
+        this.inputs.zoom.val(this.map.getZoom());
+      }
       this.mapMarker.setLatLng(center);
       this.saveLatLngZoomState();
       this.updatePhysicalDimensions();
@@ -462,12 +470,23 @@ export default class App {
     const resunit = 'm';
     const resprecision = res > 10 ? 1 : 2;
 
-    this.els.boundsContent.html(JSON.stringify({
-      topLeft: [bounds[0][0], bounds[0][1]],
-      bottomLeft: [bounds[1][0], bounds[0][1]],
-      bottomRight: [bounds[1][0], bounds[1][1]],
-      topRight: [bounds[0][0], bounds[1][1]]
-    }, null, 2));
+    // Output is in Web Mercator (EPSG:3857) - same as the source tiles.
+    const sw3857 = L.CRS.EPSG3857.project(L.latLng(bounds[1][0], bounds[0][1]));
+    const ne3857 = L.CRS.EPSG3857.project(L.latLng(bounds[0][0], bounds[1][1]));
+    const px3857 = (ne3857.x - sw3857.x) / state.width;
+    this.els.boundsContent.text(
+      `Projection: EPSG:3857 (WGS 84 / Pseudo-Mercator)\n\n` +
+      `Extent in EPSG:3857 metres (xmin, ymin, xmax, ymax):\n` +
+      `${sw3857.x.toFixed(3)}, ${sw3857.y.toFixed(3)}, ${ne3857.x.toFixed(3)}, ${ne3857.y.toFixed(3)}\n` +
+      `Pixel size: ${px3857.toFixed(6)} EPSG:3857 units/px (not ground metres)\n\n` +
+      `Lat/lng corners (EPSG:4326):\n` +
+      JSON.stringify({
+        topLeft: [bounds[0][0], bounds[0][1]],
+        bottomLeft: [bounds[1][0], bounds[0][1]],
+        bottomRight: [bounds[1][0], bounds[1][1]],
+        topRight: [bounds[0][0], bounds[1][1]]
+      }, null, 2)
+    );
     const infoHtml = `${localFormatNumber(w, precision)} x ${localFormatNumber(h, precision)}${units} - ${localFormatNumber(res, resprecision)}${resunit}/px resolution<span class="heights"></span>`;
     if (this.els.generatorInfoPrimary) {
       this.els.generatorInfoPrimary.html(infoHtml);
@@ -953,7 +972,7 @@ export default class App {
     this.els.tilingSummary = $('<div class="tilingSummary">Tiled export disabled.</div>');
     this.els.generatorInfo.append(this.els.generatorInfoPrimary);
     this.els.generatorInfo.append(this.els.tilingSummary);
-    this.els.boundsInfo = $('<details class="boundsInfo"><summary>Bounds (click to expand):</summary></details>');
+    this.els.boundsInfo = $('<details class="boundsInfo"><summary>Bounds &amp; projection (EPSG:3857, click to expand):</summary></details>');
     this.els.boundsContent = $('<pre class="boundsContent">');
     this.els.generatedColumn.append(this.els.generatorInfo);
     this.els.scaleInfo = $('<div class="scaleInfo" style="font-size: 0.85em; margin-top: 0.5em;">');
@@ -1029,7 +1048,7 @@ export default class App {
     const state = this.parseHash(location.hash);
     for (let [key, value] of Object.entries(state)) {
       const input = this.inputs[key];
-      if (value && input) {
+      if (value && input && !App.isFocused(input)) {
         input.val(value);
       }
     }
@@ -1053,6 +1072,7 @@ export default class App {
     localStorage.setItem(key, JSON.stringify(storedItem));
     this.listenHashChange = false;
     location.hash = this.objectToHash(this.getInputState());
+    this.lastWrittenHash = location.hash;
     setTimeout(() => {
       this.listenHashChange = true;
     }, 1);
@@ -1145,17 +1165,20 @@ export default class App {
     }));
 
     this.inputs.latitude.on('change input', debounce(30, () => {
+      if (!App.isValidNumberInput(this.inputs.latitude) || !App.isValidNumberInput(this.inputs.longitude)) return;
       this.storeValue('latitude', this.inputs.latitude.val().toString());
       trackControl('coords');
       this.map.setView({
         lat: parseFloat(this.inputs.latitude.val().toString()),
         lng: parseFloat(this.inputs.longitude.val().toString())
       });
-      this.insertValuesFromUrlHash();
+      this.updatePhysicalDimensions();
+      this.updateTileSummary();
       doHeightsDebounced();
     }));
 
     this.inputs.longitude.on('change input', debounce(30, () => {
+      if (!App.isValidNumberInput(this.inputs.latitude) || !App.isValidNumberInput(this.inputs.longitude)) return;
       this.storeValue('longitude', this.inputs.longitude.val().toString());
       trackControl('coords');
       this.map.setView({
@@ -1168,6 +1191,7 @@ export default class App {
     }));
 
     this.inputs.zoom.on('change input', debounce(30, () => {
+      if (!App.isValidNumberInput(this.inputs.zoom)) return;
       this.storeValue('zoom', this.inputs.zoom.val().toString());
       trackControl('zoom');
       this.map.setZoom(parseInt(this.inputs.zoom.val().toString()));
@@ -1240,8 +1264,13 @@ export default class App {
       }
     });
 
+    this.inputs.latitude.add(this.inputs.longitude).add(this.inputs.zoom).on('blur', () => {
+      this.syncInputsFromMap();
+    });
+
     window.addEventListener('hashchange', debounce(50, (event : HashChangeEvent) => {
-      if (this.listenHashChange) {
+      // Ignore hash changes we wrote ourselves; only react to external ones (deep links, back/forward)
+      if (this.listenHashChange && location.hash !== this.lastWrittenHash) {
         this.insertValuesFromUrlHash();
         this.listenHashChange = false;
         this.setMapViewFromInputs();
@@ -1250,6 +1279,20 @@ export default class App {
     }));
 
     this.doDisEnableControls();
+  }
+  syncInputsFromMap() {
+    // After editing, restore any coordinate/zoom input left empty or invalid
+    const center = this.map.getCenter();
+    if (!App.isValidNumberInput(this.inputs.latitude)) {
+      this.inputs.latitude.val(center.lat);
+    }
+    if (!App.isValidNumberInput(this.inputs.longitude)) {
+      this.inputs.longitude.val(center.lng);
+    }
+    if (!App.isValidNumberInput(this.inputs.zoom)) {
+      this.inputs.zoom.val(this.map.getZoom());
+    }
+    this.saveLatLngZoomState();
   }
   setMapViewFromInputs() {
     this.map.setView({
@@ -2034,6 +2077,7 @@ export default class App {
     <p>x and y scales should be set to <code>${localFormatNumber(xyScale, 2)}</code></p>
     <p>For 3D printing, the height range is <code>${this.meterFormatter.format(range)}</code> and height/width ratio is <code>${localFormatNumber(range/state.phys.width, 6)}</code></p>
     <p>i.e. if you printed this 100mm wide, it would have to be <code>${localFormatNumber(range/state.phys.width * 100, 3)}</code>mm tall to be physically accurate</p>
+    <p>Projection: <code>EPSG:3857</code> (Web Mercator). See "Bounds &amp; projection" above for the extent to georeference in QGIS/GIS tools.</p>
     `;
     const tiling = this.getTileExportConfig(state.width, state.height);
     if (tiling.enabled) {
@@ -2361,6 +2405,15 @@ export default class App {
     return isNaN(parsed) ? 0 : parsed;
   }
 
+  static isFocused(input : JQuery<HTMLElement>) : boolean {
+    return !!input && input[0] === document.activeElement;
+  }
+  static isValidNumberInput(input : JQuery<HTMLInputElement|HTMLSelectElement>) : boolean {
+    const el = input[0];
+    if (el.validity && el.validity.badInput) return false;
+    const raw = (input.val() ?? '').toString().trim();
+    return raw !== '' && !isNaN(parseFloat(raw));
+  }
   static createInput(attrs : Record<string, string> = {type: 'text', class: 'input'}) : JQuery<HTMLInputElement> {
     attrs = {type: 'text', class: 'input', ...attrs};
     return $('<input>').attr(attrs) as JQuery<HTMLInputElement>;
