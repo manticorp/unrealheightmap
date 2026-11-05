@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkpng_16_browser=self.webpackChunkpng_16_browser||[]).push([[121],{121(e,s,r){r.d(s,{default:()=>n});var c=r(132);class n extends c.A{decodeBlock(e){return e}}}}]);

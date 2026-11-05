@@ -101,8 +101,29 @@
               <td>Copernicus GLO-30 (30 m) worldwide, plus 0.25 to 10 m lidar for the USA (USGS 3DEP), the UK, most of Europe, Japan, New Zealand and more. See <a href="https://mapterhorn.com" target="_blank" rel="noopener">mapterhorn.com</a> for coverage.</td>
               <td>18</td>
             </tr>
+            <tr>
+              <th>NOAA ETOPO 2022</th>
+              <td>Land and sea floor worldwide at about 450 m (15 arc-seconds), with detailed ocean bathymetry. Best for coastlines, islands, sea mounts and ocean trenches.</td>
+              <td>12</td>
+            </tr>
+            <tr>
+              <th>Mars: MOLA</th>
+              <td>The whole of Mars at 463 m, from NASA's Mars Global Surveyor laser altimeter. Heights are relative to the Mars "sea level" (areoid). The map switches to a Mars base map, and all sizes and scales use Mars's radius.</td>
+              <td>11</td>
+            </tr>
+            <tr>
+              <th>Moon: LRO LOLA</th>
+              <td>The whole Moon at 118 m, from NASA's Lunar Reconnaissance Orbiter laser altimeter. Heights are relative to a 1,737.4 km sphere.</td>
+              <td>12</td>
+            </tr>
+            <tr>
+              <th>Your own file</th>
+              <td>A GeoTIFF in EPSG:4326 (lat/long) or EPSG:3857, or an SRTM <code>.hgt</code> tile, for example lidar from your national mapping agency. The file is read in your browser and never uploaded. Other projections such as UTM need reprojecting first (QGIS: <em>Raster → Projections → Warp</em> to EPSG:4326). Outside the file's outline, shown in green on the map, the terrain is flat at its lowest height.</td>
+              <td>Depends on the file</td>
+            </tr>
           </tbody>
         </table>
+        <p>On Mars and the Moon, OpenStreetMap layers, georeferencing files and the real-sun preview are switched off, since they only describe Earth.</p>
         <ul>
           <li><strong>Upscaling.</strong> Where Mapterhorn only has 30 m data, higher output zooms are smoothly upscaled from it. After each export, a line under the result tells you how detailed the source data really was (in metres per pixel), and whether any of it was upscaled.</li>
           <li><strong>Surface model.</strong> Copernicus measures the top of whatever is there, so dense forests and large buildings can show up as bumps. The lidar areas show bare ground.</li>
@@ -148,6 +169,7 @@
             <tr><th>PNG 16-bit</th><td>65,536</td><td>Unreal Engine landscapes, and most other software</td></tr>
             <tr><th>OpenEXR 16-bit</th><td>Half-float, about 2,000 steps near the top of the range</td><td>Previews only. It's coarser than the PNG.</td></tr>
             <tr><th>OpenEXR 32-bit</th><td>Full float</td><td>Blender, Godot (Terrain3D, HTerrain), Houdini and Gaea. With normalisation Off it stores true metres, including below sea level. Otherwise it stores 0.0 to 1.0.</td></tr>
+            <tr><th>GeoTIFF 32-bit</th><td>Full float, always true metres</td><td>QGIS, ArcGIS, GDAL and other GIS tools. The projection (EPSG:3857) and position are stored inside the file. Normalisation doesn't apply.</td></tr>
           </tbody>
         </table>
         <p>16 bits gives 65,536 height levels. That's enough to cover sea level to the top of Everest (8,849 m) in steps of about 13 cm, and with normalisation (see below) a 1,000 m mountain gets 1.5 cm steps. An 8-bit image only has 256 levels, which gives visible terracing.</p>
@@ -221,8 +243,24 @@
           <li><strong>Normal Map</strong>: choose <em>DirectX</em> for Unreal, or <em>OpenGL</em> for Godot, Blender and Unity (the green channel is flipped between the two).</li>
           <li><strong>Slope</strong>: black is flat and white is vertical. Use it for rock on cliffs and grass on flat ground.</li>
           <li><strong>Curvature</strong>: mid-grey is flat, lighter is ridges and peaks, and darker is valleys and gullies. Good for erosion, snow and moss masks.</li>
+          <li><strong>Ambient occlusion</strong>: how much open sky each point sees. White is open ground; valleys, gullies and the foot of cliffs are darker. Multiply it into your material for depth, or use it for moss and dirt.</li>
+          <li><strong>Water flow</strong>: where rain collects as it runs downhill. Streams and rivers are bright lines, hillsides and ridges are black. The scale is fixed in real area (under 0.1 hectare upstream is black, 100 km² or more is white), so tiles match. It only counts water from inside the exported area.</li>
+          <li><strong>Aspect + northness</strong>: <em>aspect</em> is the compass direction each slope faces (1 to 255 = 0 to 360° clockwise from north, 0 = flat). <em>northness</em> is white on steep north-facing slopes, mid-grey on flat or east/west ground and black on steep south-facing slopes, which is handy for snow.</li>
           <li><strong>Height Bands (m)</strong>: comma-separated heights, for example <code>500, 1500</code>, give three masks: below 500 m, 500 to 1500 m, and above 1500 m. The edges blend smoothly and the masks always add up to white, so they work directly as Unreal landscape layer weightmaps.</li>
         </ul>
+      </article>
+
+      <article class="container content" id="osm">
+        <h2>OpenStreetMap layers</h2>
+        <p>Tick any of the <strong>OpenStreetMap Layers</strong> (roads, paths, railways, rivers and streams, lakes, forest, grass, farmland, scrub, rock, glacier, sand, wetland, urban areas and buildings) and the export includes a mask for each: white where the feature is, the same size as the heightmap and split into matching tiles. Roads and rivers are drawn at a realistic width for their type.</p>
+        <ul>
+          <li><strong>Export as weightmaps</strong> makes the layers add up to full white at every pixel, with a <em>base</em> layer for whatever is left. Where layers overlap, the more specific one wins (roads over buildings over water over forest over grass, and so on). That's what Unreal landscape layers expect.</li>
+          <li>The data comes from the public Overpass API, for areas up to 2,500 km². Busy cities with buildings selected can take a minute.</li>
+          <li>OpenStreetMap has no sea areas, so use the height-based <strong>Water mask</strong> for the sea.</li>
+          <li>Map data © OpenStreetMap contributors, available under the <a href="https://opendatacommons.org/licenses/odbl/" target="_blank" rel="noopener">Open Database License</a>. Credit it if you publish something made with these masks.</li>
+        </ul>
+        <h3>Import scripts</h3>
+        <p>With <strong>Blender &amp; Unreal import scripts</strong> ticked, links appear under each heightmap export: a Python script for Blender that builds the terrain at real size (with the albedo, if it's in the same folder), a script for Unreal that sets the landscape's scale and height after you import it, so sea level ends up at Z = 0, and a README with all the numbers.</p>
       </article>
 
       <article class="container content" id="albedo">
@@ -242,9 +280,28 @@
             <tr><th>Base Thickness (mm)</th><td>Extra material under the lowest point, so low areas still print solidly.</td></tr>
             <tr><th>Scale</th><td><strong>Print size (mm)</strong> scales the longer side to <strong>Print Width</strong>, with heights scaled to match. <strong>Real world (metres)</strong> keeps the model 1:1.</td></tr>
             <tr><th>Height Exaggeration</th><td>Multiplies heights only. 1 is true to life. 1.5 to 3 often looks better on small prints of gentle terrain.</td></tr>
+            <tr><th>Simplify</th><td>Uses big triangles where the ground is flat or evenly sloped and small ones where it's rough, so files are often 5 to 20 times smaller with no visible difference. <strong>Medium</strong> is the default. <strong>Off</strong> keeps every grid vertex, which makes very large files.</td></tr>
+            <tr><th>Texture</th><td><strong>Map imagery</strong> drapes the selected Map Preview Type (for example Esri World Imagery) over the model. GLB embeds the image in the file; OBJ downloads as a zip with an <code>.mtl</code> and a JPEG. STL can't hold colour. <strong>Texture Size</strong> sets the image's longer side.</td></tr>
           </tbody>
         </table>
+        <p>In the 3D preview, tick <strong>Real sun</strong> to light the terrain from where the sun really is over that place, for the chosen date and time of day, with shadows. Press ▶ to play through a day. Times are local solar time, so the sun is highest at 12:00.</p>
         <p>3D models are built from the real heights in metres, not the normalised heightmap, so their proportions are true whatever normalisation you chose.</p>
+      </article>
+
+      <article class="container content" id="contours">
+        <h2>Contour lines</h2>
+        <p><strong>Export Contours</strong> traces contour lines for the export area.</p>
+        <ul>
+          <li><strong>Contour Interval</strong> is the height between lines. Leave it empty to pick a round number giving about 20 levels. Every 5th line is drawn thicker.</li>
+          <li><strong>Topo map lines</strong> are ordinary contour lines for maps and prints.</li>
+          <li><strong>Laser-cut layers</strong> close each level along the edges of the area, so every level is the outline of all ground at or above it, ready to cut from card, wood or acrylic and stack. Choose <em>one SVG per sheet</em> to get a zip with a file per layer, alignment marks and the next layer engraved as a gluing guide.</li>
+          <li><strong>SVG</strong> is sized in millimetres (set by <strong>SVG Width</strong>). <strong>DXF</strong> is in real-world metres with each line at its height and one CAD layer per level.</li>
+        </ul>
+      </article>
+
+      <article class="container content" id="profile">
+        <h2>Elevation profile</h2>
+        <p>Click the mountain button under the zoom controls on the map, then click to draw a line (as many points as you like). Double-click or press Enter to finish. A chart under the map shows the heights along the line, with length, highest and lowest point, total climb and descent, and the steepest gradient. Hover the chart to see the spot on the map, or download it as CSV.</p>
       </article>
 
       <article class="container content">
@@ -277,7 +334,8 @@
       <article class="container content" id="gis">
         <h2>Georeferencing (QGIS and GIS)</h2>
         <p>All exports (heightmaps, extra maps and albedo) are in <strong>EPSG:3857</strong> (WGS 84 / Pseudo-Mercator, "Web Mercator"), the same projection as web map tiles.</p>
-        <p>Each heightmap and albedo export comes with a world file (<code>.pgw</code>, or <code>.wld</code> for EXR) and a <code>.prj</code> file, linked under the output. Keep them in the same folder as the image with the same name, and QGIS will place it correctly. The exact extent is also shown under <strong>Bounds &amp; projection</strong> on the generator page.</p>
+        <p>For GIS work, the easiest option is the <strong>GeoTIFF</strong> output format: it holds true heights in metres and its position is built in.</p>
+        <p>Each PNG/EXR heightmap and albedo export comes with a world file (<code>.pgw</code>, or <code>.wld</code> for EXR) and a <code>.prj</code> file, linked under the output. Keep them in the same folder as the image with the same name, and QGIS will place it correctly. The exact extent is also shown under <strong>Bounds &amp; projection</strong> on the generator page.</p>
         <p>EPSG:3857 units aren't true ground metres: distances are stretched by about 1/cos(latitude). Reproject, for example to your local UTM zone, before measuring distances.</p>
       </article>
 

@@ -349,3 +349,153 @@
   color: inherit;
   background: rgba(0, 0, 0, 0.08);
 }
+
+// Elevation profile
+.leaflet-container.is-drawing-profile {
+  cursor: crosshair;
+}
+.profile-control a {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+  &.is-active {
+    background: $yellow;
+  }
+}
+.profile-panel {
+  margin: 0.75rem 0 1rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid $grey;
+  border-radius: $radius;
+  background: $grey-darker;
+
+  &__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  &__status {
+    font-size: 0.8rem;
+    color: $grey-light;
+  }
+  &__spacer {
+    flex: 1;
+  }
+  &__stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.25rem;
+    margin: 0.5rem 0;
+    font-size: 0.9rem;
+    color: $grey-lighter;
+  }
+  &__label {
+    color: $grey-light;
+    font-size: 0.8rem;
+  }
+  &__chart {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+  }
+}
+.profile-chart {
+  display: block;
+  max-width: 100%;
+  height: auto;
+
+  &__grid {
+    stroke: rgba(255, 255, 255, 0.08);
+    stroke-width: 1;
+  }
+  &__axis {
+    stroke: $grey;
+    stroke-width: 1;
+  }
+  &__tick {
+    fill: $grey-light;
+    font-size: 11px;
+  }
+  &__area {
+    fill: rgba($primary, 0.18);
+  }
+  &__line {
+    fill: none;
+    stroke: $primary;
+    stroke-width: 2;
+    stroke-linejoin: round;
+  }
+  &__hover {
+    line {
+      stroke: $grey-lighter;
+      stroke-width: 1;
+      stroke-dasharray: 3 3;
+    }
+    circle {
+      fill: $primary;
+      stroke: $grey-darker;
+      stroke-width: 2;
+    }
+  }
+  &__hit {
+    fill: transparent;
+    cursor: crosshair;
+  }
+  &__tooltip {
+    position: absolute;
+    transform: translate(-50%, calc(-100% - 10px));
+    padding: 0.25rem 0.5rem;
+    border-radius: $radius;
+    background: rgba(0, 0, 0, 0.8);
+    color: #fff;
+    font-size: 0.8rem;
+    line-height: 1.3;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+}
+
+// Sun controls in the 3D preview
+.preview3d__sun {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.4rem 0.6rem;
+  background: $grey-dark;
+  border-top: 1px solid $grey;
+  font-size: 0.8rem;
+  color: $grey-lighter;
+
+  input[type=range] {
+    flex: 1;
+    min-width: 140px;
+  }
+  input[type=date] {
+    width: auto;
+  }
+  .preview3d__sun-readout {
+    min-width: 12rem;
+    color: $grey-light;
+  }
+}
+
+.section-heading {
+  margin-top: 0.5rem;
+  margin-bottom: 0.75rem !important;
+}
+.checkbox-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+
+  .checkbox {
+    font-size: 0.9rem;
+  }
+}
+.dem-upload-note {
+  font-size: 0.8rem;
+  color: $grey-light;
+}

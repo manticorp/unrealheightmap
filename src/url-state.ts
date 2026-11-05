@@ -19,6 +19,10 @@ export type SettingKey =
   | 'normalmap' | 'slopemap' | 'curvaturemap' | 'heightbands'
   | 'meshformat' | 'meshres' | 'meshsolid' | 'basethickness'
   | 'meshscale' | 'printwidth' | 'exaggeration'
+  | 'meshsimplify' | 'meshtexture' | 'texturesize'
+  | 'aomap' | 'flowmap' | 'aspectmap'
+  | 'osmlayers' | 'osmweights' | 'importscripts'
+  | 'contourinterval' | 'contourmode' | 'contourformat' | 'contourwidth' | 'contoursmooth'
   | 'elevsource';
 
 type SettingDef = {
@@ -63,6 +67,20 @@ export const SETTINGS: Record<SettingKey, SettingDef> = {
   meshscale:      {param: 'scale', default: 'print'},
   printwidth:     {param: 'pw',    default: '150'},
   exaggeration:   {param: 'exag',  default: '1'},
+  meshsimplify:   {param: 'simp',  default: 'medium'},
+  meshtexture:    {param: 'tex',   default: 'none'},
+  texturesize:    {param: 'texs',  default: '2048'},
+  aomap:          {param: 'ao',    default: '0'},
+  flowmap:        {param: 'flow',  default: '0'},
+  aspectmap:      {param: 'aspect', default: '0'},
+  osmlayers:      {param: 'osm',   default: ''},
+  osmweights:     {param: 'osmw',  default: '0'},
+  importscripts:  {param: 'scripts', default: '1'},
+  contourinterval: {param: 'ci',   default: ''},
+  contourmode:    {param: 'cmode', default: 'lines'},
+  contourformat:  {param: 'cfmt',  default: 'svg'},
+  contourwidth:   {param: 'cw',    default: '300'},
+  contoursmooth:  {param: 'csm',   default: '1'},
 };
 
 const PARAM_TO_KEY: Record<string, SettingKey> = Object.fromEntries(

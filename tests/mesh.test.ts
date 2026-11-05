@@ -6,9 +6,13 @@ import {
   downsampleHeights,
   estimateFileBytes,
   meshGridSize,
+  encodeMesh,
+  estimateSimplifiedTriangles,
   meshToGlb,
   meshToObj,
+  meshToObjWithMaterial,
   meshToStl,
+  simplifyErrorForPreset,
   triangleCount,
 } from '../src/mesh';
 
@@ -144,5 +148,171 @@ describe('mesh', () => {
     const binHeader = 20 + jsonLength;
     expect(dv.getUint32(binHeader + 4, true)).toBe(0x004E4942);
     expect(dv.getUint32(binHeader, true)).toBe(json.buffers[0].byteLength);
+  });
+
+  test('full grid keeps per-vertex heights for colouring', () => {
+    const mesh = buildMesh(hill, opts({solid: true}));
+    expect(mesh.simplifyError).toBe(0);
+    expect(Array.from(mesh.vertexHeights)).toEqual(Array.from(mesh.gridHeights));
+    expect(mesh.vertexHeights.buffer).not.toBe(mesh.gridHeights.buffer);
+  });
+});
+
+const parseGlb = (glb: ArrayBuffer) => {
+  const dv = new DataView(glb);
+  const jsonLength = dv.getUint32(12, true);
+  const json = JSON.parse(new TextDecoder().decode(new Uint8Array(glb, 20, jsonLength)));
+  const binHeader = 20 + jsonLength;
+  return {dv, json, jsonLength, binStart: binHeader + 8, binLength: dv.getUint32(binHeader, true)};
+};
+
+const ridges = (width: number, height: number, physWidth: number, physHeight: number): MeshInput => {
+  const heights = new Float32Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      heights[y * width + x] = 300 + 120 * Math.sin(x / 37) * Math.cos(y / 23) + 40 * Math.sin((x + 2 * y) / 40) + 0.5 * Math.sin(x * 1.3) * Math.sin(y * 0.7);
+    }
+  }
+  return {heights, width, height, physWidth, physHeight};
+};
+
+describe('simplified meshes', () => {
+  test('flat terrain is two triangles plus walls and a bottom, and watertight', () => {
+    const flat: MeshInput = {heights: new Float32Array(513 * 513).fill(10), width: 513, height: 513, physWidth: 5000, physHeight: 5000};
+    const mesh = buildMesh(flat, opts({solid: true, scale: 'real', resolution: 513, simplify: 0.5, baseThickness: 5}));
+    expect(mesh.topVertexCount).toBe(4);
+    // 2 on top, 4 rim edges x (2 wall + 1 bottom)
+    expect(mesh.indices.length / 3).toBe(14);
+    expect(isWatertight(mesh.positions, mesh.indices)).toBe(true);
+    expect(signedVolume(mesh.positions, mesh.indices)).toBeCloseTo(5000 * 5000 * 5, -3);
+  });
+
+  test('non-square solid: exact footprint, planar UVs, watertight, much smaller', () => {
+    const input = ridges(1009, 505, 30270, 15150);
+    const full = buildMesh(input, opts({solid: true, scale: 'real', resolution: 1009}));
+    const mesh = buildMesh(input, opts({solid: true, scale: 'real', resolution: 1009, simplify: 2}));
+    expect(mesh.simplifyError).toBe(2);
+    expect(mesh.gridWidth).toBe(1009);
+    expect(mesh.gridHeight).toBe(505);
+    expect(mesh.indices.length).toBeLessThan(full.indices.length / 5);
+    expect(isWatertight(mesh.positions, mesh.indices)).toBe(true);
+    expect(signedVolume(mesh.positions, mesh.indices)).toBeGreaterThan(0);
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let v = 0; v < mesh.topVertexCount; v++) {
+      const x = mesh.positions[v * 3], y = mesh.positions[v * 3 + 1];
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+      expect(mesh.uvs[v * 2]).toBeCloseTo(x / 30270 + 0.5, 5);
+      expect(mesh.uvs[v * 2 + 1]).toBeCloseTo(y / 15150 + 0.5, 5);
+    }
+    expect([minX, maxX, minY, maxY]).toEqual([-15135, 15135, -7575, 7575]);
+  });
+
+  test('vertex heights are in metres and match the top surface', () => {
+    const input = ridges(200, 120, 2000, 1200);
+    const mesh = buildMesh(input, opts({solid: false, scale: 'print', printWidth: 100, exaggeration: 3, simplify: 1}));
+    expect(mesh.vertexHeights.length).toBe(mesh.topVertexCount);
+    let minGrid = Infinity;
+    for (const h of Array.from(mesh.gridHeights)) minGrid = Math.min(minGrid, h);
+    for (let v = 0; v < mesh.topVertexCount; v += 17) {
+      expect(mesh.positions[v * 3 + 2]).toBeCloseTo((mesh.vertexHeights[v] - minGrid) * mesh.unitsPerMetre * 3, 3);
+    }
+  });
+
+  test('estimates use the real counts when given', () => {
+    const mesh = buildMesh(ridges(150, 100, 1500, 1000), opts({solid: true, simplify: 1}));
+    const counts = {triangles: mesh.indices.length / 3, vertices: mesh.positions.length / 3};
+    expect(estimateFileBytes('stl', 150, 100, true, counts)).toBe(meshToStl(mesh).byteLength);
+    const glb = meshToGlb(mesh).byteLength;
+    const estimate = estimateFileBytes('glb', 150, 100, true, counts);
+    expect(estimate).toBeGreaterThan(glb * 0.9);
+    expect(estimate).toBeLessThan(glb * 1.2);
+    expect(estimateSimplifiedTriangles(150, 100, true, 'off')).toBe(triangleCount(150, 100, true));
+    expect(estimateSimplifiedTriangles(150, 100, true, 'high')).toBeLessThan(estimateSimplifiedTriangles(150, 100, true, 'low'));
+  });
+
+  test('presets scale with grid spacing and relief', () => {
+    expect(simplifyErrorForPreset('off', 30, 1000)).toBe(0);
+    // mountains: spacing-limited
+    expect(simplifyErrorForPreset('low', 30, 2000)).toBeCloseTo(3);
+    expect(simplifyErrorForPreset('medium', 30, 2000)).toBeCloseTo(7.5);
+    expect(simplifyErrorForPreset('high', 30, 2000)).toBeCloseTo(15);
+    // gentle ground: relief-limited
+    expect(simplifyErrorForPreset('medium', 2, 20)).toBeCloseTo(0.1);
+    expect(simplifyErrorForPreset('high', 0, 0)).toBeGreaterThan(0);
+  });
+});
+
+describe('mesh encoding', () => {
+  test('GLB uses 16-bit indices for small meshes and 32-bit for big ones', () => {
+    const small = buildMesh(hill, opts());
+    const {json: smallJson} = parseGlb(meshToGlb(small));
+    expect(smallJson.accessors[3].componentType).toBe(5123);
+    const bigInput = ridges(300, 300, 3000, 3000);
+    const big = buildMesh(bigInput, opts({solid: false, resolution: 300}));
+    expect(big.positions.length / 3).toBeGreaterThan(65535);
+    const {json: bigJson} = parseGlb(meshToGlb(big));
+    expect(bigJson.accessors[3].componentType).toBe(5125);
+  });
+
+  test('GLB indices survive the 16-bit conversion', () => {
+    const mesh = buildMesh(hill, opts({solid: true}));
+    const glb = meshToGlb(mesh);
+    const {json, binStart} = parseGlb(glb);
+    const view = json.bufferViews[3];
+    const indices = new Uint16Array(glb.slice(binStart + view.byteOffset, binStart + view.byteOffset + view.byteLength));
+    expect(Array.from(indices)).toEqual(Array.from(mesh.indices));
+  });
+
+  test('GLB embeds a texture with aligned buffer views', () => {
+    const mesh = buildMesh(hill, opts({solid: true}));
+    // odd sizes on purpose: index view (hill solid) and image both need padding
+    const image = new Uint8Array([0xFF, 0xD8, 0xFF, 1, 2, 3, 4]);
+    const glb = meshToGlb(mesh, 'hill', {mimeType: 'image/jpeg', data: image});
+    const {dv, json, jsonLength, binStart, binLength} = parseGlb(glb);
+    expect(dv.getUint32(8, true)).toBe(glb.byteLength);
+    expect(jsonLength % 4).toBe(0);
+    expect(binLength % 4).toBe(0);
+    expect(glb.byteLength).toBe(20 + jsonLength + 8 + binLength);
+    expect(json.buffers[0].byteLength).toBe(binLength);
+    for (const view of json.bufferViews) {
+      expect(view.byteOffset % 4).toBe(0);
+      expect(view.byteOffset + view.byteLength).toBeLessThanOrEqual(binLength);
+    }
+    expect(json.images).toEqual([{bufferView: 4, mimeType: 'image/jpeg'}]);
+    expect(json.textures).toEqual([{sampler: 0, source: 0}]);
+    expect(json.samplers).toHaveLength(1);
+    const material = json.materials[0].pbrMetallicRoughness;
+    expect(material.baseColorTexture).toEqual({index: 0});
+    expect(material.metallicFactor).toBe(0);
+    expect(material.roughnessFactor).toBe(1);
+    expect(json.extensionsUsed).toBeUndefined();
+    const imageView = json.bufferViews[4];
+    expect(imageView.byteLength).toBe(image.length);
+    expect(imageView.target).toBeUndefined();
+    expect(Array.from(new Uint8Array(glb, binStart + imageView.byteOffset, image.length))).toEqual(Array.from(image));
+    // passed through encodeMesh too
+    expect(parseGlb(encodeMesh(mesh, 'glb', 'hill', {mimeType: 'image/png', data: image})).json.images[0].mimeType).toBe('image/png');
+  });
+
+  test('textured OBJ references its material library and texture', () => {
+    const mesh = buildMesh(hill, opts({solid: false, scale: 'print'}));
+    const {obj, mtl} = meshToObjWithMaterial(mesh, 'hill', 'hill_texture.jpg');
+    const lines = obj.split('\n');
+    expect(lines).toContain('mtllib hill.mtl');
+    expect(lines).toContain('usemtl hill');
+    expect(lines.indexOf('usemtl hill')).toBeLessThan(lines.findIndex(l => l.startsWith('f ')));
+    expect(mtl).toContain('newmtl hill');
+    expect(mtl).toContain('map_Kd hill_texture.jpg');
+    // print models: at most 3 decimals (1 µm)
+    for (const l of lines.filter(l => l.startsWith('v '))) {
+      for (const n of l.split(' ').slice(1)) expect((n.split('.')[1] ?? '').length).toBeLessThanOrEqual(3);
+    }
+  });
+
+  test('real-scale OBJ uses centimetre precision', () => {
+    const obj = meshToObj(buildMesh(hill, opts({solid: false, scale: 'real'})));
+    for (const l of obj.split('\n').filter(l => l.startsWith('v '))) {
+      for (const n of l.split(' ').slice(1)) expect((n.split('.')[1] ?? '').length).toBeLessThanOrEqual(2);
+    }
   });
 });

@@ -3,6 +3,9 @@ import NextZen from "./nextzen";
 import UPNG from "./UPNG";
 import { encodeExr, ExrPixelType } from "./exr";
 import { mapHeightSamplesToExr } from "./exr-conversion";
+import { encodeGeoTiff } from "./tiff";
+import { UploadedDemSource, loadDemFile } from "./dem-import";
+import { BODY_HOME, BODY_RADIUS, Body, EtopoSource, PLANETS, PlanetSource } from "./extra-sources";
 import $ from "jquery";
 import { throttle, debounce } from 'throttle-debounce';
 import * as  L from "leaflet";
@@ -15,9 +18,13 @@ import JSZip from 'jszip';
 import {SETTINGS, SettingKey, SettingValues, buildHash, parseHash} from "./url-state";
 import {DerivedMap, DerivedMapOptions, NormalMapConvention, ProcessOptions, parseHeightBands, wantsDerivedMaps} from "./derived-maps";
 import {PlaceSearch} from "./place-search";
-import {MeshFormat, MeshOptions, MeshScale, MeshInput, defaultMeshOptions, estimateFileBytes, meshGridSize, triangleCount} from "./mesh";
+import {MeshFormat, MeshOptions, MeshScale, MeshInput, SimplifyPreset, defaultMeshOptions, estimateFileBytes, estimateSimplifiedTriangles, meshGridSize, triangleCount} from "./mesh";
 import type {TerrainPreview, PreviewMeshData} from "./preview3d";
 import {AwsTerrainSource, ElevationSource, ElevationSourceId, MapterhornSource, metresPerPixel} from "./elevation";
+import {ProfileTool} from "./profile-ui";
+import {sunDirectionZUp, sunPosition, sunTimes} from "./sun";
+import {ScriptTile, buildImportScripts} from "./import-scripts";
+import {OSM_LAYERS, OSM_MAX_AREA_KM2, OsmFeature, OsmGrid, bboxAreaKm2, fetchOsmLayers, gridBBox, osmAttribution} from "./osm-layers";
 
 import * as Comlink from 'comlink';
 import {
@@ -26,7 +33,9 @@ import {
   normDefaults,
   normMaxRange,
   ProcessorWorker,
-  ProcessorProgressUpdate
+  ProcessorProgressUpdate,
+  ContourJob,
+  ContourResult,
 } from './processor';
 
 const worker = new Worker("public/dist/js/processor.js");
@@ -154,13 +163,24 @@ export default class App {
   tilePadEl: JQuery<HTMLLabelElement>;
   tileUnrealNameEl: JQuery<HTMLLabelElement>;
   placeSearch: PlaceSearch;
+  profileTool: ProfileTool | null = null;
+  /** Heightmap files written by the current export, for the import scripts. */
+  exportedHeightmaps: ScriptTile[] = [];
+  exportedMapFiles: string[] = [];
+  /** OSM features being downloaded for the current heightmap export. */
+  pendingOsm: Promise<OsmFeature[] | null> = Promise.resolve(null);
   preview: TerrainPreview | null = null;
   previewCache: {key: string, input: MeshInput} | null = null;
   previewBusy: boolean = false;
-  elevationSources: Record<ElevationSourceId, ElevationSource> = {
+  elevationSources: Partial<Record<ElevationSourceId, ElevationSource>> = {
     aws: new AwsTerrainSource((z, x, y) => App.getImageAsBuffer(NextZen.getUrl({x, y, z})).then(buffer => PNG.fromBuffer(buffer).terrariumToGrayscale())),
     mapterhorn: new MapterhornSource(),
+    etopo: new EtopoSource(),
+    mars: new PlanetSource(PLANETS[0]),
+    moon: new PlanetSource(PLANETS[1]),
   };
+  /** Which world the map is currently showing. */
+  currentBody : Body = 'earth';
   constructor({container} : AppArgs) {
     this.container = container;
     this.meterFormatter = new Intl.NumberFormat(undefined, {style:'unit', unit: 'meter'});
@@ -181,7 +201,9 @@ export default class App {
     this.createInputOptions();
     this.createOutputOptions();
     this.createExtraOutputOptions();
+    this.createOsmOptions();
     this.createMeshOptions();
+    this.createContourOptions();
     this.resetOutput();
   }
   createSearchBar() {
@@ -234,8 +256,42 @@ export default class App {
     }
     setTimeout(() => this.els.copyLink.text(original), 2000);
   }
+  /** The map layer on screen (and used for albedo/textures): the chosen one on Earth, the world's basemap elsewhere. */
+  activeLayerKey() : string {
+    const body = this.getBody();
+    return body === 'earth' ? this.inputs.maptype.val().toString() : body;
+  }
+  getBody() : Body {
+    return (this.getElevationSource().body ?? 'earth') as Body;
+  }
+  /** Sphere radius for ground distances on the current world. */
+  bodyRadius() : number {
+    return this.getElevationSource().radius ?? BODY_RADIUS.earth;
+  }
+  /** Switch the map (and things that only make sense on Earth) when the elevation source moves to another world. */
+  updateBody(keepView : boolean = false) {
+    const body = this.getBody();
+    if (body === this.currentBody) return;
+    const previous = this.currentBody;
+    this.currentBody = body;
+    this.showHideCurrentLayer();
+    this.inputs.maptype.prop('disabled', body !== 'earth');
+    this.els.columnsOsm?.toggleClass('is-disabled', body !== 'earth');
+    if (this.inputs.previewSun) {
+      if (body !== 'earth') this.inputs.previewSun.prop('checked', false);
+      this.inputs.previewSun.prop('disabled', body !== 'earth');
+      this.updatePreviewSun();
+    }
+    if (this.map && !keepView && (body !== 'earth' || previous !== 'earth')) {
+      const home = BODY_HOME[body];
+      this.map.setView([home.lat, home.lng], home.zoom);
+      this.setPositionTo({lat: home.lat, lng: home.lng});
+    }
+    this.updatePhysicalDimensions();
+    this.updateMeshEstimate();
+  }
   showHideCurrentLayer() {
-    this.layer = this.inputs.maptype.val().toString();
+    this.layer = this.activeLayerKey();
     for (let [key, layer] of Object.entries(this.layers)) {
       if (key == this.layer) {
         layer.layer.addTo(this.map);
@@ -317,6 +373,20 @@ export default class App {
     this.layers.stadiasmoothdark = {
       layer: L.tileLayer.provider('Stadia.AlidadeSmoothDark'),
       label: 'Stadia Smooth Dark'
+    };
+    this.layers.mars = {
+      layer: L.tileLayer('https://cartocdn-gusc.global.ssl.fastly.net/opmbuilder/api/v1/map/named/opm-mars-basemap-v0-2/all/{z}/{x}/{y}.png', {
+        maxZoom: 11,
+        attribution: '<a href="https://www.openplanetary.org/opm" target="_blank" rel="noopener">OpenPlanetaryMap</a> Mars basemap (NASA, USGS, ESA)',
+      }),
+      label: 'Mars: OpenPlanetaryMap',
+    };
+    this.layers.moon = {
+      layer: L.tileLayer('https://cartocdn-gusc.global.ssl.fastly.net/opmbuilder/api/v1/map/named/opm-moon-basemap-v0-1/all/{z}/{x}/{y}.png', {
+        maxZoom: 12,
+        attribution: '<a href="https://www.openplanetary.org/opm" target="_blank" rel="noopener">OpenPlanetaryMap</a> Moon basemap (NASA, USGS)',
+      }),
+      label: 'Moon: OpenPlanetaryMap',
     };
     this.layers.nextzen = {
       layer: L.tileLayer(
@@ -405,10 +475,19 @@ export default class App {
       }
     }));
 
-    this.map.on('click', debounce(100, (e) => {
-      trackEvent('map/click');
-      this.setPositionTo(e.latlng);
-    }));
+    this.profileTool = new ProfileTool({
+      map: this.map,
+      after: this.els.map[0],
+      getSource: () => this.getElevationSource(),
+      download: (blob, fn) => this.download(blob, fn),
+      track: (event) => trackEvent(event),
+    });
+
+    this.map.on('click', (e) => {
+      // While drawing a profile, clicks add points instead of moving the export area
+      if (this.profileTool?.handleMapClick(e.latlng)) return;
+      this.mapClickDebounced(e);
+    });
 
     this.map.on('move', throttle(1000/60, (e) => {
       const center = this.map.getCenter();
@@ -447,6 +526,11 @@ export default class App {
     this.showHideCurrentLayer();
     this.doHeightsDebounced();
   }
+  mapClickDebounced = debounce(100, (e : L.LeafletMouseEvent) => {
+    if (this.profileTool?.active) return;
+    trackEvent('map/click');
+    this.setPositionTo(e.latlng);
+  });
   setPositionTo(latlng: L.LatLngLiteral) {
     this.map.setView(latlng);
     this.inputs.latitude.val(latlng.lat);
@@ -747,11 +831,23 @@ export default class App {
     this.inputs.elevSource = $(`<select name="elevsource">
       <option value="aws" selected>AWS Terrain Tiles (Mapzen)</option>
       <option value="mapterhorn">Mapterhorn (Copernicus 30 m + lidar)</option>
+      <option value="etopo">NOAA ETOPO 2022 (land + sea floor)</option>
+      <option value="upload">Your own file (GeoTIFF / SRTM .hgt)…</option>
+      <optgroup label="Other worlds">
+        <option value="mars">Mars: MOLA (463 m)</option>
+        <option value="moon">Moon: LRO LOLA (118 m)</option>
+      </optgroup>
     </select>`) as JQuery<HTMLSelectElement>;
     this.els.elevSourceNote = $('<p class="elevation-note">');
+    this.inputs.demFile = $('<input type="file" accept=".tif,.tiff,.hgt,image/tiff" hidden>') as JQuery<HTMLInputElement>;
+    this.els.demUpload = $('<div class="dem-upload">').hide().append(
+      $('<button class="button is-small" type="button">Choose elevation file…</button>').on('click', () => this.inputs.demFile.trigger('click')),
+      this.inputs.demFile,
+    );
 
     this.inputs.maptype = $('<select>') as JQuery<HTMLSelectElement>;
     for (let [type, layer] of Object.entries(this.layers)) {
+      if (type === 'mars' || type === 'moon') continue;
       this.inputs.maptype.append(`<option value="${type}">${layer.label}</option>`);
     }
 
@@ -784,10 +880,14 @@ export default class App {
     const elevSourceLabel = App.createLabel('Elevation Data', {for: 'elevsource'});
     App.withInfo(elevSourceLabel, `<div class="content"><p><b>AWS Terrain Tiles</b>: the original Mapzen data. Global, mostly 30 to 90 m, with 3 to 10 m in the USA. Output zoom up to 15.</p>
 <p><b>Mapterhorn</b>: Copernicus GLO-30 worldwide, plus 0.25 to 10 m lidar for the USA (USGS 3DEP), the UK, most of Europe, Japan, New Zealand and more. Output zoom up to 18. Where only 30 m data exists, higher zooms are smoothly upscaled. Copernicus is a surface model, so forests and buildings can show as bumps.</p>
-<p>See <a href="https://mapterhorn.com" target="_blank" rel="noopener">mapterhorn.com</a> for coverage.</p></div>`);
+<p>See <a href="https://mapterhorn.com" target="_blank" rel="noopener">mapterhorn.com</a> for coverage.</p>
+<p><b>NOAA ETOPO 2022</b>: land and sea floor worldwide at about 450 m (15 arc-seconds), including detailed ocean bathymetry. Best for coasts, islands and ocean trenches. Output zoom up to 12.</p>
+<p><b>Mars and the Moon</b>: global elevation from NASA's MOLA (Mars, 463 m) and LRO LOLA (Moon, 118 m) via USGS. The map switches to that world; distances and scales use its size.</p>
+<p><b>Your own file</b>: a GeoTIFF (EPSG:4326 lat/long or EPSG:3857) or an SRTM .hgt tile, e.g. lidar from your national mapping agency. It stays on your computer. Other projections such as UTM need reprojecting to EPSG:4326 first (QGIS: Raster &gt; Projections &gt; Warp).</p></div>`);
     this.els.columnElevSource = $('<div class="column field">')
       .append(elevSourceLabel)
       .append($('<div class="control">').append($('<div class="select is-fullwidth">').append(this.inputs.elevSource)))
+      .append(this.els.demUpload)
       .append(this.els.elevSourceNote);
 
     this.els.columnsLatLngZoom.append(this.els.columnLat);
@@ -934,6 +1034,7 @@ export default class App {
     this.inputs.outputformat.append('<option value="png16" selected>PNG - 16 Bit</option>');
     this.inputs.outputformat.append('<option value="exr16">OpenEXR - 16 Bit</option>');
     this.inputs.outputformat.append('<option value="exr32">OpenEXR - 32 Bit</option>');
+    this.inputs.outputformat.append('<option value="geotiff">GeoTIFF - 32 Bit float, metres (GIS)</option>');
     const outputFormatColumn = $('<div class="column field">')
       .append(App.createLabel('Output Format', {for:'outputformat'}))
       .append(
@@ -1059,8 +1160,14 @@ export default class App {
     </select>`) as JQuery<HTMLSelectElement>;
     const slope = App.createCheckbox('Slope', 'slopemap');
     const curvature = App.createCheckbox('Curvature', 'curvaturemap');
+    const ao = App.createCheckbox('Ambient occlusion', 'aomap');
+    const flow = App.createCheckbox('Water flow', 'flowmap');
+    const aspect = App.createCheckbox('Aspect + northness', 'aspectmap');
     this.inputs.slopeMap = slope.input;
     this.inputs.curvatureMap = curvature.input;
+    this.inputs.aoMap = ao.input;
+    this.inputs.flowMap = flow.input;
+    this.inputs.aspectMap = aspect.input;
 
     this.inputs.heightBands = App.createInput({
       name: 'heightbands',
@@ -1081,7 +1188,10 @@ export default class App {
       .append(App.withInfo(App.createLabel('Normal Map', {for: 'normalmap'}), 'An RGB normal map of the terrain. Unreal uses DirectX (green down). Godot, Blender and Unity use OpenGL (green up).'))
       .append($('<div class="control">').append($('<div class="select is-fullwidth">').append(this.inputs.normalMap)))
       .append(App.withInfo(slope.label, 'Greyscale slope steepness: black is flat, white is vertical (0 to 90°). Use it to put rock on cliffs and grass on flat ground.'))
-      .append(App.withInfo(curvature.label, 'Mid-grey is flat, brighter is ridges and peaks, darker is valleys and gullies. Good for erosion, snow or moss masks.'));
+      .append(App.withInfo(curvature.label, 'Mid-grey is flat, brighter is ridges and peaks, darker is valleys and gullies. Good for erosion, snow or moss masks.'))
+      .append(App.withInfo(ao.label, 'How much open sky each point sees: white is open ground, darker is tucked into valleys, gullies and under cliffs. Multiply it into your material for depth, or use it for moss and dirt.'))
+      .append(App.withInfo(flow.label, 'Where water collects as it runs downhill (flow accumulation, after filling pits). Bright lines are streams and rivers, black is ridges. Log scale in real area: less than 0.1 hectare upstream is black, 1 km² is light grey and 100 km² or more is white. Only counts water from inside the exported area.'))
+      .append(App.withInfo(aspect.label, 'Two maps. "aspect" is the compass direction each slope faces (1 to 255 = 0 to 360° clockwise from north, 0 = flat). "northness" is white on steep north-facing slopes, mid-grey on flat or east/west ground and black on steep south-facing slopes, handy for snow and moss.'));
 
     const bandsColumn = $('<div class="column field">')
       .append(App.withInfo(App.createLabel('Height Bands (m)', {for: 'heightbands'}), 'Comma-separated heights in metres. Each one splits the terrain into another layer mask, e.g. "500, 1500" gives below 500 m, 500 to 1500 m and above 1500 m. The masks blend smoothly at each edge and add up to full white, so they work as Unreal landscape layer weightmaps.'))
@@ -1099,6 +1209,87 @@ export default class App {
       .append(summaryColumn);
     this.els.inputContainer.append(this.els.columnsOutputExtra);
     this.updateExtraMapsSummary();
+  }
+  createOsmOptions() {
+    this.inputs.osmLayers = $('<input type="hidden" name="osmlayers">') as JQuery<HTMLInputElement>;
+    this.els.osmChecks = $('<div class="checkbox-list">');
+    for (const layer of OSM_LAYERS) {
+      const box = App.createCheckbox(layer.label, `osm-${layer.id}`);
+      box.input.attr('data-osm', layer.id);
+      App.withInfo(box.label, layer.description);
+      this.els.osmChecks.append(box.label);
+    }
+    const weights = App.createCheckbox('Export as weightmaps (sum to 100%)', 'osmweights');
+    this.inputs.osmWeights = weights.input;
+    App.withInfo(weights.label, 'Instead of one independent mask per layer, write weightmaps that add up to full white at every pixel, plus a "base" layer for whatever is left. Where layers overlap, the more specific one wins (roads over buildings over water over forest over grass and so on). This is what Unreal landscape layers expect.');
+    const scripts = App.createCheckbox('Blender & Unreal import scripts', 'importscripts');
+    this.inputs.importScripts = scripts.input;
+    scripts.input.prop('checked', true);
+    App.withInfo(scripts.label, 'After an export, offers a small Python script for Blender that builds the terrain at real size (with the albedo, if it is in the same folder), and one for Unreal that sets the landscape scale and height after you import it. Plus a README with the numbers.');
+    this.els.osmNote = $('<p class="extra-maps-note">');
+    const label = App.withInfo(App.createLabel('OpenStreetMap Layers'), `Masks drawn from OpenStreetMap for the export area, the same size as the heightmap: white where the feature is. Use them as landscape paint layers, splatmaps or to place foliage. Works for areas up to ${OSM_MAX_AREA_KM2.toLocaleString()} km². Coverage depends on how well your area is mapped. Sea isn't in OpenStreetMap as an area; use the water mask for that.`);
+    this.els.columnsOsm = $('<div class="columns columns-output columns-output--osm">')
+      .append($('<div class="column is-two-thirds field">').append(label, this.els.osmChecks, this.els.osmNote))
+      .append($('<div class="column field">').append($('<label class="label">Options</label>'), weights.label, $('<br>'), scripts.label, this.inputs.osmLayers));
+    this.els.inputContainer.append(this.els.columnsOsm);
+    this.els.osmChecks.find('input').on('change', () => {
+      this.inputs.osmLayers.val(this.getOsmLayerIds().join(','));
+      this.inputs.osmLayers.trigger('change');
+    });
+  }
+  getOsmLayerIds() : string[] {
+    return this.els.osmChecks?.find('input:checked').map((_, el) => $(el).attr('data-osm')).get() ?? [];
+  }
+  /** Tick the layer boxes to match the hidden setting (after loading a link or saved values). */
+  syncOsmCheckboxes() {
+    if (!this.els.osmChecks) return;
+    const ids = (this.inputs.osmLayers.val() ?? '').toString().split(',').filter(Boolean);
+    this.els.osmChecks.find('input').each((_, el) => {
+      $(el).prop('checked', ids.includes($(el).attr('data-osm')));
+    });
+    this.updateOsmNote();
+  }
+  osmGridFor(state : ConfigState) : OsmGrid {
+    return {
+      zoom: state.zoom,
+      x0: state.exactPos.x - state.widthInTiles / 2,
+      y0: state.exactPos.y - state.heightInTiles / 2,
+      width: Math.round(state.width),
+      height: Math.round(state.height),
+    };
+  }
+  updateOsmNote() {
+    if (!this.els.osmNote || !this.inputs.width) return;
+    const ids = this.getOsmLayerIds();
+    const area = bboxAreaKm2(gridBBox(this.osmGridFor(this.getCurrentState())));
+    const tooBig = area > OSM_MAX_AREA_KM2;
+    this.els.osmNote.toggleClass('has-text-warning', tooBig && ids.length > 0);
+    this.els.osmNote.html(ids.length
+      ? (tooBig
+        ? `This area is ${Math.round(area).toLocaleString()} km², too big for OpenStreetMap layers (max ${OSM_MAX_AREA_KM2.toLocaleString()} km²). They will be skipped.`
+        : `${ids.length} layer${ids.length === 1 ? '' : 's'} will be exported with the heightmap. ${osmAttribution}`)
+      : 'No OpenStreetMap layers selected.');
+  }
+  /** Start downloading OSM features for an export; resolves to null when there's nothing to do. */
+  fetchOsmForExport(state : ConfigState) : Promise<OsmFeature[] | null> {
+    const ids = this.getOsmLayerIds();
+    if (!ids.length || this.getBody() !== 'earth') return Promise.resolve(null);
+    const bbox = gridBBox(this.osmGridFor(state));
+    if (bboxAreaKm2(bbox) > OSM_MAX_AREA_KM2) {
+      this.displayError({text: `OpenStreetMap layers skipped: the area is larger than ${OSM_MAX_AREA_KM2.toLocaleString()} km².`});
+      return Promise.resolve(null);
+    }
+    trackEvent(`generate/osm/${ids.length}`);
+    return fetchOsmLayers(bbox, ids, (url, init) => fetch(url, init as RequestInit) as any).catch(e => {
+      console.error('OSM fetch failed', e);
+      this.displayError({text: `OpenStreetMap layers could not be downloaded: ${e?.message ?? e}`});
+      return null;
+    });
+  }
+  async rasterizeOsmFor(features : OsmFeature[] | null, state : ConfigState) : Promise<DerivedMap[]> {
+    if (!features) return [];
+    const weights = this.inputs.osmWeights?.is(':checked') ?? false;
+    return processor.rasterizeOsm(features, this.osmGridFor(state), this.getOsmLayerIds(), weights);
   }
   hookExtraOutputControls(doHeightsDebounced : () => void) {
     const watch = (key : SettingKey, input : JQuery<HTMLElement>, refreshHeights = false) => {
@@ -1118,7 +1309,18 @@ export default class App {
     watch('normalmap', this.inputs.normalMap);
     watch('slopemap', this.inputs.slopeMap);
     watch('curvaturemap', this.inputs.curvatureMap);
+    watch('aomap', this.inputs.aoMap);
+    watch('flowmap', this.inputs.flowMap);
+    watch('aspectmap', this.inputs.aspectMap);
     watch('heightbands', this.inputs.heightBands);
+    watch('osmlayers', this.inputs.osmLayers);
+    watch('osmweights', this.inputs.osmWeights);
+    watch('importscripts', this.inputs.importScripts);
+    this.inputs.osmLayers.on('change', () => this.updateOsmNote());
+    [this.inputs.width, this.inputs.height, this.inputs.outputzoom, this.inputs.latitude, this.inputs.longitude].forEach(input => {
+      input.on('change input', debounce(100, () => this.updateOsmNote()));
+    });
+    this.map?.on('moveend', debounce(100, () => this.updateOsmNote()));
   }
   getWaterLevel() : number {
     const level = parseFloat(this.inputs.waterLevel?.val()?.toString() ?? '0');
@@ -1129,6 +1331,9 @@ export default class App {
       normal: (this.inputs.normalMap?.val()?.toString() || 'off') as NormalMapConvention,
       slope: this.inputs.slopeMap?.is(':checked') ?? false,
       curvature: this.inputs.curvatureMap?.is(':checked') ?? false,
+      ao: this.inputs.aoMap?.is(':checked') ?? false,
+      flow: this.inputs.flowMap?.is(':checked') ?? false,
+      aspect: this.inputs.aspectMap?.is(':checked') ?? false,
       waterMask: this.inputs.waterMask?.is(':checked') ?? false,
       heightBands: parseHeightBands(this.inputs.heightBands?.val()?.toString() ?? ''),
     };
@@ -1156,6 +1361,9 @@ export default class App {
     if (maps.normal !== 'off') names.push(`normal (${maps.normal === 'directx' ? 'DirectX' : 'OpenGL'})`);
     if (maps.slope) names.push('slope');
     if (maps.curvature) names.push('curvature');
+    if (maps.ao) names.push('ambient occlusion');
+    if (maps.flow) names.push('water flow');
+    if (maps.aspect) names.push('aspect, northness');
     if (maps.waterMask) names.push('water mask');
     if (maps.heightBands.length) names.push(`${maps.heightBands.length + 1} height bands`);
     this.els.extraMapsSummary.text(names.length
@@ -1186,6 +1394,22 @@ export default class App {
     </select>`) as JQuery<HTMLSelectElement>;
     this.inputs.printWidth = App.createInput({name: 'printwidth', type: 'number', min: '1', step: '1', value: '150'});
     this.inputs.exaggeration = App.createInput({name: 'exaggeration', type: 'number', min: '0.1', max: '20', step: '0.1', value: '1'});
+    this.inputs.meshSimplify = $(`<select name="meshsimplify">
+      <option value="off">Off (full grid)</option>
+      <option value="low">Low (visually lossless)</option>
+      <option value="medium" selected>Medium (recommended)</option>
+      <option value="high">High (smallest files)</option>
+    </select>`) as JQuery<HTMLSelectElement>;
+    this.inputs.meshTexture = $(`<select name="meshtexture">
+      <option value="none" selected>None</option>
+      <option value="map">Map imagery (Map Preview Type)</option>
+    </select>`) as JQuery<HTMLSelectElement>;
+    this.inputs.textureSize = $(`<select name="texturesize">
+      <option value="1024">1024 px</option>
+      <option value="2048" selected>2048 px</option>
+      <option value="4096">4096 px</option>
+      <option value="8192">8192 px</option>
+    </select>`) as JQuery<HTMLSelectElement>;
 
     const select = (input : JQuery<HTMLElement>) => $('<div class="control">').append($('<div class="select is-fullwidth">').append(input));
     const control = (input : JQuery<HTMLElement>) => $('<div class="control">').append(input);
@@ -1194,7 +1418,9 @@ export default class App {
       .append(App.withInfo(App.createLabel('3D Model Format', {for: 'meshformat'}), 'STL for slicers and 3D printing. OBJ for Blender and most 3D apps (Y up, with UVs, so you can drape the albedo or normal map on it). GLB is a single-file glTF for game engines and the web.'))
       .append(select(this.inputs.meshFormat))
       .append(App.withInfo(App.createLabel('Mesh Resolution', {for: 'meshres'}), 'Vertices along the longer side. Higher is more detailed but larger and slower. 512 is plenty for most prints.'))
-      .append(select(this.inputs.meshRes));
+      .append(select(this.inputs.meshRes))
+      .append(App.withInfo(App.createLabel('Simplify', {for: 'meshsimplify'}), 'Uses fewer, bigger triangles where the ground is flat or evenly sloped and keeps them small where it is rough, so files are often 5 to 20 times smaller with no visible difference. Off keeps every grid vertex (huge files). Low stays within about a tenth of the vertex spacing, Medium a quarter, High a half (and never more than 0.2%, 0.5% or 1% of the height range).'))
+      .append(select(this.inputs.meshSimplify));
 
     this.els.baseThicknessLabel = App.createLabel('Base Thickness (mm)', {for: 'basethickness'});
     this.els.baseThicknessColumn = $('<div class="column field">')
@@ -1206,10 +1432,16 @@ export default class App {
     this.els.printWidthColumn = $('<div class="field">')
       .append(App.withInfo(App.createLabel('Print Width (mm)', {for: 'printwidth'}), 'Length of the longer side of the printed model. Heights scale with it, so the model stays true to life (before exaggeration).'))
       .append(control(this.inputs.printWidth));
+    this.els.textureSizeField = $('<div class="field">')
+      .append(App.withInfo(App.createLabel('Texture Size', {for: 'texturesize'}), 'Longest side of the texture image. The map zoom is picked to fill it, up to the most detailed imagery available.'))
+      .append(select(this.inputs.textureSize));
     const scaleColumn = $('<div class="column field">')
       .append(App.withInfo(App.createLabel('Scale', {for: 'meshscale'}), 'Print size scales the model to a width in millimetres. Real world keeps it 1:1 in metres.'))
       .append(select(this.inputs.meshScale))
-      .append(this.els.printWidthColumn);
+      .append(this.els.printWidthColumn)
+      .append(App.withInfo(App.createLabel('Texture', {for: 'meshtexture'}), 'Drapes the map chosen under "Map Preview Type" (e.g. Esri World Imagery for satellite photos) over the model. GLB embeds it in the file; OBJ comes as a zip with an .mtl and a JPEG. STL can\'t hold colour. Also shown in the 3D preview.'))
+      .append(select(this.inputs.meshTexture))
+      .append(this.els.textureSizeField);
 
     this.els.previewButton = $('<button class="button is-info" type="button">3D Preview</button>');
     this.els.meshButton = $('<button class="button is-primary" type="button">Export 3D Model</button>');
@@ -1235,12 +1467,225 @@ export default class App {
     this.els.previewClose = $('<button class="button is-small" type="button" aria-label="Close preview">Close</button>');
     this.els.previewInfo = $('<span class="preview3d__info">');
     this.els.previewToolbar.append(this.els.previewInfo, this.els.previewRefresh, this.els.previewReset, this.els.previewClose);
-    this.els.previewContainer.append(this.els.previewToolbar, this.els.previewCanvas, this.els.previewStatus);
+    this.els.previewContainer.append(this.els.previewToolbar, this.els.previewCanvas, this.els.previewStatus, this.createSunControls());
 
     this.els.inputContainer.append($('<h3 class="subtitle is-5 mesh-heading">3D Model</h3>'));
     this.els.inputContainer.append(this.els.columnsMesh);
     this.els.inputContainer.append(this.els.previewContainer);
     this.toggleMeshInputs();
+  }
+  createContourOptions() {
+    this.inputs.contourInterval = App.createInput({name: 'contourinterval', type: 'number', min: '0', step: 'any', placeholder: 'Auto'});
+    this.inputs.contourMode = $(`<select name="contourmode">
+      <option value="lines" selected>Topo map lines</option>
+      <option value="layers">Laser-cut layers (one file)</option>
+      <option value="sheets">Laser-cut layers (one SVG per sheet)</option>
+    </select>`) as JQuery<HTMLSelectElement>;
+    this.inputs.contourFormat = $(`<select name="contourformat">
+      <option value="svg" selected>SVG (print, laser cutters, Inkscape)</option>
+      <option value="dxf">DXF (CAD, metres, with elevations)</option>
+    </select>`) as JQuery<HTMLSelectElement>;
+    this.inputs.contourWidth = App.createInput({name: 'contourwidth', type: 'number', min: '10', step: '1', value: '300'});
+    this.inputs.contourSmooth = $(`<select name="contoursmooth">
+      <option value="0">None</option>
+      <option value="1" selected>Light</option>
+      <option value="2">Medium</option>
+      <option value="4">Strong</option>
+    </select>`) as JQuery<HTMLSelectElement>;
+    const select = (input : JQuery<HTMLElement>) => $('<div class="control">').append($('<div class="select is-fullwidth">').append(input));
+    const control = (input : JQuery<HTMLElement>) => $('<div class="control">').append(input);
+    this.els.contourButton = $('<button class="button is-primary" type="button">Export Contours</button>');
+    this.els.contourNote = $('<p class="mesh-estimate">');
+    this.els.columnsContours = $('<div class="columns columns-output columns-output--contours">')
+      .append($('<div class="column field">')
+        .append(App.withInfo(App.createLabel('Contour Interval (m)', {for: 'contourinterval'}), 'Height between lines in metres. Leave empty to pick a round number giving about 20 levels. Every 5th line is drawn thicker (index contours).'))
+        .append(control(this.inputs.contourInterval))
+        .append(App.withInfo(App.createLabel('Smoothing', {for: 'contoursmooth'}), 'Blurs the terrain slightly first, so lines are smooth rather than jagged from noise in the elevation data.'))
+        .append(select(this.inputs.contourSmooth)))
+      .append($('<div class="column field">')
+        .append(App.withInfo(App.createLabel('Style', {for: 'contourmode'}), '<div class="content"><p><b>Topo map lines</b>: ordinary contour lines for maps and prints.</p><p><b>Laser-cut layers</b>: each level is a closed outline of all ground at or above it (closed along the edges), ready to cut from card, wood or acrylic and stack. "One SVG per sheet" gives a file per layer in a zip, with alignment marks and the next layer engraved as a gluing guide.</p></div>'))
+        .append(select(this.inputs.contourMode))
+        .append(App.withInfo(App.createLabel('Format', {for: 'contourformat'}), 'SVG is sized in millimetres for printing and laser cutting. DXF is in real-world metres (origin at the south-west corner) with each line at its height, one CAD layer per level.'))
+        .append(select(this.inputs.contourFormat)))
+      .append($('<div class="column field">')
+        .append(App.withInfo(App.createLabel('SVG Width (mm)', {for: 'contourwidth'}), 'Printed width of the SVG. The height follows the area\'s shape.'))
+        .append(control(this.inputs.contourWidth))
+        .append($('<div class="buttons mesh-buttons">').append(this.els.contourButton))
+        .append(this.els.contourNote));
+    this.els.inputContainer.append($('<h3 class="subtitle is-5 section-heading">Contour Lines</h3>'));
+    this.els.inputContainer.append(this.els.columnsContours);
+  }
+  hookContourControls() {
+    const keys : [SettingKey, JQuery<HTMLElement>][] = [
+      ['contourinterval', this.inputs.contourInterval],
+      ['contourmode', this.inputs.contourMode],
+      ['contourformat', this.inputs.contourFormat],
+      ['contourwidth', this.inputs.contourWidth],
+      ['contoursmooth', this.inputs.contourSmooth],
+    ];
+    for (const [key, input] of keys) {
+      input.on('change input', debounce(30, () => {
+        this.storeValue(key, this.readSetting(key) ?? '');
+        trackControl(key, input.is('select') ? this.readSetting(key) : undefined);
+        this.toggleContourInputs();
+      }));
+    }
+    this.els.contourButton.on('click', debounce(100, () => {
+      trackEvent(`generate/contours/${this.inputs.contourFormat.val()}/${this.inputs.contourMode.val()}`);
+      this.exportContours();
+      countDonatePrompt();
+    }));
+    this.toggleContourInputs();
+  }
+  toggleContourInputs() {
+    const dxf = this.inputs.contourFormat.val() === 'dxf';
+    this.inputs.contourWidth.prop('disabled', dxf);
+    if (dxf && this.inputs.contourMode.val() === 'sheets') {
+      this.els.contourNote.text('DXF puts every layer in one file (one CAD layer per level).');
+    } else {
+      this.els.contourNote.text('');
+    }
+  }
+  async exportContours() {
+    if (this.isOutputZoomTooHigh()) {
+      this.displayError({text: `Cannot export contours above output zoom ${this.getMaxOutputZoom()} with this elevation source`});
+      return;
+    }
+    const button = this.els.contourButton;
+    button.prop('disabled', true).addClass('is-loading');
+    this.resetOutput();
+    try {
+      this.getElevationSource().resetStats();
+      const input = await this.fetchRawHeights(1024, (msg, pct) => this.showProcessingProgress(msg, pct));
+      this.showProcessingProgress('Tracing contours…', 95);
+      const mode = (this.inputs.contourMode.val() ?? 'lines').toString();
+      const contourFormat = (this.inputs.contourFormat.val() ?? 'svg').toString() as ContourJob['format'];
+      const state = this.getCurrentState();
+      const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
+      const job : ContourJob = {
+        interval: Math.max(0, parseFloat((this.inputs.contourInterval.val() ?? '').toString()) || 0),
+        mode: mode === 'lines' ? 'lines' : 'layers',
+        format: contourFormat,
+        widthMm: Math.max(10, parseFloat((this.inputs.contourWidth.val() ?? '').toString()) || 300),
+        smooth: parseInt((this.inputs.contourSmooth.val() ?? '1').toString(), 10) || 0,
+        separateSheets: mode === 'sheets',
+        title: base,
+      };
+      const result : ContourResult = await processor.buildContours(input, job);
+      this.hideProcessingProgress();
+      let filename : string;
+      let blob : Blob;
+      if (result.files.length === 1) {
+        const ext = result.files[0].name.split('.').pop();
+        filename = `${base}_contours_${mode}.${ext}`;
+        blob = new Blob([result.files[0].text], {type: ext === 'svg' ? 'image/svg+xml' : 'application/dxf'});
+      } else {
+        const zip = new JSZip();
+        for (const file of result.files) zip.file(file.name, file.text);
+        blob = await zip.generateAsync({type: 'blob'});
+        filename = `${base}_contour_sheets.zip`;
+      }
+      this.download(blob, filename);
+      this.els.outputText.html('');
+      this.els.outputText.append($('<p>').text(
+        `Saved ${filename}: ${result.levels} levels every ${localFormatNumber(result.interval, 2)} m, from ${localFormatNumber(result.min, 0)} m to ${localFormatNumber(result.max, 0)} m${result.files.length > 1 ? ` (${result.files.length} sheets)` : ''}.`
+      ));
+      this.els.outputText.append($('<p>').html(`${this.describeElevationDetail(state.latitude, input.zoom)} ${this.getElevationSource().attributionHtml}`));
+    } catch (e) {
+      console.error('Failed to export contours', e);
+      this.hideProcessingProgress();
+      this.displayError({text: 'Could not build the contours. Please try again, or use a larger interval.'});
+    } finally {
+      button.prop('disabled', false).removeClass('is-loading');
+      currentRequests = [];
+    }
+  }
+  createSunControls() : JQuery<HTMLElement> {
+    const today = new Date();
+    const pad = (n : number) => n.toString().padStart(2, '0');
+    const realSun = App.createCheckbox('Real sun', 'previewsun');
+    const shadows = App.createCheckbox('Shadows', 'previewshadows');
+    shadows.input.prop('checked', true);
+    this.inputs.previewSun = realSun.input;
+    this.inputs.previewShadows = shadows.input;
+    this.inputs.sunDate = App.createInput({type: 'date', class: 'input is-small', value: `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`});
+    this.inputs.sunTime = $('<input type="range" min="0" max="1439" step="5" value="600" aria-label="Time of day (solar time)">') as JQuery<HTMLInputElement>;
+    this.els.sunPlay = $('<button class="button is-small" type="button" aria-label="Play a day">▶</button>');
+    this.els.sunReadout = $('<span class="preview3d__sun-readout">');
+    App.withInfo(realSun.label, 'Light the model from where the sun really is over this place on the chosen date and time, with shadows. Times are local solar time (the sun is highest at 12:00), which can differ from clock time by an hour or more.');
+    const bar = $('<div class="preview3d__sun">').append(
+      realSun.label, this.inputs.sunDate, this.els.sunPlay, this.inputs.sunTime, this.els.sunReadout, shadows.label,
+    );
+    const update = () => this.updatePreviewSun();
+    this.inputs.previewSun.on('change', () => { trackControl('preview-sun', this.inputs.previewSun.is(':checked') ? 'on' : 'off'); update(); });
+    this.inputs.previewShadows.on('change', update);
+    this.inputs.sunDate.on('change input', update);
+    this.inputs.sunTime.on('input change', () => {
+      if (!this.inputs.previewSun.is(':checked')) this.inputs.previewSun.prop('checked', true);
+      update();
+    });
+    let timer : number | null = null;
+    this.els.sunPlay.on('click', () => {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
+        this.els.sunPlay.text('▶');
+        return;
+      }
+      trackEvent('preview/sun-play');
+      this.inputs.previewSun.prop('checked', true);
+      this.els.sunPlay.text('❚❚');
+      timer = window.setInterval(() => {
+        if (!this.els.previewContainer.is(':visible')) {
+          window.clearInterval(timer);
+          timer = null;
+          this.els.sunPlay.text('▶');
+          return;
+        }
+        const minutes = (parseInt(this.inputs.sunTime.val().toString(), 10) + 5) % 1440;
+        this.inputs.sunTime.val(minutes);
+        update();
+      }, 40);
+    });
+    update();
+    return bar;
+  }
+  /** Date the sun controls describe, in UTC, from a local solar time at this longitude. */
+  getSunDate() : Date {
+    const [y, m, d] = (this.inputs.sunDate.val() || '').toString().split('-').map(n => parseInt(n, 10));
+    const now = new Date();
+    const minutes = parseInt(this.inputs.sunTime.val().toString(), 10) || 0;
+    const lng = parseFloat(this.inputs.longitude.val().toString()) || 0;
+    // Solar time runs ahead of UTC by 4 minutes per degree east
+    const utcMinutes = minutes - lng * 4;
+    return new Date(Date.UTC(y || now.getUTCFullYear(), (m || now.getUTCMonth() + 1) - 1, d || now.getUTCDate(), 0, 0, 0) + utcMinutes * 60000);
+  }
+  updatePreviewSun() {
+    const minutes = parseInt(this.inputs.sunTime?.val()?.toString() ?? '600', 10) || 0;
+    const clock = `${Math.floor(minutes / 60).toString().padStart(2, '0')}:${(minutes % 60).toString().padStart(2, '0')}`;
+    if (!this.inputs.previewSun?.is(':checked')) {
+      this.els.sunReadout?.text(`${clock} · default lighting`);
+      this.preview?.setSun(null);
+      return;
+    }
+    const lat = parseFloat(this.inputs.latitude.val().toString()) || 0;
+    const lng = parseFloat(this.inputs.longitude.val().toString()) || 0;
+    const date = this.getSunDate();
+    const pos = sunPosition(date, lat, lng);
+    const times = sunTimes(date, lat, lng);
+    const solar = (t : Date | null) => {
+      if (!t) return '–';
+      const mins = ((t.getUTCHours() * 60 + t.getUTCMinutes() + lng * 4) % 1440 + 1440) % 1440;
+      return `${Math.floor(mins / 60).toString().padStart(2, '0')}:${Math.round(mins % 60).toString().padStart(2, '0')}`;
+    };
+    const compass = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(((pos.azimuth % 360) + 360) % 360 / 45) % 8];
+    const riseSet = times.sunrise && times.sunset ? ` · rise ${solar(times.sunrise)}, set ${solar(times.sunset)}` : (pos.altitude > 0 ? ' · midnight sun' : ' · polar night');
+    this.els.sunReadout.text(`${clock} · sun ${pos.altitude.toFixed(0)}° up in the ${compass}${riseSet}`);
+    this.preview?.setSun({
+      direction: sunDirectionZUp(pos.azimuth, pos.altitude),
+      altitude: pos.altitude,
+      shadows: this.inputs.previewShadows.is(':checked'),
+    });
   }
   hookMeshControls() {
     const meshKeys : [SettingKey, JQuery<HTMLElement>][] = [
@@ -1251,7 +1696,12 @@ export default class App {
       ['meshscale', this.inputs.meshScale],
       ['printwidth', this.inputs.printWidth],
       ['exaggeration', this.inputs.exaggeration],
+      ['meshsimplify', this.inputs.meshSimplify],
+      ['meshtexture', this.inputs.meshTexture],
+      ['texturesize', this.inputs.textureSize],
     ];
+    this.inputs.meshTexture.on('change', () => this.updatePreviewTexture());
+    this.inputs.maptype.on('change', debounce(200, () => this.updatePreviewTexture()));
     const rebuildPreview = debounce(150, () => this.rebuildPreviewMesh(false));
     for (const [key, input] of meshKeys) {
       input.on('change input', debounce(30, () => {
@@ -1295,6 +1745,12 @@ export default class App {
       exaggeration: Math.max(0.01, num(this.inputs.exaggeration, defaultMeshOptions.exaggeration)),
     };
   }
+  getSimplifyPreset() : SimplifyPreset {
+    return ((this.inputs.meshSimplify?.val() ?? 'medium').toString() as SimplifyPreset);
+  }
+  wantsMeshTexture() : boolean {
+    return (this.inputs.meshTexture?.val() ?? 'none').toString() === 'map';
+  }
   getMeshFormat() : MeshFormat {
     return ((this.inputs.meshFormat?.val() ?? 'stl').toString() as MeshFormat);
   }
@@ -1305,6 +1761,10 @@ export default class App {
     this.els.baseThicknessLabel.contents().first()[0].textContent = `Base Thickness (${opts.scale === 'print' ? 'mm' : 'm'})`;
     this.els.printWidthColumn.toggleClass('is-disabled', opts.scale !== 'print');
     this.inputs.printWidth.prop('disabled', opts.scale !== 'print');
+    const stl = this.getMeshFormat() === 'stl';
+    this.inputs.meshTexture.prop('disabled', stl);
+    this.els.textureSizeField.toggleClass('is-disabled', stl || !this.wantsMeshTexture());
+    this.inputs.textureSize.prop('disabled', stl || !this.wantsMeshTexture());
   }
   updateMeshEstimate() {
     if (!this.els.meshEstimate || !this.inputs.width) return;
@@ -1321,8 +1781,16 @@ export default class App {
     } else {
       footprint = `${localFormatNumber(state.phys.width / 1000, 2)} × ${localFormatNumber(state.phys.height / 1000, 2)} km`;
     }
-    this.els.meshEstimate.text(`${grid.width} × ${grid.height} vertices, ${localFormatNumber(tris, 0)} triangles, ~${localFormatNumber(mb, mb < 10 ? 1 : 0)} MB. Footprint ${footprint}.`);
-    this.els.meshEstimate.toggleClass('is-warning', mb > 250);
+    const preset = this.getSimplifyPreset();
+    const simplified = preset !== 'off';
+    let size = `${localFormatNumber(tris, 0)} triangles, ~${localFormatNumber(mb, mb < 10 ? 1 : 0)} MB`;
+    if (simplified) {
+      const estTris = estimateSimplifiedTriangles(grid.width, grid.height, opts.solid, preset);
+      const estMb = estimateFileBytes(this.getMeshFormat(), grid.width, grid.height, opts.solid, {triangles: estTris, vertices: Math.round(estTris / 2)}) / (1024 * 1024);
+      size = `roughly ${localFormatNumber(estTris, 0)} triangles, ~${localFormatNumber(estMb, estMb < 10 ? 1 : 0)} MB (full grid would be ${localFormatNumber(mb, mb < 10 ? 1 : 0)} MB; rough terrain keeps more)`;
+    }
+    this.els.meshEstimate.text(`${grid.width} × ${grid.height} grid, ${size}. Footprint ${footprint}.`);
+    this.els.meshEstimate.toggleClass('is-warning', mb > 250 && !simplified);
   }
   /**
    * Fetch real heights in metres for the current area, at a zoom just detailed
@@ -1379,16 +1847,37 @@ export default class App {
       const state = this.getCurrentState();
       const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
       const name = `${base}_terrain_${opts.solid ? 'solid' : 'surface'}`;
-      const result = await processor.buildMeshFile(input, opts, meshFormat, name);
+      let texture : {mimeType: 'image/jpeg', data: Uint8Array, filename: string} | undefined;
+      if (this.wantsMeshTexture() && meshFormat !== 'stl') {
+        const canvas = await this.fetchMapImage(this.getTextureSize(), (msg, pct) => this.showProcessingProgress(msg, 92 + pct * 0.04));
+        texture = {mimeType: 'image/jpeg', data: await App.canvasToJpeg(canvas), filename: `${name}_texture.jpg`};
+      }
+      this.showProcessingProgress(`Building ${meshFormat.toUpperCase()} mesh…`, 97);
+      const preset = this.getSimplifyPreset();
+      // The texture is copied (not transferred) so the OBJ zip can still use it
+      const result = await processor.buildMeshFile(input, opts, meshFormat, name, preset, texture);
       this.hideProcessingProgress();
-      const filename = `${name}.${meshFormat}`;
-      const blob = new Blob([result.buffer], {type: meshFormat === 'obj' ? 'text/plain' : 'application/octet-stream'});
+      let filename = `${name}.${meshFormat}`;
+      let blob = new Blob([result.buffer], {type: meshFormat === 'obj' ? 'text/plain' : 'application/octet-stream'});
+      if (meshFormat === 'obj' && result.mtl && texture) {
+        // OBJ needs its material and image beside it, so ship them together
+        const zip = new JSZip();
+        zip.file(filename, blob);
+        zip.file(`${name}.mtl`, result.mtl);
+        zip.file(texture.filename, texture.data);
+        blob = await zip.generateAsync({type: 'blob'});
+        filename = `${name}_obj.zip`;
+      }
       this.download(blob, filename);
       const sizeMb = blob.size / (1024 * 1024);
       const unitsText = result.units === 'mm' ? 'millimetres' : 'metres';
       this.els.outputText.html('');
+      const fullTris = triangleCount(result.gridWidth, result.gridHeight, opts.solid);
+      const simplifiedText = preset !== 'off'
+        ? ` (simplified from ${localFormatNumber(fullTris, 0)}, max error ${localFormatNumber(result.simplifyError, result.simplifyError < 1 ? 2 : 1)} m)`
+        : '';
       this.els.outputText.append($('<p>').text(
-        `Saved ${filename}: ${result.gridWidth} × ${result.gridHeight} vertices, ${localFormatNumber(result.triangles, 0)} triangles, ${localFormatNumber(sizeMb, 1)} MB. Units: ${unitsText}.`
+        `Saved ${filename}: ${localFormatNumber(result.vertices, 0)} vertices, ${localFormatNumber(result.triangles, 0)} triangles${simplifiedText}, ${localFormatNumber(sizeMb, 1)} MB. Units: ${unitsText}.${texture ? ' Textured with ' + this.layers[this.layer]?.label + '.' : ''}`
       ));
       this.els.outputText.append($('<p>').html(`${this.describeElevationDetail(state.latitude, input.zoom)} ${this.getElevationSource().attributionHtml}`));
       if (meshFormat !== 'stl') {
@@ -1427,6 +1916,32 @@ export default class App {
     }
     await this.refreshPreview();
   }
+  getTextureSize() : number {
+    return parseInt((this.inputs.textureSize?.val() ?? '2048').toString(), 10) || 2048;
+  }
+  previewTextureKey : string = '';
+  /** Drape the map imagery over the preview when a texture is chosen. */
+  async updatePreviewTexture() {
+    if (!this.preview || !this.els.previewContainer.is(':visible')) return;
+    if (!this.wantsMeshTexture()) {
+      this.previewTextureKey = '';
+      this.preview.setTexture(null);
+      return;
+    }
+    const key = `${this.getPreviewKey()}|${this.activeLayerKey()}`;
+    if (key === this.previewTextureKey) return;
+    this.previewTextureKey = key;
+    try {
+      this.els.previewStatus.text('Loading map imagery…').show();
+      const canvas = await this.fetchMapImage(Math.min(2048, this.getTextureSize()), (msg) => this.els.previewStatus.text(msg));
+      if (key !== this.previewTextureKey) return;
+      this.preview.setTexture(canvas);
+    } catch (e) {
+      console.error('Preview texture failed', e);
+    } finally {
+      this.els.previewStatus.hide();
+    }
+  }
   closePreview() {
     this.els.previewContainer.hide();
   }
@@ -1445,6 +1960,7 @@ export default class App {
         (msg) => this.els.previewStatus.text(msg));
       this.previewCache = {key, input};
       await this.rebuildPreviewMesh(true);
+      this.updatePreviewTexture();
     } catch (e) {
       console.error('Preview failed', e);
       this.els.previewStatus.text('Could not load terrain for the preview. Please try again.').show();
@@ -1459,12 +1975,13 @@ export default class App {
     const previewOpts : MeshOptions = {...opts, resolution: Math.min(384, opts.resolution)};
     const cache = this.previewCache.input;
     // Send a copy: the cache is reused for later option changes
-    const data = await processor.buildPreviewMesh({...cache, heights: cache.heights.slice(0)}, previewOpts) as PreviewMeshData & {gridWidth: number, gridHeight: number};
+    const data = await processor.buildPreviewMesh({...cache, heights: cache.heights.slice(0)}, previewOpts, this.getSimplifyPreset()) as PreviewMeshData & {gridWidth: number, gridHeight: number, triangles: number};
     const flatten = this.inputs.flattenWater?.is(':checked') ?? false;
     const showWater = flatten || (this.inputs.waterMask?.is(':checked') ?? false);
     this.preview.setMesh(data, {waterLevel: showWater ? this.getWaterLevel() : null}, reframe);
+    this.updatePreviewSun();
     const stale = this.previewCache.key !== this.getPreviewKey();
-    this.els.previewInfo.text(`Preview ${data.gridWidth} × ${data.gridHeight}${stale ? ' · area changed, press Refresh' : ''}. Drag to orbit, right-drag to pan, scroll to zoom.`);
+    this.els.previewInfo.text(`Preview ${data.gridWidth} × ${data.gridHeight}, ${localFormatNumber(data.triangles, 0)} triangles${stale ? ' · area changed, press Refresh' : ''}. Drag to orbit, right-drag to pan, scroll to zoom.`);
     this.els.previewStatus.hide();
   }
   createSubmitButton() {
@@ -1544,7 +2061,13 @@ export default class App {
       normalmap: this.inputs.normalMap,
       slopemap: this.inputs.slopeMap,
       curvaturemap: this.inputs.curvatureMap,
+      aomap: this.inputs.aoMap,
+      flowmap: this.inputs.flowMap,
+      aspectmap: this.inputs.aspectMap,
       heightbands: this.inputs.heightBands,
+      osmlayers: this.inputs.osmLayers,
+      osmweights: this.inputs.osmWeights,
+      importscripts: this.inputs.importScripts,
       meshformat: this.inputs.meshFormat,
       meshres: this.inputs.meshRes,
       meshsolid: this.inputs.meshSolid,
@@ -1552,6 +2075,14 @@ export default class App {
       meshscale: this.inputs.meshScale,
       printwidth: this.inputs.printWidth,
       exaggeration: this.inputs.exaggeration,
+      contourinterval: this.inputs.contourInterval,
+      contourmode: this.inputs.contourMode,
+      contourformat: this.inputs.contourFormat,
+      contourwidth: this.inputs.contourWidth,
+      contoursmooth: this.inputs.contourSmooth,
+      meshsimplify: this.inputs.meshSimplify,
+      meshtexture: this.inputs.meshTexture,
+      texturesize: this.inputs.textureSize,
     };
     return controls[key];
   }
@@ -1611,6 +2142,7 @@ export default class App {
     this.toggleTileInputs();
     this.updateTileSummary();
     this.updateExtraMapsSummary();
+    this.syncOsmCheckboxes();
   }
   insertValuesFromUrlHash() {
     const values = parseHash(location.hash);
@@ -1632,6 +2164,7 @@ export default class App {
     this.toggleMeshInputs();
     this.updateMeshEstimate();
     this.updateElevationSourceNote();
+    this.syncOsmCheckboxes();
   }
   /** Mirror the current settings into the address bar without adding history entries. */
   writeHash() {
@@ -1669,6 +2202,14 @@ export default class App {
       this.els.generate.text('Generate Heightmap');
     }
   }
+  /** GeoTIFF is always in metres, so normalisation doesn't apply. */
+  toggleNormalisationInputs() {
+    const geotiff = this.isGeoTiff();
+    [this.inputs.smartNormalisationControl, this.inputs.normFrom, this.inputs.normTo].forEach(input => input?.prop('disabled', geotiff));
+    this.els.smartNormalisationControl?.closest('.column').toggleClass('is-disabled', geotiff);
+    this.els.normFrom?.closest('.column').toggleClass('is-disabled', geotiff);
+    this.els.normTo?.closest('.column').toggleClass('is-disabled', geotiff);
+  }
   hookControls() {
     const doHeightsDebounced = debounce(50, () => {
       this.getApproxHeightsForState();
@@ -1698,7 +2239,7 @@ export default class App {
     }));
 
     this.els.generateAlbedo.on('click touchend', debounce(100, () => {
-      trackEvent(`generate/albedo/${this.inputs.maptype.val()}`);
+      trackEvent(`generate/albedo/${this.activeLayerKey()}`);
       this.generateAlbedo();
       countDonatePrompt();
     }));
@@ -1801,20 +2342,33 @@ export default class App {
       doHeightsDebounced();
     }));
 
+    this.inputs.demFile.on('change', () => {
+      const file = (this.inputs.demFile[0] as HTMLInputElement).files?.[0];
+      if (file) this.loadDemFile(file);
+      this.inputs.demFile.val('');
+    });
     this.inputs.elevSource.on('change', () => {
       const value = this.inputs.elevSource.val().toString();
+      if (value === 'upload' && !this.elevationSources.upload) {
+        this.inputs.demFile.trigger('click');
+      }
       this.storeValue('elevsource', value);
       trackControl('elevsource', value);
       this.updateElevationSourceNote();
+      this.updateBody();
       this.doDisEnableControls();
       doHeightsDebounced();
     });
     this.updateElevationSourceNote();
+    // A shared link to Mars should open where it points, not at the default site
+    this.updateBody(true);
 
     this.inputs.outputformat.on('change input', debounce(30, () => {
       this.storeValue('outputformat', this.inputs.outputformat.val().toString());
       trackControl('outputformat', this.inputs.outputformat.val().toString());
+      this.toggleNormalisationInputs();
     }));
+    this.toggleNormalisationInputs();
 
     this.inputs.smartNormalisationControl.on('change', () => {
       const labels : Record<string, string> = {'0': 'off', '1': 'regular', '3': 'smart'};
@@ -1834,6 +2388,7 @@ export default class App {
 
     this.hookExtraOutputControls(doHeightsDebounced);
     this.hookMeshControls();
+    this.hookContourControls();
 
     window.addEventListener('paste', (event : ClipboardEvent) => {
       // @ts-ignore
@@ -1870,6 +2425,7 @@ export default class App {
       if (location.hash !== this.lastWrittenHash) {
         this.lastWrittenHash = location.hash;
         this.insertValuesFromUrlHash();
+        this.updateBody(true);
         this.showHideCurrentLayer();
         this.setMapViewFromInputs();
         // The map may not move (e.g. only output zoom/size changed), so refresh the readouts explicitly
@@ -2062,7 +2618,7 @@ export default class App {
   }
   // From https://www.movable-type.co.uk/scripts/latlong.html
   getDistanceBetweenLatLngs(point1 : LatLng, point2 : LatLng) : number {
-    const R = 6371e3; // metres
+    const R = this.bodyRadius(); // metres
     const φ1 = point1.latitude * Math.PI/180; // φ, λ in radians
     const φ2 = point2.latitude * Math.PI/180;
     const Δφ = (point2.latitude-point1.latitude) * Math.PI/180;
@@ -2077,8 +2633,46 @@ export default class App {
     return d;
   }
   updateElevationSourceNote() {
+    const wantsUpload = (this.inputs.elevSource?.val() ?? '') === 'upload';
+    this.els.demUpload?.toggle(wantsUpload);
+    if (wantsUpload && !this.elevationSources.upload) {
+      this.els.elevSourceNote?.html('Choose a file to use. Until then, AWS Terrain Tiles are used.');
+      return;
+    }
     const source = this.getElevationSource();
     this.els.elevSourceNote?.html(`${source.attributionHtml}. Output zoom up to ${source.maxZoom}.`);
+  }
+  uploadBoundsRect : L.Rectangle | null = null;
+  async loadDemFile(file : File) {
+    const note = this.els.elevSourceNote;
+    note.text(`Reading ${file.name}…`);
+    try {
+      const buffer = await file.arrayBuffer();
+      const raster = loadDemFile(buffer, file.name);
+      const source = new UploadedDemSource(raster, file.name);
+      this.elevationSources.upload = source;
+      trackEvent('elevation/upload');
+      this.inputs.elevSource.val('upload');
+      this.storeValue('elevsource', 'upload');
+      const b = source.bounds;
+      const bounds = L.latLngBounds([b.south, b.west], [b.north, b.east]);
+      this.uploadBoundsRect?.remove();
+      this.uploadBoundsRect = L.rectangle(bounds, {color: '#48c78e', weight: 2, fill: false, dashArray: '4 4', interactive: false}).addTo(this.map);
+      // Match the output resolution to the file's own detail
+      const zoom = Math.max(1, Math.min(source.maxZoom, source.nativeZoom));
+      this.inputs.outputzoom.val(zoom);
+      this.storeValue('outputzoom', zoom.toString());
+      this.map.fitBounds(bounds);
+      this.setPositionTo(bounds.getCenter());
+      this.updateElevationSourceNote();
+      note.append(` Loaded ${raster.width.toLocaleString()} × ${raster.height.toLocaleString()} px, ${Math.round(raster.min)} to ${Math.round(raster.max)} m. Outside the green outline the terrain is flat at the lowest height.`);
+      this.doDisEnableControls();
+      this.doHeightsDebounced?.();
+    } catch (e) {
+      console.error('Elevation file failed', e);
+      trackEvent('elevation/upload-failed');
+      note.text(`Could not use ${file.name}: ${e?.message ?? e}`);
+    }
   }
   /** One line saying how detailed the data behind the last export really was. */
   describeElevationDetail(latitude : number, outputZoom : number) : string {
@@ -2087,7 +2681,10 @@ export default class App {
     if (stats.bestZoom === null) {
       return '';
     }
-    const fmt = (z : number) => `${localFormatNumber(metresPerPixel(z, latitude), metresPerPixel(z, latitude) < 10 ? 1 : 0)} m/px`;
+    // metresPerPixel() is for Earth; other worlds scale with their radius
+    const scale = this.getBody() === 'earth' ? 1 : this.bodyRadius() / 6378137;
+    const mpp = (z : number) => metresPerPixel(z, latitude) * scale;
+    const fmt = (z : number) => `${localFormatNumber(mpp(z), mpp(z) < 10 ? 1 : 0)} m/px`;
     const detail = stats.bestZoom === stats.worstZoom
       ? `source tiles ~${fmt(stats.bestZoom)}`
       : `source tiles from ~${fmt(stats.bestZoom)} to ~${fmt(stats.worstZoom)} across the area`;
@@ -2221,8 +2818,11 @@ export default class App {
   generate() {
     this.els.generate.prop('disabled', true);
     this.getElevationSource().resetStats();
+    this.exportedHeightmaps = [];
+    this.exportedMapFiles = [];
     const state = this.getCurrentState();
     this.resetOutput();
+    this.pendingOsm = this.fetchOsmForExport(state);
     const tileConfig = this.getTileExportConfig(state.width, state.height);
     if (this.shouldStreamTiles(tileConfig)) {
       return this.generateStreamedTiles(state, tileConfig)
@@ -2315,8 +2915,9 @@ export default class App {
     const targetTileHeight = pad ? config.tileHeight : undefined;
     const zip = useZip ? new JSZip() : null;
     const mapFiles : {filename: string, blob: Blob}[] = [];
+    const osmFeatures = await this.pendingOsm;
     for (let i = 0; i < slices.length; i++) {
-      const result = await this.processTileSequential(state, slices[i], i + 1, slices.length, summary, useZip, targetTileWidth, targetTileHeight);
+      const result = await this.processTileSequential(state, slices[i], i + 1, slices.length, summary, useZip, targetTileWidth, targetTileHeight, osmFeatures);
       if (result) {
         mapFiles.push(...result.maps);
       }
@@ -2328,6 +2929,9 @@ export default class App {
       }
     }
     await this.deliverDerivedMaps(mapFiles, state);
+    if (osmFeatures) {
+      this.els.outputImage.append($('<p class="elevation-note">').html(osmAttribution));
+    }
     if (summary.count > 0) {
       const summaryResult : NormaliseResult<Float32Array> = {
         data: new Float32Array(0),
@@ -2337,6 +2941,7 @@ export default class App {
         maxAfter: summary.maxAfter
       };
       this.displayHeightData(summaryResult, state as unknown as TileLoadState);
+      this.appendImportScripts(state, summary.minBefore, summary.maxBefore);
       if (useZip && zip) {
         const zipBlob = await zip.generateAsync({type: 'blob'});
         const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
@@ -2349,7 +2954,7 @@ export default class App {
     }
   }
 
-  async processTileSequential(baseState: ConfigState, sliceInfo: TileSliceInfo, index: number, total: number, summary: StreamingSummary, useZip: boolean, targetTileWidth?: number, targetTileHeight?: number) {
+  async processTileSequential(baseState: ConfigState, sliceInfo: TileSliceInfo, index: number, total: number, summary: StreamingSummary, useZip: boolean, targetTileWidth?: number, targetTileHeight?: number, osmFeatures: OsmFeature[] | null = null) {
     this.els.outputText.html(`Processing tile ${index}/${total} (row ${sliceInfo.row}, col ${sliceInfo.column})`);
     const chunkState = this.buildChunkState(baseState, sliceInfo);
     const items = this.buildTileFetchList(chunkState);
@@ -2367,23 +2972,31 @@ export default class App {
       this.download(result.blob, result.filename);
       this.appendGeoreferenceLinks(georef);
     }
-    const maps = output.maps?.length
-      ? await this.encodeDerivedMaps(output.maps, chunkState, sliceInfo.width, sliceInfo.height, sliceInfo, targetTileWidth, targetTileHeight)
+    const allMaps = [...(output.maps ?? []), ...await this.rasterizeOsmFor(osmFeatures, chunkState)];
+    const maps = allMaps.length
+      ? await this.encodeDerivedMaps(allMaps, chunkState, sliceInfo.width, sliceInfo.height, sliceInfo, targetTileWidth, targetTileHeight)
       : [];
     return {...result, georef, maps};
   }
 
+  isGeoTiff() : boolean {
+    return (this.inputs.outputformat?.val()?.toString() ?? '') === 'geotiff';
+  }
   getNormaliseModeValue() : NormaliseMode {
+    // GeoTIFFs always hold real heights in metres
+    if (this.isGeoTiff()) return NormaliseMode.Off;
     const mode = parseInt(this.inputs.smartNormalisationControl?.val()?.toString() || '0', 10);
     return mode as NormaliseMode;
   }
 
   hasManualNormRange() {
+    if (this.isGeoTiff()) return false;
     return (this.inputs.normFrom?.val()?.toString() ?? '') !== '' && (this.inputs.normTo?.val()?.toString() ?? '') !== '';
   }
 
   getNormRangeFromInputs() : NormRange {
     const norm : NormRange = {from: null, to: null};
+    if (this.isGeoTiff()) return norm;
     const fromVal = this.inputs.normFrom?.val()?.toString() ?? '';
     const toVal = this.inputs.normTo?.val()?.toString() ?? '';
     if (fromVal !== '') {
@@ -2439,6 +3052,9 @@ export default class App {
     }
     const paddedState = {...state, width: finalWidth, height: finalHeight};
     const paddedSlice = {...sliceInfo, width: finalWidth, height: finalHeight};
+    if (formatSelection === 'geotiff') {
+      return this.saveOutputGeoTiff(finalData, paddedState, paddedSlice, {skipDownload: true});
+    }
     if (formatSelection === 'exr16' || formatSelection === 'exr32') {
       const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
       return this.saveOutputExr(finalData, paddedState, pixelType, paddedSlice, {skipDownload: true});
@@ -2543,7 +3159,7 @@ export default class App {
 
     // This little timeout seems to help the map to 'Catch up' for some reason
     setTimeout(() => {
-      const layer = this.layers[this.inputs.maptype.val().toString()].layer;
+      const layer = this.layers[this.activeLayerKey()].layer;
       for (let x = (state.startx - 1); x <= (state.endx+1); x++) {
         for (let y = (state.starty - 1); y <= (state.endy+1); y++) {
           const nx = roll(x, state.min.x, state.max.x);
@@ -2561,6 +3177,72 @@ export default class App {
         this.els.generateAlbedo.text(this.els.generateAlbedo.data('originalText') ?? 'Generate Albedo');
       });
     }, 1000);
+  }
+  /** URL for one tile of a Leaflet layer at any zoom, without moving the map. */
+  static tileUrlAt(layer : L.TileLayer, x : number, y : number, z : number) : string {
+    // getTileUrl() reads the layer's current zoom rather than coords.z
+    const anyLayer = layer as any;
+    const previous = anyLayer._tileZoom;
+    anyLayer._tileZoom = z;
+    try {
+      return layer.getTileUrl({x, y, z} as L.Coords).replace('@2x', '');
+    } finally {
+      anyLayer._tileZoom = previous;
+    }
+  }
+  /**
+   * Stitch the current map type into a canvas covering the export area, at the
+   * largest zoom whose image is no bigger than `maxSize` on its longer side.
+   */
+  async fetchMapImage(maxSize : number, onProgress? : (message : string, percent : number) => void) : Promise<HTMLCanvasElement> {
+    const full = this.getCurrentState();
+    let scale = 1;
+    while (Math.max(full.width, full.height) * scale > maxSize && full.z + Math.log2(scale / 2) >= 1) {
+      scale /= 2;
+    }
+    // Prefer more detail than the heightmap when the texture budget allows it
+    while (Math.max(full.width, full.height) * scale * 2 <= maxSize && full.z + Math.log2(scale * 2) <= Math.min(18, this.map.getMaxZoom())) {
+      scale *= 2;
+    }
+    const state = this.getCurrentState(scale);
+    const layer = this.layers[this.activeLayerKey()]?.layer ?? this.layers.imagery.layer;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(state.width);
+    canvas.height = Math.round(state.height);
+    const ctx = canvas.getContext('2d');
+    const left = state.exactPos.x - state.widthInTiles / 2;
+    const top = state.exactPos.y - state.heightInTiles / 2;
+    const tiles : {x : number, y : number}[] = [];
+    for (let x = state.startx; x <= state.endx; x++) {
+      for (let y = state.starty; y <= state.endy; y++) {
+        tiles.push({x, y});
+      }
+    }
+    let done = 0;
+    await promiseAllInBatches(async (tile : {x : number, y : number}) => {
+      const nx = roll(tile.x, state.min.x, state.max.x);
+      const url = App.tileUrlAt(layer, nx, tile.y, state.z);
+      try {
+        const response = await fetch(url, {mode: 'cors'});
+        if (!response.ok) throw new Error(`${response.status}`);
+        const bitmap = await createImageBitmap(await response.blob());
+        ctx.drawImage(bitmap, Math.round((tile.x - left) * 256), Math.round((tile.y - top) * 256), 256, 256);
+        bitmap.close();
+      } catch (e) {
+        console.warn('Map tile failed', url, e);
+      }
+      done++;
+      onProgress?.(`Downloading map imagery (${done}/${tiles.length})`, done / tiles.length * 100);
+    }, tiles, 32, 0);
+    return canvas;
+  }
+  static canvasToJpeg(canvas : HTMLCanvasElement, quality : number = 0.88) : Promise<Uint8Array> {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(blob => {
+        if (!blob) { reject(new Error('Could not encode texture')); return; }
+        blob.arrayBuffer().then(buf => resolve(new Uint8Array(buf)), reject);
+      }, 'image/jpeg', quality);
+    });
   }
   async combineImagesSimple(states : (ConfigState & TileCoords & {url: string})[]) : Promise<void|ImageData> {
     const tileWidth = 256;
@@ -2710,13 +3392,7 @@ export default class App {
     return this.generateOutputUsingWorker(states);
   }
   async generateOutputUsingWorker(states : TileLoadState[]) {
-    const norm : NormRange = {from : null, to : null}
-    if (this.inputs.normFrom.val() !== "") {
-      norm.from = parseFloat(this.inputs.normFrom.val().toString());
-    }
-    if (this.inputs.normTo.val() !== "") {
-      norm.to = parseFloat(this.inputs.normTo.val().toString());
-    }
+    const norm = this.getNormRangeFromInputs();
     const progressHandler = Comlink.proxy((update: ProcessorProgressUpdate) => {
       this.updateProcessingProgress(update);
     });
@@ -2724,15 +3400,23 @@ export default class App {
     let output : NormaliseResult<Float32Array>;
     try {
       //@ts-ignore
-      output = await processor.combineImages(states, this.inputs.smartNormalisationControl.val(), norm, progressHandler, this.getProcessOptions(states[0])) as NormaliseResult<Float32Array>;
+      output = await processor.combineImages(states, this.getNormaliseModeValue(), norm, progressHandler, this.getProcessOptions(states[0])) as NormaliseResult<Float32Array>;
     } finally {
       this.hideProcessingProgress();
     }
     this.displayHeightData(output, states[0]);
     const saved = await this.saveOutput(output.data, states);
-    if (output.maps?.length) {
-      await this.saveDerivedMaps(output.maps, states[0]);
+    const features = await this.pendingOsm;
+    if (features) this.showProcessingProgress('Drawing OpenStreetMap layers…', 100);
+    const maps = [...(output.maps ?? []), ...await this.rasterizeOsmFor(features, states[0])];
+    this.hideProcessingProgress();
+    if (maps.length) {
+      await this.saveDerivedMaps(maps, states[0]);
     }
+    if (features) {
+      this.els.outputImage.append($('<p class="elevation-note">').html(osmAttribution));
+    }
+    this.appendImportScripts(states[0], output.minBefore, output.maxBefore);
     return saved;
   }
   /** Encode the extra maps for a full (unsliced) export, splitting them into tiles when tiling is on. */
@@ -2780,6 +3464,7 @@ export default class App {
       }
       const png = await App.encodeToPng([data], outW, outH, map.channels, 0, 8);
       files.push({filename: `${base}_${map.name}${suffix}.png`, blob: new Blob([png], {type: 'image/png'})});
+      this.exportedMapFiles.push(`${base}_${map.name}${suffix}.png`);
       await this.maybeYieldUi();
     }
     return files;
@@ -2846,7 +3531,9 @@ export default class App {
   async saveSingleOutput(output : Float32Array, states : TileLoadState[]) {
     const formatSelection = this.inputs.outputformat?.val()?.toString() ?? 'png16';
     let result : {blob: Blob, filename: string};
-    if (formatSelection === 'exr16' || formatSelection === 'exr32') {
+    if (formatSelection === 'geotiff') {
+      result = await this.saveOutputGeoTiff(output, states);
+    } else if (formatSelection === 'exr16' || formatSelection === 'exr32') {
       const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
       result = await this.saveOutputExr(output, states, pixelType);
     } else {
@@ -2867,6 +3554,9 @@ export default class App {
       const zip = new JSZip();
       const encodePromises = slices.map((slice : TileSlice) => {
         const tileState = {...states[0], width: slice.width, height: slice.height};
+        if (formatSelection === 'geotiff') {
+          return this.saveOutputGeoTiff(slice.data, tileState, slice, {skipDownload: true});
+        }
         if (formatSelection === 'exr16' || formatSelection === 'exr32') {
           const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
           return this.saveOutputExr(slice.data, tileState, pixelType, slice, {skipDownload: true});
@@ -2888,6 +3578,9 @@ export default class App {
     } else {
       const encodePromises = slices.map((slice : TileSlice) => {
         const tileState = {...states[0], width: slice.width, height: slice.height};
+        if (formatSelection === 'geotiff') {
+          return this.saveOutputGeoTiff(slice.data, tileState, slice, {skipDownload: true});
+        }
         if (formatSelection === 'exr16' || formatSelection === 'exr32') {
           const pixelType = formatSelection === 'exr16' ? ExrPixelType.Half : ExrPixelType.Float;
           return this.saveOutputExr(slice.data, tileState, pixelType, slice, {skipDownload: true});
@@ -2998,6 +3691,7 @@ export default class App {
     const useUnreal = this.shouldUseUnrealNaming();
     const formatLabel = useUnreal ? '' : '_16bit';
     const fn = `${base}${formatLabel}${suffix}.png`;
+    this.recordHeightmapFile(fn, state, tileInfo);
     return App.encodeToPng([PNG.Float32ArrayToPng16Bit(output)], state.width, state.height, 1, 0, 16).then(a => {
       const blob = new Blob( [ a ] );
       if (!options.suppressPreview) {
@@ -3022,6 +3716,7 @@ export default class App {
     const bitSuffix = pixelType === ExrPixelType.Half ? '16bit' : '32bit';
     const suffix = this.buildTileSuffix(tileInfo);
     const fn = `${base}_${bitSuffix}${suffix}.exr`;
+    this.recordHeightmapFile(fn, state, tileInfo);
     // With normalisation off (and no manual range) the samples are metres; otherwise 0–65535.
     const inMetres = this.getNormaliseModeValue() === NormaliseMode.Off && !this.hasManualNormRange();
     const exrData = mapHeightSamplesToExr(output, inMetres ? 'metres' : 'normalised');
@@ -3041,6 +3736,40 @@ export default class App {
     return {blob, filename: fn};
   }
 
+  async saveOutputGeoTiff(output : Float32Array, stateOrStates : TileLoadState[] | TileLoadState | ConfigState, tileInfo?: TileSlice | TileSliceInfo, options: {skipDownload?: boolean} = {}) {
+    const state = this.getOutputState(stateOrStates);
+    const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
+    const fn = `${base}_metres${this.buildTileSuffix(tileInfo)}.tif`;
+    this.recordHeightmapFile(fn, state, tileInfo);
+    const origin = this.georeferenceOrigin(state, tileInfo?.startX ?? 0, tileInfo?.startY ?? 0);
+    const buffer = encodeGeoTiff({
+      width: state.width,
+      height: state.height,
+      data: output,
+      bounds3857: {left: origin.left, top: origin.top, pixelSizeX: origin.pixelSize, pixelSizeY: origin.pixelSize},
+      compress: true,
+    });
+    const blob = new Blob([buffer], {type: 'image/tiff'});
+    this.els.outputImage.append($('<p>').text(`Saved ${fn} (32-bit float GeoTIFF, metres, EPSG:3857).`));
+    if (!options.skipDownload) {
+      this.download(blob, fn);
+    }
+    return {blob, filename: fn};
+  }
+  /** Top-left corner and pixel size of an export (or a tile of it) in EPSG:3857 metres. */
+  georeferenceOrigin(state : ConfigState, startX : number = 0, startY : number = 0) {
+    const earthCircumference = 2 * Math.PI * 6378137;
+    const originShift = earthCircumference / 2;
+    const tileSizeMetres = earthCircumference / Math.pow(2, state.z);
+    const pixelSize = tileSizeMetres / NextZen.tileWidth;
+    const leftTileX = state.exactPos.x - state.widthInTiles / 2;
+    const topTileY = state.exactPos.y - state.heightInTiles / 2;
+    return {
+      left: leftTileX * tileSizeMetres - originShift + startX * pixelSize,
+      top: originShift - topTileY * tileSizeMetres - startY * pixelSize,
+      pixelSize,
+    };
+  }
   // ESRI WKT for EPSG:3857, so GIS tools (QGIS etc.) pick up the CRS automatically.
   static readonly EPSG3857_PRJ = 'PROJCS["WGS_1984_Web_Mercator_Auxiliary_Sphere",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Mercator_Auxiliary_Sphere"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",0.0],PARAMETER["Standard_Parallel_1",0.0],PARAMETER["Auxiliary_Sphere_Type",0.0],UNIT["Meter",1.0]]';
 
@@ -3050,6 +3779,10 @@ export default class App {
    * one output pixel is 1/256 of a tile at state.z. startX/startY offset into the image for tiles.
    */
   buildGeoreferenceFiles(state : ConfigState, imageFilename : string, startX : number = 0, startY : number = 0) : {filename: string, blob: Blob}[] {
+    // GeoTIFFs carry their own georeferencing; EPSG:3857 only describes Earth
+    if (/\.tiff?$/i.test(imageFilename) || this.getBody() !== 'earth') {
+      return [];
+    }
     const earthCircumference = 2 * Math.PI * 6378137;
     const originShift = earthCircumference / 2;
     const tileSizeMetres = earthCircumference / Math.pow(2, state.z);
@@ -3076,8 +3809,57 @@ export default class App {
     ];
   }
 
+  recordHeightmapFile(filename : string, state : ConfigState, tileInfo? : TileSlice | TileSliceInfo) {
+    this.exportedHeightmaps.push({
+      file: filename,
+      startX: tileInfo?.startX ?? 0,
+      startY: tileInfo?.startY ?? 0,
+      width: state.width,
+      height: state.height,
+    });
+  }
+  /** Blender/Unreal helper scripts for the export that just finished, as download links. */
+  appendImportScripts(state : ConfigState, minHeight : number, maxHeight : number) {
+    if (!(this.inputs.importScripts?.is(':checked') ?? true) || !this.exportedHeightmaps.length) {
+      return;
+    }
+    const formatSelection = this.inputs.outputformat?.val()?.toString() ?? 'png16';
+    const fileFormat = formatSelection.startsWith('exr') ? 'exr' : formatSelection === 'geotiff' ? 'tif' : 'png';
+    const metres = fileFormat === 'tif' || (this.getNormaliseModeValue() === NormaliseMode.Off && !this.hasManualNormRange());
+    const norm = this.getNormRangeFromInputs();
+    const lo = metres ? minHeight : (typeof norm.from === 'number' && typeof norm.to === 'number' ? norm.from : minHeight);
+    const hi = metres ? maxHeight : (typeof norm.from === 'number' && typeof norm.to === 'number' ? norm.to : maxHeight);
+    const base = format('{lat}_{lng}_{zoom}_{w}_{h}', this.getFilenameArgs(state));
+    const files = buildImportScripts({
+      name: base,
+      width: state.width,
+      height: state.height,
+      physWidth: state.phys.width,
+      physHeight: state.phys.height,
+      minHeight: lo,
+      maxHeight: hi,
+      encoding: metres ? 'metres' : 'normalised',
+      format: fileFormat,
+      tiles: this.exportedHeightmaps,
+      albedoFile: `${base}_albedo_${this.activeLayerKey()}.png`,
+      extraFiles: this.exportedMapFiles,
+    });
+    const p = $('<p class="georefLinks">').text('Import helpers: ');
+    files.forEach((file, i) => {
+      if (i > 0) p.append(' · ');
+      const link = $('<a href="#">').text(file.filename);
+      link.on('click', (e) => {
+        e.preventDefault();
+        trackEvent(`download/script/${file.filename.split('_').slice(-2).join('_')}`);
+        this.download(new Blob([file.contents], {type: 'text/plain'}), file.filename);
+      });
+      p.append(link);
+    });
+    this.els.outputImage.append(p);
+  }
   /** Show download links for georeferencing files (links rather than auto-downloads, to avoid multi-download prompts). */
   appendGeoreferenceLinks(files : {filename: string, blob: Blob}[]) {
+    if (!files.length) return;
     const p = $('<p class="georefLinks">').text('Georeferencing (EPSG:3857) for QGIS/GIS: ');
     files.forEach((file, i) => {
       if (i > 0) p.append(' · ');
@@ -3175,15 +3957,20 @@ export default class App {
   updateProcessingProgress(update : ProcessorProgressUpdate) {
     const total = update.total || 1;
     const percent = Math.max(0, Math.min(100, (update.completed / total) * 100));
-    const phase = update.phase === 'normalise' ? 'Normalising data' : 'Stitching tiles';
+    const phase = update.phase === 'normalise' ? 'Normalising data' : update.phase === 'maps' ? 'Computing extra maps' : 'Stitching tiles';
     this.showProcessingProgress(`${phase} (${Math.round(percent)}%)`, percent);
   }
   hideProcessingProgress() {
     this.els.processingProgressContainer?.hide();
   }
   async yieldToBrowser() {
+    // requestAnimationFrame never fires in a background tab, which would stall
+    // an export when the user switches away; the timeout keeps it moving.
     return new Promise<void>((resolve) => {
-      window.requestAnimationFrame(() => resolve());
+      let done = false;
+      const finish = () => { if (!done) { done = true; resolve(); } };
+      window.requestAnimationFrame(finish);
+      setTimeout(finish, 50);
     });
   }
   async maybeYieldUi(minIntervalMs: number = 16) {
