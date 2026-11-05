@@ -337,3 +337,15 @@
 .docs .content :not(pre) > code {
   color: #ffc9a8;
 }
+// Links inside light notification boxes: use the box's text colour, not the
+// site's light link colour, which disappears on the pale background.
+.notification.is-light a:not(.button) {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  &:hover { opacity: 0.8; }
+}
+.docs .content .notification.is-light code {
+  color: inherit;
+  background: rgba(0, 0, 0, 0.08);
+}
