@@ -9,6 +9,7 @@ import * as  L from "leaflet";
 import "leaflet-providers";
 import {format, promiseAllInBatches} from "./helpers";
 import {trackEvent, trackControl, trackDebounced} from "./analytics";
+import {countDonatePrompt} from "./donate-prompt";
 import tippy from 'tippy.js';
 import JSZip from 'jszip';
 import {SETTINGS, SettingKey, SettingValues, buildHash, parseHash} from "./url-state";
@@ -1265,6 +1266,7 @@ export default class App {
     this.els.meshButton.on('click', debounce(100, () => {
       trackEvent(`generate/mesh/${this.inputs.meshFormat.val()}/${this.getMeshOptions().solid ? 'solid' : 'surface'}`);
       this.exportMesh();
+      countDonatePrompt();
     }));
     this.els.previewButton.on('click', debounce(100, () => {
       trackEvent('preview/3d');
@@ -1692,11 +1694,13 @@ export default class App {
       const tiling = this.inputs.tileMode.val()?.toString() || 'off';
       trackEvent(`generate/heightmap/${this.inputs.outputformat.val()}/${tiling === 'off' ? 'single' : 'tiled'}`);
       this.generate();
+      countDonatePrompt();
     }));
 
     this.els.generateAlbedo.on('click touchend', debounce(100, () => {
       trackEvent(`generate/albedo/${this.inputs.maptype.val()}`);
       this.generateAlbedo();
+      countDonatePrompt();
     }));
 
     this.inputs.maptype.on('change input', debounce(30, () => {

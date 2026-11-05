@@ -102,3 +102,69 @@ header {
 .helper {
   margin-left: 0.5rem;
 }
+// Ko-fi prompt shown every few generate presses
+.donate-prompt {
+  z-index: 2000; // above Leaflet panes (400) and controls (1000)
+
+  .modal-card {
+    max-width: 30rem;
+    border-top: 4px solid $primary;
+  }
+
+  .modal-card-body {
+    position: relative;
+    padding: 2rem 2rem 1.5rem;
+    background-color: $background;
+  }
+
+  .donate-prompt-close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+  }
+
+  .title {
+    padding-right: 2rem;
+  }
+
+  .donate-prompt-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+
+  .donate-prompt-kofi {
+    background-color: $primary;
+    border-color: $primary;
+    color: #fff;
+    font-weight: 700;
+    gap: 0.5rem;
+
+    &:hover, &:focus {
+      background-color: darken($primary, 6);
+      color: #fff;
+    }
+
+    img {
+      height: 22px;
+      width: auto;
+    }
+  }
+
+  .donate-prompt-dismiss {
+    color: $grey-lighter;
+    text-decoration: none;
+
+    &:hover, &:focus {
+      background-color: $grey-darker;
+      color: #fff;
+    }
+  }
+
+  .donate-prompt-stop {
+    margin-top: 1rem;
+    font-size: 0.85rem;
+  }
+}
