@@ -19,6 +19,8 @@ type PlaceSearchArgs = {
   onSelect: (place: Place) => void;
   /** Returns coordinates if the text is a lat/lng the app understands. */
   parseCoordinates: (text: string) => L.LatLngLiteral | null;
+  onNoResults?: () => void;
+  onError?: () => void;
 };
 
 type PhotonFeature = {
@@ -143,11 +145,13 @@ export class PlaceSearch {
         this.render();
       } else {
         this.showMessage('No places found. Try a different spelling, or paste coordinates.');
+        this.args.onNoResults?.();
       }
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
       this.results = [];
       this.showMessage('Search is unavailable right now. You can still paste coordinates.');
+      this.args.onError?.();
     }
   }
 

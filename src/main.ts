@@ -7,9 +7,11 @@ import footer from "./templates/footer.html";
 
 import $ from "jquery";
 import App from "./app";
+import {trackLinkClicks} from "./analytics";
 
 $('body').prepend(header);
 $('body').append(footer);
+trackLinkClicks();
 
 document.addEventListener('DOMContentLoaded', () => {
 

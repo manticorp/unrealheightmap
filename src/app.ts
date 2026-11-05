@@ -8,7 +8,7 @@ import { throttle, debounce } from 'throttle-debounce';
 import * as  L from "leaflet";
 import "leaflet-providers";
 import {format, promiseAllInBatches} from "./helpers";
-import {trackEvent, trackControl} from "./analytics";
+import {trackEvent, trackControl, trackDebounced} from "./analytics";
 import tippy from 'tippy.js';
 import JSZip from 'jszip';
 import {SETTINGS, SettingKey, SettingValues, buildHash, parseHash} from "./url-state";
@@ -197,6 +197,8 @@ export default class App {
         }
         this.setPositionTo(this.map.getCenter());
       },
+      onNoResults: () => trackDebounced('search/no-results', 'search/no-results'),
+      onError: () => trackEvent('search/unavailable'),
       parseCoordinates: (text) => {
         const latLng = this.getLatLngFromText(text);
         return latLng ? {lat: latLng.latitude, lng: latLng.longitude} : null;
@@ -1254,9 +1256,7 @@ export default class App {
       input.on('change input', debounce(30, () => {
         const value = this.readSetting(key) ?? '';
         this.storeValue(key, value);
-        if (input.is('select')) {
-          trackControl(key, value);
-        }
+        trackControl(key, input.is('select') ? value : undefined);
         this.toggleMeshInputs();
         this.updateMeshEstimate();
         rebuildPreview();
@@ -1270,9 +1270,9 @@ export default class App {
       trackEvent('preview/3d');
       this.openPreview();
     }));
-    this.els.previewRefresh.on('click', () => this.refreshPreview());
-    this.els.previewReset.on('click', () => this.preview?.frameMesh());
-    this.els.previewClose.on('click', () => this.closePreview());
+    this.els.previewRefresh.on('click', () => { trackEvent('preview/refresh'); this.refreshPreview(); });
+    this.els.previewReset.on('click', () => { trackEvent('preview/reset-view'); this.preview?.frameMesh(); });
+    this.els.previewClose.on('click', () => { trackEvent('preview/close'); this.closePreview(); });
     // Keep the size estimate current as the area changes
     [this.inputs.width, this.inputs.height, this.inputs.outputzoom].forEach(input => {
       input.on('change input', debounce(60, () => this.updateMeshEstimate()));
@@ -1615,6 +1615,7 @@ export default class App {
     if (!Object.keys(values).length) {
       return;
     }
+    trackDebounced('share/open', 'share/open', 500);
     // Links leave out default values to stay short, so anything missing means
     // "default" rather than "whatever this browser used last time".
     for (const key of Object.keys(SETTINGS) as SettingKey[]) {
