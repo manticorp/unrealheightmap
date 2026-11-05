@@ -15,8 +15,8 @@
         <h1>Map License Information</h1>
       </article>
       <article class="container content">
-        <h2>Heightmap Data</h2>
-        <p>The heightmap data comes from <a href="https://www.nextzen.org/">NextZen</a>, which was set up when <a href="https://www.mapzen.com/blog/elevation/">Mapzen</a> shut down.</p>
+        <h2>AWS Terrain Tiles (Mapzen) Elevation Data</h2>
+        <p>When "AWS Terrain Tiles" is chosen as the elevation data (the default), heights come from the <a href="https://registry.opendata.aws/terrain-tiles/">Terrain Tiles dataset on the Registry of Open Data on AWS</a>. <a href="https://www.mapzen.com/blog/elevation/">Mapzen</a> originally built it, and the tiles stayed available as open data after Mapzen shut down.</p>
         <p>It is not 100% clear what the usage rights for the heightmaps are now. This was the <a href="https://www.mapzen.com/rights/#services-and-data-sources">"rights" page that appeared on the Mapzen site.</a></p>
         <p>This was their <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md">attribution guidance</a>, specifically.</p>
         <p>If in doubt, the following snippet should be included on your project:</p>
@@ -28,10 +28,14 @@
         <p>When "Mapterhorn" is chosen as the elevation data, heights come from <a href="https://mapterhorn.com">Mapterhorn</a>, an open-data project that combines Copernicus GLO-30 worldwide with high-resolution national datasets, including USGS 3DEP for the USA and lidar for the UK and much of Europe.</p>
         <p>Each source has its own licence. The full list is on the <a href="https://mapterhorn.com/attribution">Mapterhorn attribution page</a>. If in doubt, include:</p>
         <p>© <a href="https://mapterhorn.com/attribution">Mapterhorn</a> and the open-data sources listed there.</p>
-        <h2>Other Maps</h2>
-        <p>All other maps should have a link to the copyright information on the bottom left of the map display.</p>
-        <p>This data should be used for the "Export Albedo" type map data.</p>
+        <h2>Other Maps (Preview and Albedo)</h2>
+        <p>Each preview map shows a link to its copyright information at the bottom of the map display.</p>
+        <p>Albedo images made with "Generate Albedo" come from the selected preview map, so they're covered by that provider's terms. Some of these don't allow commercial use, so check before shipping them in a product.</p>
         <p>Most map providers can be found <a href="https://leaflet-extras.github.io/leaflet-providers/preview/">on the leaflet providers page</a>.</p>
+      </article>
+      <article class="container content">
+        <h2>Place Search</h2>
+        <p>Place search uses <a href="https://photon.komoot.io">Photon</a> by Komoot, which uses data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors.</p>
       </article>
     </main>
     <script type="text/javascript" src="public/dist/js/main.js"></script>

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Unreal Engine Guide · 16/32 Bit Heightmap Generator</title>
+    <meta name="description" content="Import real-world heightmaps into Unreal Engine 5 landscapes at true scale: Z scale maths, tiled World Partition imports, weightmap layers, landscape materials, water and Nanite.">
+    <link rel="stylesheet" href="public/dist/css/main.css">
+    <script data-goatcounter="https://unrealheightmap.goatcounter.com/count"
+            async src="//gc.zgo.at/count.js"></script>
+  </head>
+  <body class="docs">
+    <main>
+      <article class="container content">
+        <p class="guide-meta"><a href="guides.html">Import Guides</a> › Unreal Engine</p>
+        <h1>Unreal Engine 5: advanced landscape import</h1>
+        <p>This guide covers Unreal Engine 5.4 to 5.7. You'll get a landscape at true real-world scale and absolute height, with material layers driven by the exported masks. Where Epic's documentation doesn't cover a detail, the guide says so.</p>
+        <nav class="box">
+          <ol>
+            <li><a href="#export">Export settings</a></li>
+            <li><a href="#import">Creating the landscape</a></li>
+            <li><a href="#scale">Getting the scale exactly right</a></li>
+            <li><a href="#tiled">Big worlds: tiled import and World Partition</a></li>
+            <li><a href="#layers">Material layers from the masks</a></li>
+            <li><a href="#material">A starter landscape material</a></li>
+            <li><a href="#water">Water</a></li>
+            <li><a href="#performance">Nanite, virtual textures and large worlds</a></li>
+            <li><a href="#meshes">Importing GLB/OBJ meshes instead</a></li>
+            <li><a href="#troubleshooting">Troubleshooting</a></li>
+          </ol>
+        </nav>
+      </article>
+
+      <article class="container content" id="export">
+        <h2>1. Export settings</h2>
+        <table class="table is-fullwidth">
+          <tbody>
+            <tr><th>Output Format</th><td><strong>PNG 16-bit</strong>. Unreal's landscape importer accepts 16-bit grayscale PNG, <code>.r16</code> and <code>.raw</code>. EXR isn't supported for landscapes.</td></tr>
+            <tr><th>Size</th><td>One of Unreal's recommended sizes, so the landscape fits whole components: <strong>505, 1009, 2017, 4033 or 8129</strong>. They're under Default Sizes → Unreal Engine.</td></tr>
+            <tr><th>Normalisation</th><td><strong>Smart</strong>. This uses the full 16-bit range for your area, and the Z scale the tool shows makes the heights true again.</td></tr>
+            <tr><th>Extra Outputs</th><td>Normal map <strong>DirectX</strong>. Add slope, curvature and height bands if you want material layers.</td></tr>
+          </tbody>
+        </table>
+        <p>After generating, note the values under the map: <strong>Height range</strong>, and the scales <code>XY</code> and <code>Z</code>.</p>
+      </article>
+
+      <article class="container content" id="import">
+        <h2>2. Creating the landscape</h2>
+        <ol>
+          <li>Switch to <strong>Landscape Mode</strong> (Shift+2, or the Modes dropdown).</li>
+          <li>Under <strong>Manage → New</strong>, choose <strong>Import from File</strong>.</li>
+          <li>Next to <strong>Heightmap File</strong>, choose your PNG. <strong>Heightmap Resolution</strong> fills in from the file.</li>
+          <li>Set <strong>Scale</strong> X and Y to the tool's <code>XY</code> value, and Z to its <code>Z</code> value. See the next section for the location.</li>
+          <li>Check the component layout. <strong>Fit To Data</strong> picks one automatically, but in some versions it picks very large component counts. Entering the values from the table below is more reliable.</li>
+          <li>Keep <strong>Enable Edit Layers</strong> ticked. It's needed for non-destructive sculpting and for the Water plugin.</li>
+          <li>Click <strong>Import</strong>.</li>
+        </ol>
+        <h3>Recommended component layouts</h3>
+        <p>From Epic's <a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/landscape-technical-guide-in-unreal-engine" target="_blank" rel="noopener">Landscape Technical Guide</a>:</p>
+        <table class="table is-narrow">
+          <thead><tr><th>Heightmap size</th><th>Section Size (quads)</th><th>Sections per Component</th><th>Number of Components</th></tr></thead>
+          <tbody>
+            <tr><td>8129</td><td>127 × 127</td><td>2 × 2</td><td>32 × 32</td></tr>
+            <tr><td>4033</td><td>63 × 63</td><td>2 × 2</td><td>32 × 32</td></tr>
+            <tr><td>2017</td><td>63 × 63</td><td>2 × 2</td><td>16 × 16</td></tr>
+            <tr><td>1009</td><td>63 × 63</td><td>2 × 2</td><td>8 × 8</td></tr>
+            <tr><td>505</td><td>63 × 63</td><td>2 × 2</td><td>4 × 4</td></tr>
+          </tbody>
+        </table>
+        <p>Resolution = components × quads per component + 1. That's why Unreal's sizes are odd numbers like 2017 rather than 2048.</p>
+      </article>
+
+      <article class="container content" id="scale">
+        <h2>3. Getting the scale exactly right</h2>
+        <h3>XY: centimetres per pixel</h3>
+        <p>Landscape Scale X/Y is the distance between vertices in centimetres. The tool's <code>XY</code> value is the area width in metres × 100 ÷ pixel width. At 46° latitude and output zoom 14, for example, each pixel covers about 6.6 m, so XY ≈ 660.</p>
+        <div class="notification is-info is-light">
+          <p>The export is in Web Mercator, which stretches distances by 1/cos(latitude). The tool's XY value is worked out from the real ground distance at your latitude, so use it rather than a value from the zoom table.</p>
+        </div>
+        <h3>Z: fitting the height range</h3>
+        <p>At Z scale 100, Unreal maps the 16-bit range to 512 m: −256 m at black, +256 m at white, and 0 at mid-grey (32768). For a normalised heightmap:</p>
+        <pre><code>Z scale = height range (m) × 100 ÷ 512
+        = height range (m) × 0.1953125</code></pre>
+        <p>This is the <code>Z</code> value the tool shows. Epic's own example: Mauna Kea's 4,207 m gives 4207 × 100 × 0.001953125 = 821.68.</p>
+        <h3>Location Z: absolute heights</h3>
+        <p>The landscape's mid-grey sits at its Location Z. To put sea level at world Z = 0, raise the landscape to the middle of its height range:</p>
+        <pre><code>Location Z (cm) = (lowest + highest) ÷ 2 × 100</code></pre>
+        <div class="box">
+          <p><strong>Worked example:</strong> the tool reports a height range of 120 m to 1,620 m from a 2017 px export covering 13.3 km.</p>
+          <ul>
+            <li>Range = 1,500 m, so Z = 1500 × 100 ÷ 512 = <code>292.97</code></li>
+            <li>Location Z = (120 + 1620) ÷ 2 × 100 = <code>87000</code></li>
+            <li>XY = 13,300 m × 100 ÷ 2017 = <code>659.4</code></li>
+          </ul>
+          <p>Black pixels now sit at 120 m (12,000 cm) and white at 1,620 m, matching the real terrain.</p>
+        </div>
+        <p>Keeping absolute height matters when you combine several exports, place real-world data (GPS tracks, buildings), or use the water level. If you only need the shape, leave Location Z at 0.</p>
+        <h3>Several exports with one shared scale</h3>
+        <p>If separate exports must line up, for example neighbouring areas or the same area at different detail, give them all the same <strong>Norm From</strong> and <strong>Norm To</strong>. They then share one Z scale and one Location Z.</p>
+      </article>
+
+      <article class="container content" id="tiled">
+        <h2>4. Big worlds: tiled import and World Partition</h2>
+        <p>A single 8129 heightmap already gives about 53 km at 6.6 m per pixel. For bigger or more detailed worlds, use a tiled export.</p>
+        <ol>
+          <li>In the tool, set <strong>Tiled Export</strong> → Tile by size (for example 2017 × 2017) or Tile by count. Tick <strong>Unreal 5.7+ naming</strong> (files end in <code>_x00_y00</code>) and <strong>Zip Exports?</strong>.</li>
+          <li>Set normalisation to Smart, or enter your own Norm From and Norm To. Every tile shares one height scale, so one Z scale and Location Z work for all of them.</li>
+          <li>In a World Partition level, under New → Import from File, set the <strong>World Partition Grid Size</strong> and <strong>Region Size</strong>, then pick <em>one</em> of the tiles. Unreal asks whether to use the tiled image path. Answer <strong>Yes</strong>.</li>
+          <li>Set Scale and Location exactly as for a single file, then Import.</li>
+        </ol>
+        <div class="notification is-warning is-light">
+          <p><strong>Known 5.7 issue:</strong> several users report that tiled imports into a World Partition level in 5.7.x show one tile repeated across the whole landscape. The same files work in 5.5 and 5.6, and Epic hasn't acknowledged it yet. If it happens to you:</p>
+          <ul>
+            <li>import into a non-World Partition (Basic) level first, then use <strong>Tools → Convert Level</strong></li>
+            <li>or create a flat landscape of the same size and use <strong>Manage → Import</strong> with Import Type <strong>Subregion</strong> to bring the heights in</li>
+          </ul>
+          <p>Reports: <a href="https://forums.unrealengine.com/t/landscape-heightmap-import-duplicates-single-tile-in-world-partition-ue-5-7/2745963" target="_blank" rel="noopener">1</a>, <a href="https://forums.unrealengine.com/t/major-problem-importing-tiled-heightmap-from-gaea/2706407" target="_blank" rel="noopener">2</a>.</p>
+        </div>
+        <ul>
+          <li><strong>Tile naming.</strong> Epic doesn't document the exact file naming it expects. The community convention, which is what the tool writes, is lower-case <code>_x</code> before <code>_y</code> with the column number first. If Unreal doesn't recognise the set, try renaming to unpadded numbers (<code>_x0_y0</code>).</li>
+          <li><strong>Gaps between tiles.</strong> The tool's tiles sit edge to edge without sharing a row of pixels. If you see a one-quad gap or step between tiles, import one large file instead (up to 8129) and let World Partition split it into streaming proxies. That always gives a seamless result.</li>
+          <li><strong>Tiles in the wrong order</strong> (rows swapped): re-import with <strong>Flip Y Axis</strong> ticked.</li>
+        </ul>
+      </article>
+
+      <article class="container content" id="layers">
+        <h2>5. Material layers from the masks</h2>
+        <p>The height bands are made to be landscape weightmaps. They blend smoothly at each boundary, and at every pixel they add up to full white, which is what weight-blended layers need. Slope and curvature work best as non-weight-blended overlays.</p>
+        <ol>
+          <li>Create a landscape material with one layer per mask (see the next section) and assign it to the landscape.</li>
+          <li>In <strong>Paint</strong> mode, click <strong>+</strong> next to each Target Layer and choose <strong>Weight-Blended Layer (normal)</strong> for the height bands, or <strong>Non Weight-Blended Layer</strong> for overlays such as a snow or cliff mask. Save the Layer Info assets.</li>
+          <li>Import each mask: right-click the target layer and choose <strong>Import from file</strong>, or use <strong>Manage → Import</strong>, which has a file slot per layer. Pick the matching PNG, for example <code>…_band_01_500m-1500m.png</code>.</li>
+        </ol>
+        <ul>
+          <li><strong>Size must match exactly.</strong> Weightmaps must be the same resolution as the heightmap. They are when they come from the same export.</li>
+          <li><strong>Format.</strong> Weightmaps must be 8-bit grayscale, which the tool's masks are.</li>
+          <li><strong>Import button greyed out?</strong> Some versions report a mismatch even for the right size (Epic bug UE-241268). Re-select the heightmap resolution, or import the weightmaps right after creating the landscape.</li>
+        </ul>
+        <p>Painting on top still works: imported weights are just a starting point.</p>
+      </article>
+
+      <article class="container content" id="material">
+        <h2>6. A starter landscape material</h2>
+        <p>A simple material that uses the exports:</p>
+        <ul>
+          <li><strong>Layer blend:</strong> a <strong>Landscape Layer Blend</strong> node with one entry per height band (for example Grass, Rock, Snow), each set to <strong>LB Weight Blend</strong>. Plug each layer's tiling textures into its input.</li>
+          <li><strong>Tiling detail:</strong> drive the texture UVs with a <strong>LandscapeLayerCoords</strong> node (Mapping Type <code>TCMT Auto</code>). A Mapping Scale of 1 to 4 gives 1 to 4 vertices per texture repeat. For steep cliffs, use the <strong>WorldAlignedTexture</strong> function (triplanar) on the rock layer to avoid stretching.</li>
+          <li><strong>Whole-landscape albedo or normal map:</strong> to stretch one image across the entire landscape, use a LandscapeLayerCoords node with <strong>Mapping Scale</strong> equal to the landscape's resolution in quads (heightmap size − 1, for example 2016). Different engine versions sample slightly differently, so check alignment against a known feature and adjust by ±1 if needed.</li>
+          <li><strong>Normal map texture:</strong> import the DirectX normal PNG, set its texture <strong>Compression Settings</strong> to <em>Normalmap</em>, and blend it with the detail normals (BlendAngleCorrectedNormals). This brings back fine detail that a coarse landscape can't hold.</li>
+          <li><strong>Procedural slope:</strong> instead of the slope texture, you can compute slope live from the landscape's world normal (VertexNormalWS → Z), so it stays correct after sculpting. The exported slope mask is still useful as a starting weightmap.</li>
+        </ul>
+      </article>
+
+      <article class="container content" id="water">
+        <h2>7. Water</h2>
+        <ol>
+          <li>Enable the <strong>Water</strong> plugin (Edit → Plugins) and restart.</li>
+          <li>From the <strong>Place Actors</strong> panel, drag a <strong>Water Body Ocean</strong>, <strong>Lake</strong> or <strong>River</strong> into the level. Oceans and lakes are closed splines, and a lake sits at one height.</li>
+          <li>Set the water height to match the tool's <strong>Water Level</strong>. With absolute Location Z, sea level is Z = 0. For a lake, use its surface height × 100 in centimetres.</li>
+          <li>To trace the spline, import the exported <strong>water mask</strong> as a non-weight-blended layer. It shows the shoreline on the landscape, so you can follow it.</li>
+        </ol>
+        <p>Water bodies can carve the landscape (<strong>Affects Landscape</strong>), but only on landscapes with Edit Layers enabled. If you exported with <strong>Flatten below water level</strong>, the sea floor is already flat at the water level, so you can turn carving off or give it a gentle depth curve.</p>
+        <p>For a simple still lake, a flat plane with a water material at the right height also works.</p>
+      </article>
+
+      <article class="container content" id="performance">
+        <h2>8. Nanite, virtual textures and large worlds</h2>
+        <ul>
+          <li><strong>Nanite landscape</strong> (5.3+): select the landscape, tick <strong>Enable Nanite</strong> in Details, then <strong>Build Data</strong>. It keeps silhouettes crisp at a distance and makes high-resolution imports far cheaper to render. Turn on <strong>Nanite Skirt</strong> if you see cracks between streaming proxies far away.</li>
+          <li><strong>Runtime Virtual Texturing:</strong> add a Runtime Virtual Texture Volume around the landscape (<strong>Set Bounds</strong>) and write the material output to it. Complex multi-layer materials are then cached instead of re-shaded every frame, which makes a big difference on large, layered terrains.</li>
+          <li><strong>Large World Coordinates</strong> are on by default in UE5. A 50 to 100 km real-world landscape works without the jitter UE4 had beyond about 20 km.</li>
+        </ul>
+      </article>
+
+      <article class="container content" id="meshes">
+        <h2>9. Importing GLB/OBJ meshes instead</h2>
+        <p>A landscape is best for anything you'll walk on or sculpt. For backdrops, distant mountains or a table-top model, a static mesh from <strong>Export 3D Model</strong> can be simpler:</p>
+        <ul>
+          <li>Export <strong>GLB</strong>, Shape <strong>Top surface only</strong>, Scale <strong>Real world (metres)</strong>.</li>
+          <li>Import through the Content Browser (Interchange). glTF is in metres and Unreal converts it to centimetres on import. For OBJ, which has no units, set <strong>Offset Uniform Scale</strong> to 100.</li>
+          <li>Tick <strong>Build Nanite</strong> for high-resolution meshes.</li>
+          <li>The mesh UVs cover the top surface 0 to 1, so an albedo or normal map from the same export lines up without any setup.</li>
+        </ul>
+      </article>
+
+      <article class="container content faq" id="troubleshooting">
+        <h2>10. Troubleshooting</h2>
+        <details>
+          <summary>The landscape has stair steps or terracing</summary>
+          <p>The heightmap went through an 8-bit step somewhere: an image editor, a conversion, or <code>.r8</code>. Import the tool's PNG directly, or keep it 16-bit in every program. Very flat areas at a huge Z scale can also step. Use Smart normalisation so the full 65,536 levels cover your actual range.</p>
+        </details>
+        <details>
+          <summary>Mountains are far too tall or too flat</summary>
+          <p>The Z scale doesn't match the export. Use the tool's <code>Z</code> value, which depends on that export's height range. Don't reuse it from another export unless both used the same Norm From and Norm To.</p>
+        </details>
+        <details>
+          <summary>Everything is the right shape but at the wrong height</summary>
+          <p>Set Location Z to the midpoint of the height range × 100 (see <a href="#scale">Getting the scale exactly right</a>).</p>
+        </details>
+        <details>
+          <summary>The landscape is mirrored or north is in the wrong place</summary>
+          <p>Image rows run along Unreal's +Y axis, so looking down in the Top view, north is towards −Y. If tiles or features come out mirrored, re-import with <strong>Flip Y Axis</strong>.</p>
+        </details>
+        <details>
+          <summary>The import is huge or slow</summary>
+          <p>Check the component count. Fit To Data sometimes picks far more components than needed. Use the table in <a href="#import">Creating the landscape</a>. The maximum is 32 × 32 components.</p>
+        </details>
+      </article>
+
+      <article class="container content">
+        <h2>References</h2>
+        <ul>
+          <li><a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/importing-and-exporting-landscape-heightmaps-in-unreal-engine" target="_blank" rel="noopener">Importing and exporting landscape heightmaps</a></li>
+          <li><a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/landscape-technical-guide-in-unreal-engine" target="_blank" rel="noopener">Landscape Technical Guide</a> (sizes and Z scale)</li>
+          <li><a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/creating-and-using-custom-heightmaps-and-layers-in-unreal-engine" target="_blank" rel="noopener">Custom heightmaps and layers</a></li>
+          <li><a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/landscape-material-expressions-in-unreal-engine" target="_blank" rel="noopener">Landscape material expressions</a></li>
+          <li><a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/water-system-in-unreal-engine" target="_blank" rel="noopener">Water system</a></li>
+          <li><a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/using-nanite-with-landscapes-in-unreal-engine" target="_blank" rel="noopener">Nanite landscapes</a></li>
+        </ul>
+      </article>
+    </main>
+    <script type="text/javascript" src="public/dist/js/main.js"></script>
+  </body>
+</html>

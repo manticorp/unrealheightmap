@@ -97,7 +97,9 @@ const float32ToHalf = (value: number): number => {
     return sign | 0x7c00 | mantissa; // NaN
   }
 
-  return sign | (exponent << 10) | ((mantissa + 0x1000) >> 13);
+  // Add (not OR) the rounded mantissa so a round-up carries into the exponent,
+  // e.g. 0.49999 rounds to 0.5 rather than dropping to 0.25. Overflow becomes Infinity.
+  return sign | ((exponent << 10) + ((mantissa + 0x1000) >> 13));
 };
 
 const writeAttribute = (

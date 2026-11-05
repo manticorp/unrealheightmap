@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>3D Printing Guide · 16/32 Bit Heightmap Generator</title>
+    <meta name="description" content="Print real-world terrain: choosing area, size, height exaggeration and base thickness, then slicing in PrusaSlicer, Bambu Studio or Cura.">
+    <link rel="stylesheet" href="public/dist/css/main.css">
+    <script data-goatcounter="https://unrealheightmap.goatcounter.com/count"
+            async src="//gc.zgo.at/count.js"></script>
+  </head>
+  <body class="docs">
+    <main>
+      <article class="container content">
+        <p class="guide-meta"><a href="guides.html">Import Guides</a> › 3D printing</p>
+        <h1>3D printing real terrain</h1>
+        <p>The tool exports a watertight, ready-to-slice STL, so you don't need any other software.</p>
+      </article>
+
+      <article class="container content">
+        <h2>1. Choose the area</h2>
+        <ul>
+          <li><strong>Frame your area with some relief.</strong> A mountain, a valley or a volcano. Flat farmland prints as a flat slab.</li>
+          <li><strong>Output zoom.</strong> The STL uses the area shown by the orange rectangle. Very high zooms don't add printable detail: on a 150 mm print, a 0.4 mm nozzle resolves about 375 points across. For a 20 km area, zoom 12 to 13 data is plenty, and Mapterhorn lidar areas give the crispest small prints.</li>
+          <li>Check it in <strong>3D Preview</strong> first, with the exaggeration you plan to use.</li>
+        </ul>
+      </article>
+
+      <article class="container content">
+        <h2>2. Export settings</h2>
+        <table class="table is-fullwidth">
+          <tbody>
+            <tr><th>3D Model Format</th><td><strong>STL</strong></td></tr>
+            <tr><th>Mesh Resolution</th><td><strong>512</strong> for prints up to about 150 mm. <strong>1024</strong> for larger prints or very rugged terrain. Beyond that, files grow large with no visible gain at nozzle scale.</td></tr>
+            <tr><th>Shape</th><td><strong>Solid with base</strong>. This makes a closed, flat-bottomed model that needs no supports.</td></tr>
+            <tr><th>Base Thickness</th><td><strong>2 to 3 mm</strong> under the lowest point. Use more for large prints to prevent warping, or if you want to engrave a label on the side.</td></tr>
+            <tr><th>Scale</th><td><strong>Print size (mm)</strong>, with Print Width set to the length of the longer side.</td></tr>
+            <tr><th>Height Exaggeration</th><td><strong>1</strong> for alpine terrain. <strong>1.5 to 2</strong> for hills. <strong>2 to 3</strong> for gentle landscapes, coasts and plains. Real terrain looks surprisingly flat at small scale: at 150 mm wide, a 20 km area with 1,500 m of relief is only 11 mm tall at 1×.</td></tr>
+          </tbody>
+        </table>
+        <p>After generating a heightmap, the output also shows the height/width ratio, and how tall the print would be at 100 mm wide with no exaggeration.</p>
+      </article>
+
+      <article class="container content">
+        <h2>3. Slicing</h2>
+        <p>STL files have no units. The tool writes millimetres, which every slicer assumes.</p>
+        <ul>
+          <li><strong>Check the size</strong> shown in the slicer matches your Print Width. In PrusaSlicer, decline the "convert from inches" prompt, which only applies to genuine inch files.</li>
+          <li><strong>Orientation:</strong> flat on the base. No supports are needed.</li>
+          <li><strong>Layer height:</strong> 0.08 to 0.12 mm shows contours best. Variable layer height saves time by using thin layers only near the peaks:
+            <ul>
+              <li>PrusaSlicer: select the model → <strong>Variable layer height</strong> → <strong>Adaptive</strong>.</li>
+              <li>Bambu Studio: <strong>Variable layer height</strong> (adaptive).</li>
+              <li>Cura: <strong>Experimental → Use Adaptive Layers</strong>.</li>
+            </ul>
+          </li>
+          <li><strong>Walls and infill:</strong> 2 to 3 walls and 10 to 15% infill. Use 4 or more top layers so the terrain surface is solid.</li>
+          <li><strong>Seam:</strong> place it at the back or on a sharp corner, so it doesn't run down a mountainside.</li>
+          <li><strong>Ironing:</strong> leave it off. It flattens the contours you want to see.</li>
+        </ul>
+        <p>These are typical settings that work well for terrain. Adjust them for your printer and material.</p>
+      </article>
+
+      <article class="container content">
+        <h2>4. Make it look great</h2>
+        <ul>
+          <li><strong>Colour by height:</strong> on single-nozzle printers, add colour changes at layer heights, for example green, then grey at the treeline, then white for snow. Work out the layer height for a real altitude:
+            <pre><code>print Z (mm) = base + (altitude − lowest) × exaggeration × print width ÷ area width (m) ÷ 1000</code></pre>
+            Multi-material printers (AMS, MMU) can do the same with height-range modifiers.
+          </li>
+          <li><strong>Water:</strong> export with <strong>Flatten below water level</strong> so lakes and the sea print as perfectly flat surfaces. That's ideal for a colour change, or for pouring resin afterwards.</li>
+          <li><strong>Tiles:</strong> for prints larger than your bed, export neighbouring areas at the same output zoom and the same Norm From / Norm To, so the heights match. Print them at the same Print Width and exaggeration.</li>
+          <li><strong>Resin printers:</strong> use a thinner base (1.5 to 2 mm), hollow large models in your resin slicer, and add drain holes in the base.</li>
+        </ul>
+      </article>
+
+      <article class="container content faq">
+        <h2>Troubleshooting</h2>
+        <details>
+          <summary>The print is tiny, or 25 times too big</summary>
+          <p>The slicer converted units. Re-import and decline any inch conversion, or check the importer's unit setting. The STL is in millimetres.</p>
+        </details>
+        <details>
+          <summary>Thin spikes or jagged ridges</summary>
+          <p>Lower the Mesh Resolution or the exaggeration. Very sharp ridges narrower than your nozzle can't print cleanly.</p>
+        </details>
+        <details>
+          <summary>The slicer says the mesh has errors</summary>
+          <p>"Solid with base" models are built watertight. If a slicer still complains, run its repair function (it should find nothing to fix) and check you didn't export "Top surface only", which is an open skin.</p>
+        </details>
+      </article>
+    </main>
+    <script type="text/javascript" src="public/dist/js/main.js"></script>
+  </body>
+</html>

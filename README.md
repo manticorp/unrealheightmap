@@ -32,164 +32,146 @@
 
 # 16/32 Bit Grayscale PNG/EXR Heightmap Generator
 
-A browser-based tool for generating high-quality 16-bit grayscale PNG heightmaps or 16/32-bit EXR heightmaps from real-world terrain data.
+A free, browser-based tool that turns real-world elevation data into high-quality heightmaps, texture maps and 3D models.
 
-Perfect for creating realistic landscapes in Unreal Engine 5 and other game engines or 3D software, such as Terrain3d, Godot4 and Blender.
+It makes 16-bit PNG or 16/32-bit EXR heightmaps for Unreal Engine 5, Godot / Terrain3D, Blender and Unity, plus STL files for 3D printing. Everything runs in your browser, with nothing to install.
 
-🌐 **Live Website:** [https://manticorp.github.io/unrealheightmap/](https://manticorp.github.io/unrealheightmap/)
+🌐 **Live website:** [manticorp.github.io/unrealheightmap](https://manticorp.github.io/unrealheightmap/)
+📖 **Documentation:** [manticorp.github.io/unrealheightmap/instructions.html](https://manticorp.github.io/unrealheightmap/instructions.html)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/L4L212G6M7)
 
 ## ⚠️ Important Notice
 
-We have started hitting the free tier limits from some map services, so the site *may not work* until we get some funding to up these limits. If you find this tool useful, please consider supporting the project!
+The tool has started hitting the free tier limits of some map services, so parts of the site *may not work* until there's funding to raise those limits. If you find it useful, please consider [supporting the project](https://ko-fi.com/harrymustoeplayfair).
 
 ## ✨ Features
 
-- **High-Quality 16/32-bit Output** - Generate heightmaps with 65,536/4,294,967,296 levels of detail (vs only 256 in 8-bit)
-- **Real-World Terrain Data** - Choose between [Mapzen's global elevation tiles](https://www.mapzen.com/blog/elevation/) and [Mapterhorn](https://mapterhorn.com), which adds Copernicus GLO-30 worldwide plus 0.25–10 m lidar for the USA (USGS 3DEP), the UK, most of Europe, Japan, New Zealand and more, at output zooms up to 18
-- **Interactive Map Interface** - Visual selection of terrain areas using an intuitive map interface
-- **Multiple Normalisation Modes** - Choose between None, Regular, or Smart normalisation to optimize your heightmap data
-- **Flexible Output Sizes** - Preset sizes for Unreal Engine or custom dimensions up to 8129×8129 pixels
-- **Browser-Based** - No installation required, works entirely in your web browser
-- **Real-Time Preview** - See the area you're exporting with an overlay on the map
-- **Copy & Paste Coordinates** - Support for multiple coordinate formats including DMS and decimal degrees
-- **Place Search** - Find mountains, valleys and towns by name, or type coordinates
-- **Shareable Links** - The URL holds your location and export settings; copy it to share or bookmark an exact export
-- **Water Handling** - Flatten everything below a water level and export a water mask
-- **Extra Texture Maps** - Normal map (DirectX or OpenGL), slope, curvature and height-band masks for landscape materials and layer weightmaps
-- **3D Preview** - Orbit around the export area in 3D before downloading anything
-- **3D Model Export** - STL for 3D printing (top surface only, or a watertight solid with a base of chosen thickness, sized in mm), plus OBJ and GLB/glTF with UVs for Blender and game engines
+### Heightmaps
 
-## 🎯 Use Cases
+- **16-bit PNG, or 16/32-bit OpenEXR.** 65,536 height levels or more, where 8-bit gives only 256.
+- **Two elevation sources:**
+  - [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (the Mapzen data)
+  - [Mapterhorn](https://mapterhorn.com): Copernicus GLO-30 worldwide, plus 0.25 to 10 m lidar for the USA (USGS 3DEP), the UK, most of Europe, Japan, New Zealand and more, at output zooms up to 18
+- **Normalisation.** Off, Regular, or Smart (ignores outliers), with optional manual min/max heights.
+- **Sizes.** Unreal Engine and power-of-two presets, or any custom size up to 8129 × 8129.
+- **Tiled exports.** Split into tiles by size or count, with optional zip, edge padding and Unreal 5.7+ (`_x00_y00`) naming. For huge areas, tiles can be generated one at a time.
+- **Unreal scale values.** The tool shows the XY and Z landscape scale that reproduces real-world heights.
+- **Georeferencing.** EPSG:3857 world files (`.pgw` / `.wld`) and `.prj` files for QGIS and other GIS software.
 
-- Creating realistic terrain for Unreal Engine 5/Blender/Terrain3D landscapes
-- Game development with accurate real-world topography
-- 3D modeling and visualization projects
-- Geographic information system (GIS) applications
-- Educational and scientific visualization
+### Texture maps and water
+
+- **Normal map.** DirectX for Unreal, or OpenGL for Godot, Blender and Unity.
+- **Masks.** Slope, curvature, and height-band masks that work as landscape layer weightmaps.
+- **Water.** Flatten everything below a water level, and export a water mask.
+- **Albedo.** A colour image from satellite, topographic and other map styles, aligned pixel for pixel with the heightmap.
+
+### 3D
+
+- **3D preview.** Orbit around the export area before downloading anything.
+- **3D model export:**
+  - **STL** for 3D printing: top surface only, or a watertight solid with a base of any thickness, sized in millimetres, with height exaggeration
+  - **OBJ** and **GLB/glTF**, with UVs, for Blender and game engines
+
+### Ease of use
+
+- **Place search.** Find mountains, valleys and towns by name, or type coordinates.
+- **Shareable links.** The URL holds your location and settings, so you can bookmark or share an exact export.
+- **Paste coordinates.** Decimal and DMS formats both work.
 
 ## 🚀 Quick Start
 
-1. Visit [https://manticorp.github.io/unrealheightmap/](https://manticorp.github.io/unrealheightmap/)
-2. Use the map to navigate to your desired location or enter coordinates manually
-3. Adjust the output zoom and size to define your export area (shown as an orange rectangle)
-4. Select a normalisation mode appropriate for your use case
-5. Click "Generate" to create and download your heightmap
+1. Open [the generator](https://manticorp.github.io/unrealheightmap/).
+2. Search for a place, drag the map, or paste coordinates.
+3. Pick an **Elevation Data** source. Mapterhorn is the most detailed in most places.
+4. Set the **Output Zoom** and **size**. The orange rectangle shows the export area.
+5. Click **Generate Heightmap**.
 
-For detailed instructions, visit the [Documentation](https://manticorp.github.io/unrealheightmap/instructions.html) page.
+The [documentation](https://manticorp.github.io/unrealheightmap/instructions.html) explains every setting. The [import guides](https://manticorp.github.io/unrealheightmap/guides.html) go step by step, with true real-world scale:
 
-## 📖 Documentation
+- [Unreal Engine 5](https://manticorp.github.io/unrealheightmap/guide-unreal.html): Z scale maths, tiled World Partition import, weightmap layers, water
+- [Blender](https://manticorp.github.io/unrealheightmap/guide-blender.html): Displace modifier, Cycles adaptive subdivision, Geometry Nodes, BlenderGIS
+- [Godot 4](https://manticorp.github.io/unrealheightmap/guide-godot.html): Terrain3D, HTerrain, plugin-free collision
+- [Unity](https://manticorp.github.io/unrealheightmap/guide-unity.html): RAW conversion, Terrain sizing, splatmaps
+- [QGIS, Gaea, World Machine, Houdini and image editors](https://manticorp.github.io/unrealheightmap/guide-other.html)
+- [3D printing](https://manticorp.github.io/unrealheightmap/guide-3d-printing.html)
 
-- **[Instructions](https://manticorp.github.io/unrealheightmap/instructions.html)** - Comprehensive guide on how to use the tool
-- **[Examples](https://manticorp.github.io/unrealheightmap/examples.html)** - Gallery of heightmaps created with the tool
-- **[License Info](https://manticorp.github.io/unrealheightmap/rights.html)** - Information about data sources and licensing
+## 🎨 Examples
 
-## 🛠️ Technology Stack
+### Grand Canyon (64 km)
 
-- **TypeScript** - Type-safe application code
-- **Leaflet** - Interactive map interface
-- **jQuery** - DOM manipulation and UI interactions
-- **UPNG.js** - PNG encoding/decoding
-- **Pako** - Data compression
-- **Webpack** - Module bundling
-- **Bulma** - CSS framework
-- **SASS** - CSS preprocessing
+[Open this area in the tool](https://manticorp.github.io/unrealheightmap/#lat=36.18112&lng=-112.021&z=10&oz=14&w=8129&h=8129)
 
-## 💻 Development Setup
+![Grand Canyon Example](public/im/grand_canyon_desserty.png)
 
-### Prerequisites
+More on the [Examples page](https://manticorp.github.io/unrealheightmap/examples.html).
 
-- Node.js (v14 or higher recommended)
-- npm (comes with Node.js)
+## 💻 Development
 
-### Installation
+You'll need Node.js 18 or newer, and npm.
 
 ```bash
-# Clone the repository
 git clone https://github.com/manticorp/unrealheightmap.git
 cd unrealheightmap
-
-# Install dependencies
 npm install
 ```
 
-### Build Commands
+| Command | What it does |
+| --- | --- |
+| `npm run watch` | Development build, rebuilding on every change |
+| `npm run build` | One-off development build |
+| `npm run author` | Production build into `public/dist/` (commit this, because GitHub Pages serves it) |
+| `npm test` | Unit tests (Jest) |
 
-```bash
-# Development build
-npm run build
-
-# Production build
-npm run author
-
-# Watch mode (auto-rebuild on changes)
-npm run watch
-
-# Run unit tests
-npm test
-```
+The site is static. Serve the repository root with any web server, for example `npx http-server .`, and open `index.html`.
 
 ### Project Structure
 
 ```
-├── src/                   # Source TypeScript and SASS files
-│   ├── app.ts             # Main application logic
+├── src/
 │   ├── main.ts            # Entry point
-│   ├── png.ts             # PNG processing
-│   ├── processor.ts       # Web worker for image processing
+│   ├── app.ts             # UI, map, settings and export orchestration
+│   ├── processor.ts       # Web worker: stitching, normalisation, maps, meshes
+│   ├── elevation.ts       # Elevation sources (AWS Terrain Tiles, Mapterhorn)
+│   ├── derived-maps.ts    # Normal, slope, curvature, height bands, water
+│   ├── mesh.ts            # Mesh building and STL / OBJ / GLB writers
+│   ├── preview3d.ts       # three.js 3D preview (loaded on demand)
+│   ├── place-search.ts    # Place search box (Photon geocoder)
+│   ├── url-state.ts       # Shareable URL settings
+│   ├── png.ts, exr*.ts    # PNG and OpenEXR encoding
 │   ├── sass/              # Stylesheets
-│   └── templates/         # HTML templates
-├── public/                # Static assets and build output
-│   ├── dist/              # Built JavaScript and CSS
-│   ├── im/                # Images
-│   └── examples/          # Example heightmaps
-├── index.html             # Main application page
-├── instructions.html      # Documentation page
-├── examples.html          # Examples page
-└── webpack.config.js      # Webpack configuration
+│   └── templates/         # Header and footer HTML
+├── tests/                 # Jest unit tests
+├── public/
+│   ├── dist/              # Built JS and CSS (committed)
+│   └── im/, examples/     # Images used by the docs
+├── index.html             # The generator
+├── instructions.html      # Documentation
+├── guides.html, guide-*.html  # Import guides per program
+├── examples.html          # Examples
+└── rights.html            # Data sources and licences
 ```
 
-## 🎨 Examples
+### Technology
 
-### Grand Canyon (64km)
-[View in tool](https://manticorp.github.io/unrealheightmap/#latitude/36.18111652966563/longitude/-112.021/zoom/10/outputzoom/14/width/8129/height/8129)
-
-![Grand Canyon Example](public/im/grand_canyon_desserty.png)
-
-For more examples, visit the [Examples page](https://manticorp.github.io/unrealheightmap/examples.html).
-
-## 🔧 Normalisation Modes
-
-### None
-No normalisation performed. Pixel values directly represent height in meters (negative values are set to 0).
-
-### Regular
-Scales height values to use the full 16-bit range (0-65535), maximizing detail across the entire heightmap.
-
-### Smart
-An advanced mode that handles data errors and outliers. Uses a 99.9% window to filter extreme values while preserving authentic min/max values within 1 standard deviation.
-
-## 📊 Output Format
-
-- **Format:** 16-bit Grayscale PNG, 16-bit EXR or 32-bit EXR
-- **Bit Depth:** 65,536 levels of detail (2^16) or 4,294,967,296 (2^32)
-- **Precision:** Capable of representing Mount Everest (8,849m) in ~13cm intervals (16 bit)
-- **Source Data:** Mapzen elevation data (24-bit precision, ~4mm fidelity)
+TypeScript, webpack, Leaflet, three.js, Comlink (web worker), UPNG.js and pako (PNG), JSZip, jQuery, Bulma and Sass.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit issues, fork the repository, and create pull requests.
+Issues and pull requests are welcome. Please run `npm test` and `npm run author` before opening a pull request, so the built files match the source.
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+The code is MIT licensed. See [LICENSE](LICENSE).
 
-The elevation data is provided by [Mapzen](https://www.mapzen.com/blog/elevation/) and may have its own licensing terms.
+Elevation data and map imagery come from third parties with their own terms. See the [License Info page](https://manticorp.github.io/unrealheightmap/rights.html):
+
+- **Elevation:** [Mapterhorn](https://mapterhorn.com) (Copernicus GLO-30, USGS 3DEP, swisstopo and other open sources) and [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (Mapzen)
+- **Place search:** [Photon](https://photon.komoot.io) by Komoot, using © OpenStreetMap contributors data
 
 ## 💖 Support
 
-If you find this tool useful, please consider supporting the project:
+If you find this tool useful:
 
 - ☕ [Buy me a coffee on Ko-fi](https://ko-fi.com/harrymustoeplayfair)
 - ⭐ Star this repository
@@ -197,9 +179,9 @@ If you find this tool useful, please consider supporting the project:
 
 ## 🙏 Acknowledgments
 
-- [Mapzen](https://www.mapzen.com/) for providing high-quality global elevation data
-- [Unreal Engine](https://www.unrealengine.com/) community for inspiration and use cases
-- All contributors and users of this tool
+- [Mapterhorn](https://mapterhorn.com) and [Mapzen](https://www.mapzen.com/blog/elevation/) for open global elevation data
+- The Unreal Engine, Godot and Blender communities for ideas and feedback
+- Everyone who has contributed, reported bugs or supported the project
 
 ## 📞 Contact
 

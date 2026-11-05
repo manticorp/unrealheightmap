@@ -4,7 +4,8 @@
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>16 Bit Grayscale PNG Heightmap Generator for Unreal Engine</title>
+    <title>Documentation · 16/32 Bit Heightmap Generator</title>
+    <meta name="description" content="How to export 16-bit PNG and EXR heightmaps, texture maps and 3D models of real-world terrain for Unreal Engine, Godot, Terrain3D, Blender and 3D printing.">
     <link rel="stylesheet" href="public/dist/css/main.css">
     <script data-goatcounter="https://unrealheightmap.goatcounter.com/count"
             async src="//gc.zgo.at/count.js"></script>
@@ -12,139 +13,319 @@
   <body class="docs">
     <main>
       <article class="container content">
-        <h1>16 Bit PNG Heightmap Generator</h1>
+        <h1>Heightmap Generator Documentation</h1>
+        <p>This tool turns real-world elevation data into heightmaps for Unreal Engine, Godot, Terrain3D, Blender, Unity and 3D printing. It runs entirely in your browser, with nothing to install or sign up for.</p>
+        <p>You can export:</p>
+        <ul>
+          <li><strong>Heightmaps</strong> as 16-bit PNG, or 16- or 32-bit OpenEXR, either as one file or tiled</li>
+          <li><strong>Texture maps</strong> that line up with the heightmap: normal, slope, curvature, height bands and water mask</li>
+          <li><strong>Albedo</strong> (colour) images from satellite, topographic and other map styles</li>
+          <li><strong>3D models</strong> as STL, OBJ or GLB, with a 3D preview before you download</li>
+        </ul>
+        <nav class="box">
+          <p><strong>Contents</strong></p>
+          <ol>
+            <li><a href="#quick-start">Quick start</a></li>
+            <li><a href="#finding">Finding a place and sharing links</a></li>
+            <li><a href="#elevation-data">Elevation data</a></li>
+            <li><a href="#size">Output zoom and size</a></li>
+            <li><a href="#formats">Output formats</a></li>
+            <li><a href="#tiling">Tiled exports</a></li>
+            <li><a href="#normalisation">Normalisation</a></li>
+            <li><a href="#extra-maps">Water and extra texture maps</a></li>
+            <li><a href="#albedo">Albedo</a></li>
+            <li><a href="#3d">3D preview and 3D model export</a></li>
+            <li><a href="#unreal">Importing into Unreal Engine</a></li>
+            <li><a href="#other-software">Godot, Terrain3D, Blender and Unity</a></li>
+            <li><a href="#gis">Georeferencing (QGIS and GIS)</a></li>
+            <li><a href="#faq">FAQs and troubleshooting</a></li>
+          </ol>
+        </nav>
       </article>
-      <article class="container content">
-        <h2>Aim</h2>
-        <p>The aim of this project is to generate 16 bit heightmap data for use in software such as Unreal Engine 5</p>
-        <p>High quality height data is available from <a href="https://www.mapzen.com/blog/elevation/">Mapzen's global elevation service</a>.</p>
+
+      <article class="container content" id="quick-start">
+        <h2>Quick start</h2>
+        <ol>
+          <li><strong>Find your area.</strong> Type a place name in the search box, drag the map, or paste coordinates.</li>
+          <li><strong>Choose the elevation data.</strong> Mapterhorn is the most detailed in most places. See <a href="#elevation-data">Elevation data</a>.</li>
+          <li><strong>Set the output zoom and size.</strong> The orange rectangle on the map shows exactly what will be exported.</li>
+          <li><strong>Choose a format.</strong> For Unreal, use PNG 16-bit with Smart normalisation (the defaults).</li>
+          <li><strong>Click Generate Heightmap.</strong> Your file downloads when it's ready. Any extra maps you ticked download with it.</li>
+        </ol>
+        <figure class="image">
+          <img src="public/im/mapview.png" alt="The map with an orange rectangle marking the export area">
+          <figcaption>The orange rectangle shows the area that will be exported.</figcaption>
+        </figure>
       </article>
-      <article class="container content">
-        <h2>How to Export</h2>
+
+      <article class="container content" id="finding">
+        <h2>Finding a place and sharing links</h2>
+        <h3>Search</h3>
+        <p>Type a mountain, valley, lake or town into <strong>Search for a place</strong> and pick a result with the mouse or the arrow keys and Enter. The map moves there. You can also type coordinates into the search box.</p>
+        <h3>Coordinates</h3>
         <div class="card is-pulled-right">
           <div class="card-content">
             <figure class="image">
-              <img src="public/im/latlng_inputs.png">
-              <figcaption>
-                Enter your latitude/longitude values here
-              </figcaption>
+              <img src="public/im/latlng_inputs.png" alt="Latitude and longitude inputs">
+              <figcaption>Latitude and longitude inputs</figcaption>
             </figure>
           </div>
         </div>
-        <p>Using the map at the top of the screen, choose a location. You can also manually type in a latitude and longitude.</p>
-        <p>The orange rectangle shows the size of the exported image, and what will be included.</p>
-        <p>The size of the exported area depends on the <strong>output zoom</strong> and the <strong>output size in pixels</strong>.</p>
-        <p>After clicking 'Generate' a 16 bit PNG should await you.</p>
-        <h3>Explanation of different options</h3>
+        <p>Latitude and longitude set the centre of the export. You can type them in, or paste a coordinate string onto the page and the map jumps there. These formats all work:</p>
+        <ul>
+          <li><code>03°04′33″S 37°21′12″E</code></li>
+          <li><code>3.0674° S, 37.3556° E</code></li>
+          <li><code>-3.0674, 37.3556</code></li>
+        </ul>
+        <h3>Shareable links</h3>
+        <p>The page address always holds your current location and settings, for example:</p>
+        <p><code>…/unrealheightmap/#lat=27.98791&amp;lng=86.92529&amp;z=13&amp;oz=12&amp;w=1009&amp;h=1009</code></p>
+        <p>Bookmark it to come back to the exact same export, or use <strong>Copy share link</strong> to send it to someone. Settings left at their defaults are left out of the link to keep it short. Old links in the <code>#latitude/…/longitude/…</code> format still work.</p>
+      </article>
+
+      <article class="container content" id="elevation-data">
+        <h2>Elevation data</h2>
+        <p>Use the <strong>Elevation Data</strong> setting to choose where the heights come from.</p>
         <table class="table is-fullwidth">
-          <tr><th>Latitude</th><td>The Latitude at the centre of the image</td></tr>
-          <tr><th>Longitude</th><td>The Longitude at the centre of the image</td></tr>
-          <tr><th>Zoom</th><td>The zoom level in the preview</td></tr>
-          <tr><th>Output Zoom</th><td>The zoom level to use for the output</td></tr>
-          <tr><th>Map Preview Type</th><td>The tiles to use in the preview at the top of the page</td></tr>
-          <tr><th>Output Width (px)</th><td>The output width of the entire image in pixels</td></tr>
-          <tr><th>Output Height (px)</th><td>The output height of the entire image in pixels</td></tr>
-          <tr><th>Default Sizes</th><td>A preset list of useful sizes</td></tr>
-          <tr><th>Normalisation Mode</th><td>The normalisation mode to use. See below for more information</td></tr>
-          <tr><th>Norm From</th><td>Overrides the normlisation "from" parameter. Can be useful when low height data is funky, e.g. at the coast (just use 0)</td></tr>
-          <tr><th>Norm To</th><td>Overrides the normlisation "to" parameter</td></tr>
+          <thead>
+            <tr><th>Source</th><th>Coverage and detail</th><th>Max output zoom</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th>AWS Terrain Tiles (Mapzen)</th>
+              <td>Worldwide. Mostly 30 to 90 m, with 3 to 10 m in the USA. This was the original data source for the tool. It has some known errors, see <a href="#faq">FAQs</a>.</td>
+              <td>15</td>
+            </tr>
+            <tr>
+              <th>Mapterhorn</th>
+              <td>Copernicus GLO-30 (30 m) worldwide, plus 0.25 to 10 m lidar for the USA (USGS 3DEP), the UK, most of Europe, Japan, New Zealand and more. See <a href="https://mapterhorn.com" target="_blank" rel="noopener">mapterhorn.com</a> for coverage.</td>
+              <td>18</td>
+            </tr>
+          </tbody>
         </table>
-        <div class="card">
-          <div class="card-content">
-            <div class="content">
-              <h4>Top Tip: Copy &amp; Paste</h4>
-              <p>You can now copy and paste straight onto the page any lat/lng string. Acceptable formats include:</p>
-              <ul>
-                <li>03°04′33″S 37°21′12″E</li>
-                <li>3.0674° S, 37.3556° E</li>
-                <li>-3.0674, 37.3556</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-        <figure class="image">
-          <img src="public/im/mapview.png">
-          <figcaption>
-            The orange box shows the area that will be exported.
-          </figcaption>
-        </figure>
+        <ul>
+          <li><strong>Upscaling.</strong> Where Mapterhorn only has 30 m data, higher output zooms are smoothly upscaled from it. After each export, a line under the result tells you how detailed the source data really was (in metres per pixel), and whether any of it was upscaled.</li>
+          <li><strong>Surface model.</strong> Copernicus measures the top of whatever is there, so dense forests and large buildings can show up as bumps. The lidar areas show bare ground.</li>
+        </ul>
+        <p>Data credits and licences are on the <a href="rights.html">License Info</a> page.</p>
       </article>
-      <article class="container content">
-        <h2>Output</h2>
-        <p>The output will be a 16 bit grayscale PNG file with the gray levels representing the height of the ground at that location.</p>
-        <p>16 bits gives 2<sup>16</sup> levels of detail between the lowest and highest point. That's 65536 levels - enough to detail from sea level to the top of mount everest (8849m) in roughly 13cm intervals.</p>
-        <p>For comparison, 8 bit detail only give 2<sup>8</sup> levels of detail, which is only 256 levels!</p>
-        <p>The mapzen data is actually much <strong>more</strong> detailed than 16 bit (it has 24 bits of data, with a fidelity of about 4mm in the data itself, although the measurements are probably only accurate to 1m maximum)</p>
-        <h3>New - EXR output</h3>
-        <p>You can now select 16/32 bit EXR output options.</p>
-        <p>These are useful for importing into <a href="https://github.com/TokisanGames/Terrain3D">Terrain3D</a> and Blender.</p>
+
+      <article class="container content" id="size">
+        <h2>Output zoom and size</h2>
+        <p>Two settings decide how much ground the export covers:</p>
+        <ul>
+          <li><strong>Output Zoom</strong> sets how much ground each pixel covers. Each step up halves the metres per pixel and doubles the detail.</li>
+          <li><strong>Output Width / Height (px)</strong> set how many pixels there are.</li>
+        </ul>
+        <p>Area covered = pixels × metres per pixel. The orange rectangle on the map updates as you change either setting.</p>
+        <table class="table is-narrow">
+          <thead>
+            <tr><th>Output zoom</th><th>Metres per pixel at the equator</th><th>A 2017 px export covers</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>10</td><td>153 m</td><td>308 km</td></tr>
+            <tr><td>12</td><td>38 m</td><td>77 km</td></tr>
+            <tr><td>13</td><td>19 m</td><td>39 km</td></tr>
+            <tr><td>14</td><td>9.6 m</td><td>19 km</td></tr>
+            <tr><td>15</td><td>4.8 m</td><td>9.6 km</td></tr>
+            <tr><td>16</td><td>2.4 m</td><td>4.8 km</td></tr>
+            <tr><td>17</td><td>1.2 m</td><td>2.4 km</td></tr>
+            <tr><td>18</td><td>0.6 m</td><td>1.2 km</td></tr>
+          </tbody>
+        </table>
+        <p>Away from the equator, multiply by cos(latitude). For example, at 46° (the Alps) each pixel covers about 70% of the ground shown in the table.</p>
+        <p><strong>Default Sizes</strong> lists Unreal Engine's recommended landscape sizes (such as 1009, 2017, 4033 and 8129) and powers of two (such as 1024 and 4096) for Godot, Terrain3D and others. A single export can be up to 8129 × 8129. For anything bigger, use <a href="#tiling">tiled exports</a>.</p>
+        <p><strong>Choosing a zoom.</strong> There's no benefit to an output zoom much higher than the source data supports. Do a small test export first and read the source-detail line under the result. For 30 m data, zoom 12 to 13 is about the limit. For 1 m lidar, zoom 16 to 17 is worthwhile.</p>
       </article>
-      <article class="container content">
-        <h2>Normalisation Options</h2>
-        <p>When using the data for import into Unreal Engine 5, it can be useful to normalise the data so that you're using the full 16 bit range of the file.</p>
+
+      <article class="container content" id="formats">
+        <h2>Output formats</h2>
+        <table class="table is-fullwidth">
+          <thead>
+            <tr><th>Format</th><th>Levels of detail</th><th>Best for</th></tr>
+          </thead>
+          <tbody>
+            <tr><th>PNG 16-bit</th><td>65,536</td><td>Unreal Engine landscapes, and most other software</td></tr>
+            <tr><th>OpenEXR 16-bit</th><td>Half-float, about 2,000 steps near the top of the range</td><td>Previews only. It's coarser than the PNG.</td></tr>
+            <tr><th>OpenEXR 32-bit</th><td>Full float</td><td>Blender, Godot (Terrain3D, HTerrain), Houdini and Gaea. With normalisation Off it stores true metres, including below sea level. Otherwise it stores 0.0 to 1.0.</td></tr>
+          </tbody>
+        </table>
+        <p>16 bits gives 65,536 height levels. That's enough to cover sea level to the top of Everest (8,849 m) in steps of about 13 cm, and with normalisation (see below) a 1,000 m mountain gets 1.5 cm steps. An 8-bit image only has 256 levels, which gives visible terracing.</p>
+      </article>
+
+      <article class="container content" id="tiling">
+        <h2>Tiled exports</h2>
+        <p>Use <strong>Tiled Export</strong> to split one big area into several files, for example for Unreal World Partition, or to get past the single-image size limit.</p>
+        <ul>
+          <li><strong>Tile by size</strong>: set the width and height of each tile in pixels.</li>
+          <li><strong>Tile by count</strong>: set how many tiles across and down.</li>
+          <li><strong>Zip Exports?</strong> bundles all the tiles (and their extra maps and georeferencing files) into one zip, instead of many separate downloads.</li>
+          <li><strong>Pad tile exports</strong> makes the edge tiles the same size as the others, filling the extra space with blank pixels. Without it, edge tiles are cropped to whatever is left over.</li>
+          <li><strong>Unreal 5.7+ naming</strong> names tiles <code>_x00_y00</code>, <code>_x01_y00</code>, and so on, which Unreal's tiled landscape import picks up automatically. Otherwise tiles are named <code>_tile_ROW_COL</code>.</li>
+        </ul>
+        <p>All tiles share one height scale, so heights match across the seams.</p>
+        <p><strong>Very large areas.</strong> With Regular or Smart normalisation, the whole area is generated in memory first and then cut into tiles. If you set normalisation to Off, or enter your own Norm From and Norm To, tiles are generated one at a time instead. That uses far less memory and is the way to go for huge exports.</p>
+      </article>
+
+      <article class="container content" id="normalisation">
+        <h2>Normalisation</h2>
+        <p>Normalisation stretches the heights in your area to fill the full range of the file, so you get the most detail out of 16 bits.</p>
         <dl>
-          <dt>None</dt>
-          <dd>Do not perform any normalisation. The pixel value represents the height in m (note that negative values will be 0)</dd>
+          <dt>Off</dt>
+          <dd>No normalisation. The pixel value is the height in metres, and anything below 0 becomes 0. In a 16-bit PNG, heights are stored in whole metres (1 m steps), and anything below 0 becomes 0. In a 32-bit EXR they're stored as exact metres, including below sea level, which is the easiest way to get true heights into Blender, Godot or Houdini.</dd>
           <dt>Regular</dt>
-          <dd>Scale the height values in the data to 0 to 2^16 or 2^32, making full use of all 16/32 bits of the file's range. (note the source data is 24bit)</dd>
-          <dt>Smart</dt>
-          <dd>Unfortunately, there are some errors in the Mapzen data that throw off the normalisation - 0 values or high values that skew the normalisation completely. Using this method, we take a 99.9% window of the data to get rid of outliers. However, if the actual max/min are within 1 standard deviation of the windowed max/min then we use the actual values to retain the min/max data.</dd>
+          <dd>The lowest point becomes black and the highest becomes white, using the full range.</dd>
+          <dt>Smart (default)</dt>
+          <dd>Like Regular, but ignores the extreme 0.1% of values, so one bad pixel in the source data can't flatten everything else. If the true minimum and maximum are close to the trimmed ones (within one standard deviation), the true values are kept.</dd>
         </dl>
+        <p><strong>Norm From / Norm To</strong> set the black and white heights yourself, in metres. This is useful at the coast, where you can set Norm From to 0 so the sea floor doesn't use up the range, or when several separate exports need to share one height scale.</p>
+        <p>After you generate, the height range is shown under the map, along with the Unreal scale values that reproduce real-world heights (see <a href="#unreal">Importing into Unreal Engine</a>).</p>
         <h3>Examples</h3>
         <table class="table is-fullwidth">
           <thead>
             <tr>
               <th>Normalisation Mode</th>
-              <th class="has-text-centered">None</th>
+              <th class="has-text-centered">Off</th>
               <th class="has-text-centered">Regular</th>
               <th class="has-text-centered">Smart</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <th>Aizuwakamatsu<br><small>Without Source Error</small></th>
-              <td><figure class="image"><img src="public/im/aizuwakamatsu_none.png" width=512 height=512 alt=""></figure></td>
-              <td><figure class="image"><img src="public/im/aizuwakamatsu_regular.png" width=512 height=512 alt=""></figure></td>
-              <td><figure class="image"><img src="public/im/aizuwakamatsu_smart.png" width=512 height=512 alt=""></figure></td>
+              <th>Aizuwakamatsu<br><small>Without source error</small></th>
+              <td><figure class="image"><img src="public/im/aizuwakamatsu_none.png" width=512 height=512 alt="Aizuwakamatsu, no normalisation"></figure></td>
+              <td><figure class="image"><img src="public/im/aizuwakamatsu_regular.png" width=512 height=512 alt="Aizuwakamatsu, regular normalisation"></figure></td>
+              <td><figure class="image"><img src="public/im/aizuwakamatsu_smart.png" width=512 height=512 alt="Aizuwakamatsu, smart normalisation"></figure></td>
             </tr>
             <tr>
-              <th>Mt Fuji<br><small>With Source Error</small></th>
-              <td><figure class="image"><img src="public/im/mt_fuji_none.png" width=512 height=512 alt=""></figure></td>
-              <td><figure class="image"><img src="public/im/mt_fuji_regular.png" width=512 height=512 alt=""></figure></td>
-              <td><figure class="image"><img src="public/im/mt_fuji_smart.png" width=512 height=512 alt=""></figure></td>
+              <th>Mt Fuji<br><small>With source error</small></th>
+              <td><figure class="image"><img src="public/im/mt_fuji_none.png" width=512 height=512 alt="Mt Fuji, no normalisation"></figure></td>
+              <td><figure class="image"><img src="public/im/mt_fuji_regular.png" width=512 height=512 alt="Mt Fuji, regular normalisation"></figure></td>
+              <td><figure class="image"><img src="public/im/mt_fuji_smart.png" width=512 height=512 alt="Mt Fuji, smart normalisation"></figure></td>
             </tr>
           </tbody>
         </table>
-        <p>Here is an example of an error in the source data:</p>
-        <div class="columns">
-          <div class="column">
-            <figure class="image"><img alt="Example error from Mapzen source data in grayscale" src="public/im/actual_error_grayscale.png"></figure>
-          </div>
-          <div class="column">
-            <figure class="image"><img alt="Example error from Mapzen source data in Terrarium format" src="public/im/actual_error_terrarium.png"></figure>
-          </div>
+      </article>
+
+      <article class="container content" id="extra-maps">
+        <h2>Water and extra texture maps</h2>
+        <p>The settings under <strong>Extra Outputs</strong> add 8-bit PNGs that download alongside the heightmap. They're the same size as the heightmap, and they're split into matching tiles for tiled exports. The summary under Extra Outputs lists what will be included.</p>
+        <h3>Water</h3>
+        <ul>
+          <li><strong>Water Level (m)</strong> is the height treated as the water surface. 0 is sea level. To pick out a mountain lake, set it to the lake's surface height.</li>
+          <li><strong>Flatten below water level</strong> raises everything below the water level up to it. Otherwise the sea bed takes up a big share of the height range and leaves less detail for the land. This happens before normalisation.</li>
+          <li><strong>Water mask</strong> is white wherever the terrain is at or below the water level. Use it to place a water plane or paint a shoreline layer.</li>
+        </ul>
+        <h3>Texture maps</h3>
+        <ul>
+          <li><strong>Normal Map</strong>: choose <em>DirectX</em> for Unreal, or <em>OpenGL</em> for Godot, Blender and Unity (the green channel is flipped between the two).</li>
+          <li><strong>Slope</strong>: black is flat and white is vertical. Use it for rock on cliffs and grass on flat ground.</li>
+          <li><strong>Curvature</strong>: mid-grey is flat, lighter is ridges and peaks, and darker is valleys and gullies. Good for erosion, snow and moss masks.</li>
+          <li><strong>Height Bands (m)</strong>: comma-separated heights, for example <code>500, 1500</code>, give three masks: below 500 m, 500 to 1500 m, and above 1500 m. The edges blend smoothly and the masks always add up to white, so they work directly as Unreal landscape layer weightmaps.</li>
+        </ul>
+      </article>
+
+      <article class="container content" id="albedo">
+        <h2>Albedo</h2>
+        <p><strong>Generate Albedo</strong> exports a colour image of the same area, using whichever <strong>Map Preview Type</strong> is selected: satellite imagery, a topographic map, shaded relief, and so on. It lines up pixel for pixel with the heightmap. Check each map provider's licence before using it commercially (see <a href="rights.html">License Info</a>).</p>
+      </article>
+
+      <article class="container content" id="3d">
+        <h2>3D preview and 3D model export</h2>
+        <p><strong>3D Preview</strong> shows the export area as a 3D model in the page. Drag to orbit, right-drag to pan, and scroll to zoom. If you move the area or change settings, press <strong>Refresh</strong>.</p>
+        <p><strong>Export 3D Model</strong> downloads a mesh of the same area:</p>
+        <table class="table is-fullwidth">
+          <tbody>
+            <tr><th>3D Model Format</th><td><strong>STL</strong> for slicers and 3D printing. <strong>OBJ</strong> for Blender and most 3D apps. <strong>GLB</strong> (binary glTF) for game engines and the web. OBJ and GLB are Y-up with UVs over the top surface, so an albedo or normal map from the same area lines up directly.</td></tr>
+            <tr><th>Mesh Resolution</th><td>Number of vertices along the longer side. 512 is plenty for most prints. Higher values are more detailed, but the file is bigger and slower to make. The estimate under the buttons shows the triangle count and file size.</td></tr>
+            <tr><th>Shape</th><td><strong>Solid with base</strong> closes the model with walls and a flat bottom, so it's watertight and printable. <strong>Top surface only</strong> is just the terrain skin, which is usually what you want in Blender or an engine.</td></tr>
+            <tr><th>Base Thickness (mm)</th><td>Extra material under the lowest point, so low areas still print solidly.</td></tr>
+            <tr><th>Scale</th><td><strong>Print size (mm)</strong> scales the longer side to <strong>Print Width</strong>, with heights scaled to match. <strong>Real world (metres)</strong> keeps the model 1:1.</td></tr>
+            <tr><th>Height Exaggeration</th><td>Multiplies heights only. 1 is true to life. 1.5 to 3 often looks better on small prints of gentle terrain.</td></tr>
+          </tbody>
+        </table>
+        <p>3D models are built from the real heights in metres, not the normalised heightmap, so their proportions are true whatever normalisation you chose.</p>
+      </article>
+
+      <article class="container content">
+        <div class="notification is-info is-light">
+          <p><strong>Step-by-step guides:</strong> the <a href="guides.html">Import Guides</a> cover <a href="guide-unreal.html">Unreal Engine</a>, <a href="guide-blender.html">Blender</a>, <a href="guide-godot.html">Godot</a>, <a href="guide-unity.html">Unity</a>, <a href="guide-other.html">QGIS, Gaea, World Machine and Houdini</a> and <a href="guide-3d-printing.html">3D printing</a> in depth. The sections below are short summaries.</p>
         </div>
       </article>
-      <article class="container content faq">
-        <h2>FAQs</h2>
+      <article class="container content" id="unreal">
+        <h2>Importing into Unreal Engine</h2>
+        <ol>
+          <li>Export a 16-bit PNG at one of the Unreal sizes, for example 2017 × 2017.</li>
+          <li>In Unreal, open <strong>Landscape mode → Manage → New → Import from File</strong> and choose the PNG.</li>
+          <li>To get real-world proportions, set the landscape <strong>Scale</strong> to the values shown under the map after you generate. That's <code>XY</code> for X and Y, and <code>Z</code> for Z. They're in centimetres per pixel, Unreal's units.</li>
+          <li>For tiled exports, tick <strong>Unreal 5.7+ naming</strong> and import the folder of tiles.</li>
+          <li>Use the DirectX normal map and the height-band weightmaps in your landscape material and layers.</li>
+        </ol>
+        <p>Epic's guide: <a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/creating-and-using-custom-heightmaps-and-layers-in-unreal-engine" target="_blank" rel="noopener">Creating and using custom heightmaps and layers</a>.</p>
+      </article>
+
+      <article class="container content" id="other-software">
+        <h2>Godot, Terrain3D, Blender and Unity</h2>
+        <ul>
+          <li><strong>Godot:</strong> export a 32-bit EXR with normalisation Off, which Terrain3D and HTerrain import as true metres. Don't import the PNG directly: Godot reads PNGs as 8-bit only.</li>
+          <li><strong>Blender:</strong> the easiest route is <em>Export 3D Model</em> as OBJ or GLB, top surface only, real-world scale. Alternatively, put the 16-bit PNG on a subdivided plane with a Displace modifier, with its strength set to the height range. Use the OpenGL normal map, and the albedo as the base colour.</li>
+          <li><strong>Unity:</strong> the Terrain tool imports RAW files, so convert the 16-bit PNG to RAW first (for example with GIMP or Photoshop), or import the GLB as a mesh. Use the OpenGL normal map.</li>
+          <li><strong>3D printing:</strong> STL, solid with base, print size. Start with 150 mm wide, a 2 mm base and 1.5× exaggeration.</li>
+        </ul>
+      </article>
+
+      <article class="container content" id="gis">
+        <h2>Georeferencing (QGIS and GIS)</h2>
+        <p>All exports (heightmaps, extra maps and albedo) are in <strong>EPSG:3857</strong> (WGS 84 / Pseudo-Mercator, "Web Mercator"), the same projection as web map tiles.</p>
+        <p>Each heightmap and albedo export comes with a world file (<code>.pgw</code>, or <code>.wld</code> for EXR) and a <code>.prj</code> file, linked under the output. Keep them in the same folder as the image with the same name, and QGIS will place it correctly. The exact extent is also shown under <strong>Bounds &amp; projection</strong> on the generator page.</p>
+        <p>EPSG:3857 units aren't true ground metres: distances are stretched by about 1/cos(latitude). Reproject, for example to your local UTM zone, before measuring distances.</p>
+      </article>
+
+      <article class="container content faq" id="faq">
+        <h2>FAQs and troubleshooting</h2>
         <details>
-          <summary>There is a weird artefact in my image - why is that?</summary>
-          Unfortunately there are some errors in the source data - please check the 'Terrarium' preview type at the same zoom level and see if the artefacts are also present.
+          <summary>There's a strange spike, pit or stripe in my heightmap. Why?</summary>
+          <p>Some source tiles have errors, mostly in the AWS / Mapzen data. Try switching <strong>Elevation Data</strong> to Mapterhorn. You can also set the map preview to "Terrarium" at the same zoom to see whether the artefact is in the source. Smart normalisation stops a single bad value from ruining the height range.</p>
+          <div class="columns">
+            <div class="column">
+              <figure class="image"><img alt="Example error from Mapzen source data in grayscale" src="public/im/actual_error_grayscale.png"></figure>
+            </div>
+            <div class="column">
+              <figure class="image"><img alt="Example error from Mapzen source data in Terrarium format" src="public/im/actual_error_terrarium.png"></figure>
+            </div>
+          </div>
         </details>
         <details>
-          <summary>How do I use these images?</summary>
-          <p>You can find <a rel="noopener" target="_blank" href="https://docs.unrealengine.com/5.1/en-US/creating-and-using-custom-heightmaps-and-layers-in-unreal-engine/">information how to use the 16 bit png images for landscapes on the Unreal Engine website</a></p>
-          <p>You can use these to import into other game engines, and also 3D software such as Blender.</p>
+          <summary>My terrain looks blurry or terraced at high zoom.</summary>
+          <p>The output zoom is higher than the source data supports at that location, so it's being upscaled. The source-detail line under the export result confirms this. Either lower the output zoom or use Mapterhorn where lidar is available. If the terrain looks terraced, use the 16-bit PNG (not an 8-bit conversion) and make sure normalisation isn't Off.</p>
         </details>
         <details>
-          <summary>What projection is the output in? (QGIS / GIS import)</summary>
-          <p>All exports (heightmaps and albedo) are in <strong>EPSG:3857</strong> (WGS 84 / Pseudo-Mercator, "Web Mercator"), the same projection as the source map tiles.</p>
-          <p>To use an export in QGIS, set the layer CRS to EPSG:3857 and georeference it with the extent shown under "Bounds &amp; projection" on the generator page (xmin, ymin, xmax, ymax in metres).</p>
-          <p>Note that EPSG:3857 units are not true ground metres: distances are stretched by roughly 1/cos(latitude). Reproject (e.g. to a local UTM zone) before measuring distances or applying earth-curvature corrections.</p>
+          <summary>My older EXR exports look wrong: valleys too low, or odd specks</summary>
+          <p>Before November 2026, EXR exports stored heights on a curve, so mid-heights came out too low, and some pixels in 16-bit EXRs were saved at half their height. Both are fixed. Re-export the area, and use 32-bit EXR for exact heights.</p>
         </details>
         <details>
-          <summary>Why wouldn't I use the tangrams heightmapper website output?</summary>
-          Unfortunately, because of the way it generates images, the output from <a href="http://tangrams.github.io/heightmapper" rel="noopener" target="_blank">heightmapper</a> is 1) noisy, 2) only 8 bit, resulting in poor quality landscapes and jagged areas. In 8 bit, a 1000m tall mountain would have jagged edges every 4m in height.
+          <summary>The Generate button says "Output Zoom too high".</summary>
+          <p>The selected elevation source doesn't go that high: AWS goes up to 15 and Mapterhorn up to 18. Lower the output zoom or switch source.</p>
+        </details>
+        <details>
+          <summary>Generating fails, or the page runs out of memory.</summary>
+          <p>Very large exports are processed in your browser's memory. Try a smaller size or fewer extra maps at once. For big areas, use a tiled export with normalisation Off, or with your own Norm From and Norm To, so tiles are generated one at a time. Desktop Chrome, Edge and Firefox handle large exports best. If map tiles fail to load, the service may be busy or rate-limited, so wait a minute and try again.</p>
+        </details>
+        <details>
+          <summary>The 3D preview doesn't appear.</summary>
+          <p>The preview needs WebGL. Check that hardware acceleration is turned on in your browser. Model export still works without the preview.</p>
+        </details>
+        <details>
+          <summary>Why not use the Tangrams heightmapper?</summary>
+          <p>The output from <a href="http://tangrams.github.io/heightmapper" rel="noopener" target="_blank">heightmapper</a> is 8-bit and noisy. In 8-bit, a 1,000 m mountain has a visible step every 4 m.</p>
+        </details>
+        <details>
+          <summary>Can I use the exports commercially?</summary>
+          <p>The elevation data is openly licensed, but you need to credit the sources. Map imagery used for albedo depends on the provider. See <a href="rights.html">License Info</a>.</p>
+        </details>
+        <details>
+          <summary>How can I support the project?</summary>
+          <p>Map tile services cost money at this tool's scale. If it's useful to you, <a href="https://ko-fi.com/harrymustoeplayfair" target="_blank" rel="noopener">buying me a coffee on Ko-fi</a> helps keep it running. Bug reports and ideas are welcome on <a href="https://github.com/manticorp/unrealheightmap/issues" target="_blank" rel="noopener">GitHub</a>.</p>
         </details>
       </article>
     </main>

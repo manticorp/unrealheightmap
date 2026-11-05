@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Import Guides · 16/32 Bit Heightmap Generator</title>
+    <meta name="description" content="Step-by-step guides for importing real-world heightmaps, texture maps and 3D models into Unreal Engine, Blender, Godot, Unity, QGIS, Gaea, Houdini and 3D printing slicers.">
+    <link rel="stylesheet" href="public/dist/css/main.css">
+    <script data-goatcounter="https://unrealheightmap.goatcounter.com/count"
+            async src="//gc.zgo.at/count.js"></script>
+  </head>
+  <body class="docs">
+    <main>
+      <article class="container content">
+        <h1>Import Guides</h1>
+        <p>These guides go further than the <a href="instructions.html">main documentation</a>. Each one covers which export settings to choose, how to get true real-world scale, and how to use the extra texture maps in that program.</p>
+      </article>
+      <article class="container content">
+        <div class="columns is-multiline guide-cards">
+          <div class="column is-half">
+            <a class="box" href="guide-unreal.html">
+              <h2>Unreal Engine 5</h2>
+              <p>Landscape import with exact Z scale, tiled World Partition imports, weightmap layers, a landscape material and water.</p>
+            </a>
+          </div>
+          <div class="column is-half">
+            <a class="box" href="guide-blender.html">
+              <h2>Blender</h2>
+              <p>Displacement in metres, Cycles adaptive subdivision, Geometry Nodes, importing meshes, and draping albedo and normal maps.</p>
+            </a>
+          </div>
+          <div class="column is-half">
+            <a class="box" href="guide-godot.html">
+              <h2>Godot 4</h2>
+              <p>Terrain3D and HTerrain imports, height scale maths, texture layers, and plugin-free meshes and collision.</p>
+            </a>
+          </div>
+          <div class="column is-half">
+            <a class="box" href="guide-unity.html">
+              <h2>Unity</h2>
+              <p>Converting to RAW, Terrain sizing in metres, terrain layers from the masks, and importing GLB meshes.</p>
+            </a>
+          </div>
+          <div class="column is-half">
+            <a class="box" href="guide-other.html">
+              <h2>QGIS, Gaea, World Machine, Houdini and more</h2>
+              <p>Georeferenced imports for GIS, terrain tools for erosion and detailing, and editing 16-bit files without banding.</p>
+            </a>
+          </div>
+          <div class="column is-half">
+            <a class="box" href="guide-3d-printing.html">
+              <h2>3D printing</h2>
+              <p>Sizing, height exaggeration and base thickness, plus slicer settings for crisp terrain prints.</p>
+            </a>
+          </div>
+        </div>
+      </article>
+      <article class="container content">
+        <h2>Before you start: which export?</h2>
+        <table class="table is-fullwidth">
+          <thead>
+            <tr><th>Target</th><th>Heightmap format</th><th>Size</th><th>Normalisation</th><th>Normal map</th></tr>
+          </thead>
+          <tbody>
+            <tr><th>Unreal Engine</th><td>PNG 16-bit</td><td>Unreal sizes (1009, 2017, 4033, 8129)</td><td>Smart</td><td>DirectX</td></tr>
+            <tr><th>Blender</th><td>EXR 32-bit or PNG 16-bit, or a mesh (OBJ/GLB)</td><td>Any</td><td>Off (EXR) or Smart (PNG)</td><td>OpenGL</td></tr>
+            <tr><th>Godot (Terrain3D)</th><td>EXR 32-bit</td><td>Any (power of two is tidiest)</td><td>Off</td><td>OpenGL</td></tr>
+            <tr><th>Godot (HTerrain)</th><td>EXR 32-bit</td><td>Power of two plus one (1025, 2049, 4097)</td><td>Off</td><td>OpenGL</td></tr>
+            <tr><th>Unity</th><td>PNG 16-bit, converted to RAW</td><td>Power of two plus one (1025, 2049, 4097)</td><td>Smart</td><td>OpenGL</td></tr>
+            <tr><th>QGIS / GIS</th><td>PNG 16-bit (with world file)</td><td>Any</td><td>Smart, then rescale</td><td>Not needed</td></tr>
+            <tr><th>3D printing</th><td>STL (Export 3D Model)</td><td>Mesh resolution 512 to 1024</td><td>Doesn't matter</td><td>Not needed</td></tr>
+          </tbody>
+        </table>
+        <div class="notification is-info is-light">
+          <p><strong>PNG or EXR?</strong> The 16-bit PNG works everywhere. A 32-bit EXR works without conversion in Blender, Godot, Houdini and Gaea: with normalisation <strong>Off</strong> it stores true heights in metres, including below sea level, and with Smart or Regular it stores 0.0 (lowest) to 1.0 (highest). Avoid the 16-bit (half-float) EXR for heights. It only has about 2,000 steps near the top of the range, which is coarser than the PNG.</p>
+        </div>
+        <p>Any width and height can be typed into <strong>Output Width / Height</strong>, so sizes such as 1025 or 2049 that aren't in the presets work too.</p>
+        <h3>Two numbers to note down</h3>
+        <p>After you click Generate, the tool shows the <strong>height range</strong> (lowest and highest point in metres) and the size of the area. Every guide uses them:</p>
+        <ul>
+          <li><strong>Metres per pixel</strong> = area width in metres ÷ image width in pixels.</li>
+          <li><strong>Height range</strong> = highest − lowest point, in metres. With Regular or Smart normalisation, black is the lowest point and white is the highest. With normalisation Off, pixel values are heights in metres.</li>
+        </ul>
+      </article>
+    </main>
+    <script type="text/javascript" src="public/dist/js/main.js"></script>
+  </body>
+</html>

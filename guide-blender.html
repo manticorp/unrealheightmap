@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Blender Guide · 16/32 Bit Heightmap Generator</title>
+    <meta name="description" content="Use real-world heightmaps in Blender at true scale: Displace modifier maths, Cycles adaptive subdivision, Geometry Nodes, mesh import, albedo and normal maps, BlenderGIS.">
+    <link rel="stylesheet" href="public/dist/css/main.css">
+    <script data-goatcounter="https://unrealheightmap.goatcounter.com/count"
+            async src="//gc.zgo.at/count.js"></script>
+  </head>
+  <body class="docs">
+    <main>
+      <article class="container content">
+        <p class="guide-meta"><a href="guides.html">Import Guides</a> › Blender</p>
+        <h1>Blender: advanced terrain workflows</h1>
+        <p>This guide is written for Blender 4.2 LTS to 5.x, and notes where the versions differ. There are four ways to get terrain in, from simplest to most flexible:</p>
+        <ol>
+          <li><a href="#mesh">Import a ready-made mesh</a> (OBJ/GLB). Quickest, with true scale automatically.</li>
+          <li><a href="#displace">Displace modifier</a> on a plane. Editable, and works in EEVEE and Cycles.</li>
+          <li><a href="#adaptive">Cycles shader displacement with adaptive subdivision</a>. The most detail for the least memory, for final renders.</li>
+          <li><a href="#geonodes">Geometry Nodes</a>. Procedural, one vertex per pixel, easy to scatter on.</li>
+        </ol>
+        <p>Then: <a href="#materials">materials from the albedo and maps</a>, <a href="#blendergis">BlenderGIS</a>, <a href="#performance">performance</a> and <a href="#troubleshooting">troubleshooting</a>.</p>
+      </article>
+
+      <article class="container content">
+        <h2>The numbers you'll need</h2>
+        <p>Export a <strong>16-bit PNG</strong> with <strong>Smart</strong> normalisation, then note from the generator page:</p>
+        <ul>
+          <li><strong>Area width × height in metres.</strong> This is shown in Bounds &amp; projection, or work it out as XY scale ÷ 100 × pixels.</li>
+          <li><strong>Height range:</strong> the lowest and highest heights in metres. <em>Range = highest − lowest.</em></li>
+        </ul>
+        <p>Black in the PNG is the lowest point and white is the highest. Blender reads a 16-bit PNG as 0.0 to 1.0, so multiplying by the range gives true heights.</p>
+        <div class="notification is-info is-light">
+          <p><strong>Even simpler: 32-bit EXR in metres.</strong> Export <strong>OpenEXR 32-bit</strong> with normalisation <strong>Off</strong>. Each pixel is then the true height in metres, including below sea level. In the steps below, use <strong>Strength / Scale 1</strong> and leave the object at Z = 0. For the Displace modifier, also untick <strong>Clamp</strong> in the texture's Colors panel, so heights below 0 aren't cut off. Avoid the 16-bit EXR, which is coarser than the PNG.</p>
+        </div>
+      </article>
+
+      <article class="container content" id="mesh">
+        <h2>1. Import a ready-made mesh</h2>
+        <ol>
+          <li>In the tool, click <strong>Export 3D Model</strong> with Format <strong>GLB</strong> (or OBJ), Shape <strong>Top surface only</strong> and Scale <strong>Real world (metres)</strong>. A mesh resolution of 1024 to 2048 is good for close-ups.</li>
+          <li>In Blender, use <strong>File → Import → glTF 2.0 (.glb/.gltf)</strong> or <strong>Wavefront (.obj)</strong>. Both convert the Y-up file to Blender's Z-up automatically with the default axis settings.</li>
+          <li>The mesh is centred on the origin, in metres, at true proportions. Its UVs cover the top 0 to 1, so the albedo and normal map line up directly (see <a href="#materials">materials</a>).</li>
+        </ol>
+        <p>For an STL made for printing (in millimetres), set the importer's <strong>Scale</strong> to 0.001 to see it at real print size in Blender's metre units.</p>
+      </article>
+
+      <article class="container content" id="displace">
+        <h2>2. Displace modifier on a plane</h2>
+        <ol>
+          <li><strong>Add → Mesh → Plane.</strong> In the N panel, set <strong>Dimensions</strong> X and Y to the area's width and height in metres, then apply the scale (<strong>Ctrl+A → Scale</strong>).</li>
+          <li>Add a <strong>Subdivision Surface</strong> modifier set to <strong>Simple</strong>. Each level quadruples the faces: level 10 gives 1024 × 1024. For one vertex per pixel on big maps, subdivide in Edit Mode instead (Subdivide with Number of Cuts), or use <a href="#geonodes">Geometry Nodes</a>.</li>
+          <li>Add a <strong>Displace</strong> modifier below it:
+            <ul>
+              <li><strong>Texture</strong>: New → Image or Movie → open the 16-bit PNG.</li>
+              <li><strong>Coordinates</strong>: <code>UV</code>. The plane's UVs already cover 0 to 1.</li>
+              <li><strong>Direction</strong>: <code>Z</code>.</li>
+              <li><strong>Midlevel</strong>: <code>0</code>.</li>
+              <li><strong>Strength</strong>: the <strong>height range in metres</strong>.</li>
+            </ul>
+          </li>
+          <li>In the texture's image settings, set <strong>Color Space</strong> to <strong>Non-Color</strong>. Otherwise Blender applies a colour curve and bends the heights.</li>
+          <li>For absolute heights, set the object's Location Z to the <strong>lowest height</strong>.</li>
+        </ol>
+        <p>The modifier works as <code>offset = (pixel − Midlevel) × Strength</code>. With Midlevel 0 and Strength equal to the range, black stays at 0 and white rises by the full range.</p>
+        <div class="box">
+          <p><strong>Example:</strong> a 2017 px export covering 13.3 km, with heights from 120 m to 1,620 m.</p>
+          <p>Plane 13,300 × 13,300 m, Strength <code>1500</code>, Midlevel <code>0</code>, Location Z <code>120</code>.</p>
+        </div>
+      </article>
+
+      <article class="container content" id="adaptive">
+        <h2>3. Cycles: shader displacement with adaptive subdivision</h2>
+        <p>Adaptive subdivision adds detail only where the camera can see it, measured in screen pixels. It's the best way to render a huge heightmap at full detail.</p>
+        <ol>
+          <li>Set the render engine to <strong>Cycles</strong>.
+            <ul>
+              <li>On <strong>Blender 4.x</strong>, also set <strong>Feature Set</strong> to <strong>Experimental</strong>. Adaptive subdivision was still experimental there.</li>
+              <li>On <strong>Blender 5.0+</strong>, it's a standard feature, so skip this step.</li>
+            </ul>
+          </li>
+          <li>Make a plane at the area's size, as above, and add a <strong>Subdivision Surface</strong> modifier (Simple), as the last modifier.
+            <ul>
+              <li>5.x: open the modifier's <strong>Adaptive Subdivision</strong> panel and turn it on.</li>
+              <li>4.x: tick <strong>Adaptive Subdivision</strong> in Object Properties.</li>
+            </ul>
+          </li>
+          <li>In the material:
+            <ul>
+              <li>Add an <strong>Image Texture</strong> with the PNG, Color Space <strong>Non-Color</strong> and Interpolation <strong>Cubic</strong>.</li>
+              <li>Connect it to a <strong>Displacement</strong> node with <strong>Midlevel</strong> 0 and <strong>Scale</strong> equal to the height range. Leave Space at Object, and keep the object's scale at 1.</li>
+              <li>Connect the Displacement node to the Material Output's <strong>Displacement</strong> socket.</li>
+            </ul>
+          </li>
+          <li>Under Material Properties → Settings → Surface, set <strong>Displacement</strong> to <strong>Displacement Only</strong>, or <strong>Displacement and Bump</strong> for extra fine detail.</li>
+          <li>Under Render Properties → <strong>Subdivision</strong>, set <strong>Dicing Rate Render</strong>. 1 px is full detail and 2 to 4 px is much lighter. Raise <strong>Offscreen Scale</strong> so terrain behind the camera stays cheap. <strong>Max Subdivisions</strong> caps the depth.</li>
+        </ol>
+        <p>Displacement only appears in Rendered viewport mode or in final renders.</p>
+      </article>
+
+      <article class="container content" id="geonodes">
+        <h2>4. Geometry Nodes</h2>
+        <p>This gives exactly one vertex per pixel, which makes it easy to scatter trees by slope or height:</p>
+        <ol>
+          <li>Add a Geometry Nodes modifier to any object and replace its input with a <strong>Grid</strong> node:
+            <ul>
+              <li><strong>Size X / Y</strong> = the area's width and height in metres</li>
+              <li><strong>Vertices X / Y</strong> = the image's pixel size (or half that for a lighter mesh)</li>
+            </ul>
+          </li>
+          <li>Add an <strong>Image Texture</strong> node (geometry version) with the PNG. Connect the Grid's <strong>UV Map</strong> output to its <strong>Vector</strong> input. Use Linear interpolation.</li>
+          <li>Run the Color through a <strong>Math → Multiply</strong> by the height range, then into the Z of a <strong>Combine XYZ</strong>, then into a <strong>Set Position</strong> node's <strong>Offset</strong>.</li>
+          <li>To keep UVs for materials, use <strong>Store Named Attribute</strong> (Face Corner, Vector, name <code>UVMap</code>) on the Grid's UV Map output before Set Position.</li>
+        </ol>
+        <p>The exported slope, curvature and height-band PNGs can be sampled the same way and fed into <strong>Distribute Points on Faces</strong> → Density, to place forests, rocks and snow only where they belong.</p>
+      </article>
+
+      <article class="container content" id="materials">
+        <h2>Materials from the albedo and maps</h2>
+        <p>Every export from the same area shares the same 0 to 1 UVs, so no alignment is needed.</p>
+        <ul>
+          <li><strong>Albedo:</strong> Image Texture (sRGB) into Principled BSDF <strong>Base Color</strong>.</li>
+          <li><strong>Normal map:</strong> export <strong>OpenGL</strong>. Load it as an Image Texture set to <strong>Non-Color</strong>, then connect it to a <strong>Normal Map</strong> node (Tangent Space) and on to the BSDF <strong>Normal</strong>. Recent versions (5.1+) also have a DirectX/OpenGL <strong>Convention</strong> option on the Normal Map node, if you only have the DirectX version.</li>
+          <li><strong>Masks</strong> (slope, curvature, height bands, water), all Non-Color:
+            <ul>
+              <li>Use them as <strong>Mix</strong> factors between grass, rock and snow shaders.</li>
+              <li>Run a mask through a <strong>Color Ramp</strong> to sharpen or move the transition.</li>
+              <li>Use the water mask to add a glossy, dark wet band along shores.</li>
+            </ul>
+          </li>
+          <li><strong>Close-up detail:</strong> mix tiling PBR textures (for example from Poly Haven) using box-projected <strong>Object</strong> coordinates. The albedo alone gets blurry close to the camera, because satellite imagery is often 0.5 to 10 m per pixel.</li>
+        </ul>
+      </article>
+
+      <article class="container content" id="blendergis">
+        <h2>Georeferenced import with BlenderGIS</h2>
+        <p><a href="https://github.com/domlysz/BlenderGIS" target="_blank" rel="noopener">BlenderGIS</a> is still maintained and supports Blender 4.x and 5.x. It's useful if you combine the terrain with other GIS data, such as OpenStreetMap buildings or GPS tracks.</p>
+        <ol>
+          <li>In BlenderGIS's settings, set the scene CRS to <strong>EPSG:3857</strong>. Add it to the predefined CRS list if it's missing.</li>
+          <li>In the 3D Viewport header, open <strong>GIS → Import → Georeferenced raster</strong> and choose the PNG. Its <code>.pgw</code> world file must be in the same folder with the same name. BlenderGIS ignores the <code>.prj</code>, so tick <strong>Specify raster CRS</strong> and choose EPSG:3857.</li>
+          <li>Pick the mode <strong>DEM as displacement texture</strong>.</li>
+          <li>BlenderGIS assumes the pixel values are raw elevations, so for a normalised PNG it sets an enormous Strength. Afterwards, set the Displace modifier's <strong>Strength</strong> to the height range and its Midlevel to 0.</li>
+          <li>Import the albedo the same way with <strong>Basemap on mesh</strong>.</li>
+        </ol>
+      </article>
+
+      <article class="container content" id="performance">
+        <h2>Performance</h2>
+        <ul>
+          <li><strong>Vertex counts.</strong> An 8129² grid is 66 million vertices. Keep the viewport subdivision low and the render subdivision high, or use adaptive subdivision.</li>
+          <li><strong>Simplify.</strong> Render Properties → <strong>Simplify</strong> caps <strong>Max Subdivision</strong> and <strong>Texture Limit</strong> separately for the viewport and the render.</li>
+          <li><strong>Decimate.</strong> A Decimate modifier (Planar or Collapse) after the Displace modifier greatly reduces flat areas before you export to a game engine.</li>
+          <li><strong>Halve the source.</strong> For background mountains, export at a lower output zoom. Detail you can't see still costs memory.</li>
+        </ul>
+      </article>
+
+      <article class="container content faq" id="troubleshooting">
+        <h2>Troubleshooting</h2>
+        <details>
+          <summary>The terrain is terraced or stepped</summary>
+          <p>The image was saved as 8-bit somewhere, or the Color Space isn't Non-Color. Re-open the tool's 16-bit PNG and check the Image Editor's header shows 16-bit.</p>
+        </details>
+        <details>
+          <summary>The heights are slightly wrong, with peaks fine but valleys too low</summary>
+          <p>The image is set to sRGB instead of Non-Color. Heightmaps are data, so they must be Non-Color. EXRs exported before November 2026 also stored heights on a curve, so re-export those.</p>
+        </details>
+        <details>
+          <summary>Displacement does nothing (Cycles)</summary>
+          <p>Check that Material Settings → Displacement is not set to Bump Only, and that you're in Rendered view. For adaptive subdivision on 4.x, check that the Feature Set is Experimental.</p>
+        </details>
+        <details>
+          <summary>The terrain is mirrored</summary>
+          <p>Imported meshes are already correct. For a plane you made yourself, check you didn't rotate it. Image row 1 (north) should be at +Y, the top of the Top view.</p>
+        </details>
+      </article>
+
+      <article class="container content">
+        <h2>References</h2>
+        <ul>
+          <li><a href="https://docs.blender.org/manual/en/latest/modeling/modifiers/deform/displace.html" target="_blank" rel="noopener">Displace modifier</a></li>
+          <li><a href="https://docs.blender.org/manual/en/latest/render/cycles/render_settings/subdivision.html" target="_blank" rel="noopener">Cycles subdivision settings</a> and <a href="https://developer.blender.org/docs/release_notes/5.0/cycles/" target="_blank" rel="noopener">5.0 release notes</a></li>
+          <li><a href="https://docs.blender.org/manual/en/latest/render/shader_nodes/displacement/displacement.html" target="_blank" rel="noopener">Displacement node</a></li>
+          <li><a href="https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/texture/image.html" target="_blank" rel="noopener">Geometry Nodes Image Texture</a></li>
+          <li><a href="https://github.com/domlysz/BlenderGIS" target="_blank" rel="noopener">BlenderGIS</a></li>
+        </ul>
+      </article>
+    </main>
+    <script type="text/javascript" src="public/dist/js/main.js"></script>
+  </body>
+</html>

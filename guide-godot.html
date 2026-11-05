@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Godot Guide · 16/32 Bit Heightmap Generator</title>
+    <meta name="description" content="Import real-world heightmaps into Godot 4 with Terrain3D or HTerrain at true scale, plus plugin-free meshes and HeightMapShape3D collision.">
+    <link rel="stylesheet" href="public/dist/css/main.css">
+    <script data-goatcounter="https://unrealheightmap.goatcounter.com/count"
+            async src="//gc.zgo.at/count.js"></script>
+  </head>
+  <body class="docs">
+    <main>
+      <article class="container content">
+        <p class="guide-meta"><a href="guides.html">Import Guides</a> › Godot</p>
+        <h1>Godot 4: Terrain3D, HTerrain and plugin-free terrain</h1>
+        <p>Godot has no built-in terrain system. You have three good options:</p>
+        <ul>
+          <li><a href="#terrain3d"><strong>Terrain3D</strong></a>: a high-performance C++ terrain with clipmap LOD, sculpting and texture painting. It handles any size and is the best choice for big worlds.</li>
+          <li><a href="#hterrain"><strong>HTerrain</strong></a>: a GDScript plugin, simple to set up, up to 4097 × 4097.</li>
+          <li><a href="#no-plugin"><strong>No plugin</strong></a>: a GLB mesh plus collision. Good for small areas, backdrops and prototypes.</li>
+        </ul>
+      </article>
+
+      <article class="container content" id="prepare">
+        <h2>Step 0: Choose the heightmap file</h2>
+        <div class="notification is-warning is-light">
+          <p><strong>Godot loads PNGs as 8 bits per channel</strong>, so a 16-bit PNG is cut down to 256 levels and the terrain comes out terraced. Use one of the two options below instead.</p>
+        </div>
+        <h3>Option A: 32-bit EXR in metres (easiest)</h3>
+        <p>Export <strong>OpenEXR 32-bit</strong> with normalisation <strong>Off</strong>. Godot reads EXR as floating point, and every pixel is the true height in metres, including below sea level. No conversion or height maths is needed. Avoid the 16-bit EXR, which is coarser than the PNG.</p>
+        <h3>Option B: 16-bit RAW from the PNG</h3>
+        <p>Export a <strong>16-bit PNG</strong> with <strong>Smart</strong> normalisation, and note the <strong>height range</strong> (lowest and highest in metres) and the metres per pixel. Then convert with <a href="https://imagemagick.org" target="_blank" rel="noopener">ImageMagick</a> 7:</p>
+        <pre><code>magick heightmap.png -depth 16 -endian LSB gray:heightmap.r16</code></pre>
+        <p>For HTerrain, which needs a 2<sup>n</sup>+1 square, pad by repeating the edge pixels. For example, from a 1024 export:</p>
+        <pre><code>magick heightmap.png -virtual-pixel edge -set option:distort:viewport 1025x1025+0+0 -filter point -distort SRT 0 -depth 16 -endian LSB gray:heightmap.r16</code></pre>
+        <p>On ImageMagick 6, use <code>convert</code> instead of <code>magick</code>. GIMP (Export As → Raw image data) also works if the image is in 16-bit precision.</p>
+        <p>Export the extra maps with the <strong>OpenGL</strong> normal map. Godot uses the OpenGL (Y+) convention.</p>
+      </article>
+
+      <article class="container content" id="terrain3d">
+        <h2>Terrain3D</h2>
+        <p>Written for Terrain3D 1.x. See the <a href="https://terrain3d.readthedocs.io/en/stable/docs/import_export.html" target="_blank" rel="noopener">official import docs</a>.</p>
+        <h3>Import</h3>
+        <ol>
+          <li>Install Terrain3D from the Asset Library or GitHub, and enable it in Project Settings → Plugins.</li>
+          <li>Open the scene <code>addons/terrain_3d/tools/importer.tscn</code> and select the <strong>Importer</strong> node. Its Inspector is the import tool.</li>
+          <li>Under <strong>Import File</strong>:
+            <ul>
+              <li><code>height_file_name</code>: the <strong>EXR</strong> (Option A), with <code>height_scale</code> 1 and <code>height_offset</code> 0. The values are already metres.</li>
+              <li>Or the <code>.r16</code> file (Option B; <code>.raw</code> works too) with:
+                <ul>
+                  <li><code>r16_size</code> = the image width × height in pixels</li>
+                  <li><code>r16_range</code> = <strong>(lowest, highest)</strong> in metres. Terrain3D maps black to the first value and white to the second.</li>
+                  <li><code>height_scale</code> 1 and <code>height_offset</code> 0</li>
+                </ul>
+              </li>
+              <li>A 32-bit EXR exported with Smart normalisation (0 to 1) also works: set <code>height_scale</code> to the height range and <code>height_offset</code> to the lowest height.</li>
+              <li><code>color_file_name</code> (optional): the albedo PNG. It becomes the terrain's colour map.</li>
+              <li><code>import_position</code>: where the terrain goes. It's rounded to the region size.</li>
+            </ul>
+          </li>
+          <li>Click <strong>Run Import</strong>, check the result, then set <code>destination_directory</code> and click <strong>Save to Disk</strong>.</li>
+          <li>In your game scene, add a Terrain3D node and point its <strong>Data Directory</strong> at that folder.</li>
+        </ol>
+        <h3>Horizontal scale</h3>
+        <p>Terrain3D places one vertex per metre by default. Set the Terrain3D node's <strong>vertex_spacing</strong> to the export's metres per pixel, for example 6.6, so the terrain spans its real width. This only scales X and Z, so heights stay correct.</p>
+        <p>Very large vertex spacing makes close-up terrain blocky. To walk around in detail, export at a higher output zoom rather than stretching a coarse export.</p>
+        <h3>Region size</h3>
+        <p>A Terrain3D world is up to 32 × 32 regions. Choose <strong>Regions → Region Size</strong> (64 to 2048) greater than the image width ÷ 32. For example, use 256 for an 8129 export and 128 or more for a 4096 export. Any image size works, and Terrain3D slices and pads it automatically.</p>
+        <h3>Texturing</h3>
+        <ul>
+          <li><strong>Albedo:</strong> imported as the colour map. Terrain3D blends it with your texture layers.</li>
+          <li><strong>Height bands, slope and curvature</strong> can't be imported directly. Terrain3D's control map uses its own format. Use the masks as a visual reference while painting, or apply them with a short tool script using the Terrain3D API. Terrain3D also has slope-based auto-shading built in.</li>
+        </ul>
+      </article>
+
+      <article class="container content" id="hterrain">
+        <h2>HTerrain (Zylann's heightmap plugin)</h2>
+        <p>See the <a href="https://hterrain-plugin.readthedocs.io" target="_blank" rel="noopener">HTerrain docs</a>. Current versions target Godot 4.x.</p>
+        <ol>
+          <li>Add an <strong>HTerrain</strong> node, select it, and choose <strong>Terrain → Import</strong> from the toolbar menu.</li>
+          <li>Set <strong>Heightmap</strong> to either:
+            <ul>
+              <li>a 32-bit EXR exported with normalisation Off at a 2<sup>n</sup>+1 size (type 1025, 2049 or 4097 into the tool). HTerrain uses EXR values as-is, so they're already metres, and Min/Max height are ignored.</li>
+              <li>or the padded <code>.r16</code> file, with <strong>Raw endianess</strong> Little Endian, <strong>Bit depth</strong> 16-bit, and <strong>Min height</strong> / <strong>Max height</strong> set to the lowest and highest heights in metres.</li>
+            </ul>
+          </li>
+          <li>Optional: <strong>Colormap</strong> = the albedo PNG.</li>
+          <li>Import, then set the node's <strong>Map Scale</strong> X and Z to the metres per pixel. Leave Y at 1.</li>
+        </ol>
+        <ul>
+          <li><strong>Size rule:</strong> HTerrain terrains are square and 2<sup>n</sup>+1 (513, 1025, 2049, 4097). Other sizes are padded with height 0, which makes a cliff at the edge. That's why Step 0 pads with edge pixels. 8129 exports are too large, so tile them or use Terrain3D.</li>
+          <li><strong>Raw files must be square:</strong> HTerrain works out the size from the file length.</li>
+          <li><strong>Splatmap:</strong> HTerrain accepts a 4-layer RGBA splatmap PNG. Pack up to four height bands into one with ImageMagick:
+            <pre><code>magick *_band_00_*.png *_band_01_*.png *_band_02_*.png *_band_03_*.png -set colorspace sRGB -combine -define png:color-type=6 splatmap.png</code></pre>
+          </li>
+        </ul>
+      </article>
+
+      <article class="container content" id="no-plugin">
+        <h2>Without a plugin</h2>
+        <h3>Visual mesh: GLB</h3>
+        <ol>
+          <li>In the tool, use <strong>Export 3D Model</strong> with Format GLB, Shape Top surface only, and Scale Real world (metres).</li>
+          <li>Drop it into the project. Godot imports glTF natively, at 1 unit = 1 metre.</li>
+          <li>Double-click it to open <strong>Advanced Import Settings</strong>. Select the mesh, then tick <strong>Physics → Generate</strong>, set Body Type to <strong>Static</strong> and Shape Type to <strong>Trimesh</strong>, and reimport.</li>
+          <li>Apply the albedo and the OpenGL normal map in a StandardMaterial3D. The UVs cover the top surface, so they line up.</li>
+        </ol>
+        <h3>Collision: HeightMapShape3D from RAW</h3>
+        <p>For big terrains, a heightmap collision shape is much cheaper than a trimesh. This GDScript reads the 16-bit RAW from Step 0 at full precision:</p>
+        <pre><code>@export var raw_path := "res://terrain/heightmap.r16"
+@export var size := Vector2i(1025, 1025)   # pixels
+@export var min_height := 120.0            # metres
+@export var max_height := 1620.0
+@export var metres_per_pixel := 6.6
+
+func _ready() -> void:
+	var bytes := FileAccess.get_file_as_bytes(raw_path)
+	var data := PackedFloat32Array()
+	data.resize(size.x * size.y)
+	for i in data.size():
+		var h := lerpf(min_height, max_height, bytes.decode_u16(i * 2) / 65535.0)
+		data[i] = h / metres_per_pixel   # node is scaled up below
+	var shape := HeightMapShape3D.new()
+	shape.map_width = size.x
+	shape.map_depth = size.y
+	shape.map_data = data
+	var col := CollisionShape3D.new()
+	col.shape = shape
+	col.scale = Vector3.ONE * metres_per_pixel   # spacing in metres
+	add_child(col)   # attach to a StaticBody3D</code></pre>
+        <ul>
+          <li><strong>Grid spacing.</strong> HeightMapShape3D always has a spacing of one unit, centred on the node. Scale the node uniformly by the metres per pixel and divide the heights by the same amount. The default physics engine doesn't allow non-uniform scale; Jolt does.</li>
+          <li><strong>From the EXR instead</strong> (Godot 4.3+): load the 32-bit EXR exported with normalisation Off, and pass 0 and 1 as the range so the values stay in metres.
+            <pre><code>var img := Image.load_from_file("res://terrain/heightmap.exr")
+img.convert(Image.FORMAT_RF)
+shape.update_map_data_from_image(img, 0.0, 1.0)  # values are already metres</code></pre>
+            Scale the node and divide the heights by the metres per pixel, as above.
+          </li>
+        </ul>
+      </article>
+
+      <article class="container content faq">
+        <h2>Troubleshooting</h2>
+        <details>
+          <summary>The terrain is terraced in Godot</summary>
+          <p>A PNG was loaded directly, so it was cut down to 8-bit. Use a 32-bit EXR or 16-bit RAW (Step 0).</p>
+        </details>
+        <details>
+          <summary>The terrain is far too big or small horizontally</summary>
+          <p>Set Terrain3D's vertex_spacing, or HTerrain's Map Scale X/Z, to the export's metres per pixel. Both default to 1 m.</p>
+        </details>
+        <details>
+          <summary>There's a cliff along two edges (HTerrain)</summary>
+          <p>The image wasn't 2<sup>n</sup>+1, so HTerrain padded it with zeros. Pad with edge pixels using the ImageMagick command in Step 0.</p>
+        </details>
+        <details>
+          <summary>The terrain is mirrored north to south</summary>
+          <p>Image row 1 (north) maps to −Z in Godot. If your project treats +Z as north, rotate the terrain 180° or flip the image vertically before converting (add <code>-flip</code> to the ImageMagick command).</p>
+        </details>
+      </article>
+    </main>
+    <script type="text/javascript" src="public/dist/js/main.js"></script>
+  </body>
+</html>

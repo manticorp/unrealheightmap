@@ -3,184 +3,97 @@ import path from 'path';
 import PNG from './../src/png';
 import { encodeExr, ExrPixelType } from './../src/exr';
 import { mapHeightSamplesToExr } from './../src/exr-conversion';
-import { decodeExr, ChannelSampleArray, ExrImage, ExrChannel } from './../src/exr-decode';
+import { decodeExr, ExrChannel } from './../src/exr-decode';
 
 const resourcesDir = path.resolve(__dirname, 'resources');
 
 const bufferToArrayBuffer = (buffer: Buffer): ArrayBuffer => {
-  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
 };
 
 const loadHeightmapPng = (fileName: string) => {
-  const pngBuffer = fs.readFileSync(path.join(resourcesDir, fileName));
-  const png = PNG.fromBuffer(bufferToArrayBuffer(pngBuffer));
+  const png = PNG.fromBuffer(bufferToArrayBuffer(fs.readFileSync(path.join(resourcesDir, fileName))));
   const { width, height } = png.getIHDR();
   const raw = png.getImageData() as Uint16Array;
-  const floatData = new Float32Array(raw.length);
-  for (let i = 0; i < raw.length; i++) {
-    floatData[i] = raw[i];
-  }
-  const exrInput = mapHeightSamplesToExr(floatData);
-  const gamma = png.getgAMA() ?? 1;
-  const srgb = png.getsRGB?.() ?? null;
-  const icc = png.getiCCP?.();
-  const chroma = png.getcHRM?.();
-  return { width, height, pngData: raw, exrInput, gamma, srgb, iccProfile: icc, chroma };
+  return { width, height, raw, samples: Float32Array.from(raw) };
 };
 
-
-const expectTypedArraysEqual = (actual: ChannelSampleArray, expected: ChannelSampleArray, pixelType: number) => {
-  expect(actual.length).toBe(expected.length);
-  for (let i = 0; i < expected.length; i++) {
-    const expectedValue = expected[i as number];
-    const actualValue = actual[i as number];
-    if (Number.isNaN(expectedValue as number)) {
-      expect(Number.isNaN(actualValue as number)).toBe(true);
-    } else {
-      const diff = Math.abs((actualValue as number) - (expectedValue as number));
-      if (pixelType === ExrPixelType.Half) {
-        expect(diff).toBeLessThanOrEqual(1);
-      } else if (pixelType === ExrPixelType.Float) {
-        expect(diff).toBeLessThanOrEqual(1e-4);
-      } else {
-        expect(diff).toBe(0);
-      }
-    }
-  }
-};
-
-const assertExrMatchesReference = (generated: Uint8Array, referencePath: string) => {
-  const reference = fs.readFileSync(path.join(resourcesDir, referencePath));
-  const decodedActual = decodeExr(generated);
-  const decodedReference = decodeExr(new Uint8Array(bufferToArrayBuffer(reference)));
-
-  expect(decodedActual.width).toBe(decodedReference.width);
-  expect(decodedActual.height).toBe(decodedReference.height);
-
-  const sortChannels = (channels: ExrChannel[]) =>
-    [...channels].sort((a, b) => a.name.localeCompare(b.name));
-
-  const actualChannels = sortChannels(decodedActual.channels);
-  const expectedChannels = sortChannels(decodedReference.channels);
-
-  expect(actualChannels.map((c) => c.name)).toEqual(expectedChannels.map((c) => c.name));
-
-  for (let i = 0; i < actualChannels.length; i++) {
-    expect(actualChannels[i].pixelType).toBe(expectedChannels[i].pixelType);
-    expectTypedArraysEqual(actualChannels[i].data, expectedChannels[i].data, actualChannels[i].pixelType);
-  }
-};
+const sortChannels = (channels: ExrChannel[]) => [...channels].sort((a, b) => a.name.localeCompare(b.name));
 
 const heightmap = loadHeightmapPng('heightmap_16bit.png');
-// Optional debug aids while iterating locally.
-if (process.env.DEBUG_EXR_FIXTURES === "1") {
-  // eslint-disable-next-line no-console
-  console.log('heightmap sample', {
-    gamma: heightmap.gamma,
-    srgb: heightmap.srgb,
-    iccName: heightmap.iccProfile?.profileName,
-    chroma: heightmap.chroma,
-    values: Array.from(heightmap.pngData.slice(0, 8))
-  });
-  const reference32 = fs.readFileSync(path.join(resourcesDir, 'heightmap_32bit.exr'));
-  const decodedReference = decodeExr(new Uint8Array(bufferToArrayBuffer(reference32)));
-  const refChannels = decodedReference.channels;
-  refChannels.forEach((channel) => {
-    const data = channel.data as Float32Array;
-    // eslint-disable-next-line no-console
-    console.log(`reference ${channel.name} channel`, Array.from(data.slice(0, 8)));
-  });
-  const refSamples = refChannels[0].data as Float32Array;
-  const ratios = [] as number[];
-  const gammas = [] as number[];
-  let numerator = 0;
-  let denominator = 0;
-  let sumX = 0;
-  let sumY = 0;
-  let sumXX = 0;
-  let sumXY = 0;
-  let count = 0;
-  for (let i = 0; i < 8; i++) {
-    ratios.push(refSamples[i] / heightmap.pngData[i]);
-    const norm = heightmap.pngData[i] / 65535;
-    gammas.push(Math.log(refSamples[i]) / Math.log(norm));
-  }
-  let maxDiff = 0;
-  let maxLinearDiff = 0;
-  let maxModelDiff = 0;
-  const approxGamma = 1.7371113906991213;
-  let bestGamma = approxGamma;
-  let bestError = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < refSamples.length; i++) {
-    const norm = heightmap.pngData[i] / 65535;
-    const val = refSamples[i];
-    if (norm > 0 && val > 0) {
-      const lnNorm = Math.log(norm);
-      numerator += Math.log(val) * lnNorm;
-      denominator += lnNorm * lnNorm;
-      const lnVal = Math.log(val);
-      sumX += lnNorm;
-      sumY += lnVal;
-      sumXX += lnNorm * lnNorm;
-      sumXY += lnNorm * lnVal;
-      count++;
-    }
-    const approx = Math.pow(norm, approxGamma);
-    maxDiff = Math.max(maxDiff, Math.abs(approx - val));
-    maxLinearDiff = Math.max(maxLinearDiff, Math.abs(norm - val));
-  }
-  for (let gammaCandidate = 1.4; gammaCandidate <= 2.2; gammaCandidate += 0.001) {
-    let candidateError = 0;
-    for (let i = 0; i < refSamples.length; i++) {
-      const norm = heightmap.pngData[i] / 65535;
-      const val = refSamples[i];
-      const approx = Math.pow(norm, gammaCandidate);
-      candidateError = Math.max(candidateError, Math.abs(approx - val));
-      if (candidateError >= bestError) {
-        break;
-      }
-    }
-    if (candidateError < bestError) {
-      bestError = candidateError;
-      bestGamma = gammaCandidate;
-    }
-  }
-  // eslint-disable-next-line no-console
-  console.log('value ratios', ratios);
-  // eslint-disable-next-line no-console
-  console.log('gamma estimates', gammas);
-  // eslint-disable-next-line no-console
-  console.log('gamma aggregate', numerator / denominator);
-  const gamma = (count * sumXY - sumX * sumY) / (count * sumXX - sumX * sumX);
-  const lnA = (sumY - gamma * sumX) / count;
-  const scale = Math.exp(lnA);
-  for (let i = 0; i < refSamples.length; i++) {
-    const norm = heightmap.pngData[i] / 65535;
-    const model = scale * Math.pow(norm, gamma);
-    maxModelDiff = Math.max(maxModelDiff, Math.abs(model - refSamples[i]));
-  }
-  // eslint-disable-next-line no-console
-  console.log('regression', { gamma, scale, maxDiff, maxLinearDiff, maxModelDiff, bestGamma, bestError });
-}
+
+/** Encode, decode again, and check every channel against the expected values. */
+const roundTrip = (data: Float32Array, pixelType: ExrPixelType) => {
+  const buffer = encodeExr({width: heightmap.width, height: heightmap.height, data, pixelType});
+  return decodeExr(buffer);
+};
 
 describe('OpenEXR export', () => {
-  it('matches Photoshop 16-bit half EXR output', () => {
-    const exrBuffer = encodeExr({
-      width: heightmap.width,
-      height: heightmap.height,
-      data: heightmap.exrInput,
-      pixelType: ExrPixelType.Half,
-    });
-    assertExrMatchesReference(exrBuffer, 'heightmap_16bit.exr');
+  // The structure (size, channel names and types) still matches what Photoshop
+  // writes, so other tools read our files the same way they read Photoshop's.
+  it.each([
+    ['heightmap_16bit.exr', ExrPixelType.Half],
+    ['heightmap_32bit.exr', ExrPixelType.Float],
+  ])('has the same layout as the Photoshop reference %s', (file, pixelType) => {
+    const decoded = roundTrip(mapHeightSamplesToExr(heightmap.samples), pixelType);
+    const reference = decodeExr(new Uint8Array(bufferToArrayBuffer(fs.readFileSync(path.join(resourcesDir, file)))));
+    expect(decoded.width).toBe(reference.width);
+    expect(decoded.height).toBe(reference.height);
+    expect(sortChannels(decoded.channels).map(c => [c.name, c.pixelType]))
+      .toEqual(sortChannels(reference.channels).map(c => [c.name, c.pixelType]));
   });
 
-  it('matches Photoshop 32-bit float EXR output', () => {
-    const exrBuffer = encodeExr({
-      width: heightmap.width,
-      height: heightmap.height,
-      data: heightmap.exrInput,
-      pixelType: ExrPixelType.Float,
-    });
-    assertExrMatchesReference(exrBuffer, 'heightmap_32bit.exr');
+  it('stores normalised heights linearly in 32-bit float', () => {
+    const decoded = roundTrip(mapHeightSamplesToExr(heightmap.samples), ExrPixelType.Float);
+    for (const channel of decoded.channels) {
+      const data = channel.data as Float32Array;
+      for (let i = 0; i < heightmap.raw.length; i++) {
+        expect(Math.abs(data[i] - heightmap.raw[i] / 65535)).toBeLessThanOrEqual(1e-6);
+      }
+    }
+  });
+
+  it('stores normalised heights linearly in 16-bit half float, within half precision', () => {
+    const decoded = roundTrip(mapHeightSamplesToExr(heightmap.samples), ExrPixelType.Half);
+    // The decoder returns raw half-float bits.
+    const halfToFloat = (h: number) => {
+      const exp = (h >> 10) & 0x1f;
+      const frac = h & 0x3ff;
+      const sign = h & 0x8000 ? -1 : 1;
+      if (exp === 0) return sign * Math.pow(2, -14) * (frac / 1024);
+      return sign * Math.pow(2, exp - 15) * (1 + frac / 1024);
+    };
+    const half = decoded.channels[0].data as Uint16Array;
+    let maxError = 0;
+    for (let i = 0; i < heightmap.raw.length; i++) {
+      maxError = Math.max(maxError, Math.abs(halfToFloat(half[i]) - heightmap.raw[i] / 65535));
+    }
+    // Half floats have an 11-bit significand: steps of 1/2048 just below 1.0.
+    expect(maxError).toBeLessThanOrEqual(1 / 2048);
+  });
+
+  it('rounds half floats up across a power of two instead of halving them', () => {
+    // Just below 0.5, 0.25 and 1.0 the significand rounds up and must carry into the exponent.
+    const data = new Float32Array([32767 / 65535, 16383 / 65535, 65534 / 65535, 0.9999999]);
+    const buffer = encodeExr({width: data.length, height: 1, data, pixelType: ExrPixelType.Half});
+    const bits = Array.from(decodeExr(buffer).channels[0].data as Uint16Array);
+    expect(bits).toEqual([0x3800, 0x3400, 0x3c00, 0x3c00]);
+  });
+
+  it('mid-grey stays at the middle of the height range', () => {
+    const decoded = roundTrip(mapHeightSamplesToExr(new Float32Array(heightmap.width * heightmap.height).fill(32767.5)), ExrPixelType.Float);
+    expect((decoded.channels[0].data as Float32Array)[0]).toBeCloseTo(0.5, 6);
+  });
+
+  it('stores true metres, including negative heights, when normalisation is off', () => {
+    const metres = new Float32Array(heightmap.width * heightmap.height);
+    for (let i = 0; i < metres.length; i++) {
+      metres[i] = -400 + (i % 1000) * 9.25;
+    }
+    const decoded = roundTrip(mapHeightSamplesToExr(metres, 'metres'), ExrPixelType.Float);
+    const data = decoded.channels[0].data as Float32Array;
+    for (let i = 0; i < metres.length; i += 97) {
+      expect(data[i]).toBeCloseTo(metres[i], 3);
+    }
   });
 });

@@ -3017,7 +3017,9 @@ export default class App {
     const bitSuffix = pixelType === ExrPixelType.Half ? '16bit' : '32bit';
     const suffix = this.buildTileSuffix(tileInfo);
     const fn = `${base}_${bitSuffix}${suffix}.exr`;
-    const exrData = mapHeightSamplesToExr(output);
+    // With normalisation off (and no manual range) the samples are metres; otherwise 0–65535.
+    const inMetres = this.getNormaliseModeValue() === NormaliseMode.Off && !this.hasManualNormRange();
+    const exrData = mapHeightSamplesToExr(output, inMetres ? 'metres' : 'normalised');
     const exrBuffer = encodeExr({
       width: state.width,
       height: state.height,

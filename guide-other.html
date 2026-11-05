@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QGIS, Gaea, World Machine &amp; Houdini Guide · 16/32 Bit Heightmap Generator</title>
+    <meta name="description" content="Use real-world heightmaps in QGIS (georeferenced, rescaled to metres), Gaea, World Machine, Houdini, Photoshop and Substance Designer.">
+    <link rel="stylesheet" href="public/dist/css/main.css">
+    <script data-goatcounter="https://unrealheightmap.goatcounter.com/count"
+            async src="//gc.zgo.at/count.js"></script>
+  </head>
+  <body class="docs">
+    <main>
+      <article class="container content">
+        <p class="guide-meta"><a href="guides.html">Import Guides</a> › QGIS, Gaea, World Machine, Houdini and more</p>
+        <h1>GIS, terrain tools and image editors</h1>
+        <p>All of these start from the <strong>16-bit PNG</strong> export with <strong>Smart</strong> normalisation. Note the <strong>height range</strong> (lowest and highest in metres) and the <strong>metres per pixel</strong> shown after generating.</p>
+        <nav class="box">
+          <ul>
+            <li><a href="#qgis">QGIS and GDAL</a></li>
+            <li><a href="#gaea">Gaea</a></li>
+            <li><a href="#worldmachine">World Machine</a></li>
+            <li><a href="#houdini">Houdini</a></li>
+            <li><a href="#editors">Photoshop, GIMP and Substance Designer</a></li>
+          </ul>
+        </nav>
+      </article>
+
+      <article class="container content" id="qgis">
+        <h2>QGIS and GDAL</h2>
+        <h3>Load it in the right place</h3>
+        <ol>
+          <li>Keep the PNG together with its <code>.pgw</code> world file and <code>.prj</code>, all with the same base name. The tool links them under the output, and they're included in zips.</li>
+          <li>Drag the PNG into QGIS. GDAL reads the world file automatically, so the image lands in the right place.</li>
+          <li>QGIS may not pick up the projection from the <code>.prj</code> next to a PNG. If the layer shows an unknown CRS, set it: right-click the layer → <strong>Layer CRS → Set Layer CRS</strong> → <strong>EPSG:3857</strong>.</li>
+        </ol>
+        <h3>Turn pixel values into metres</h3>
+        <p>The PNG holds normalised values from 0 to 65535, not metres. Convert with <strong>Raster → Raster Calculator</strong>, replacing 120 and 1620 with your height range:</p>
+        <pre><code>120 + "heightmap@1" / 65535 * (1620 - 120)</code></pre>
+        <p>Save the result as a GeoTIFF (Float32). It now holds true elevations in metres.</p>
+        <h3>Reproject before measuring</h3>
+        <p>EPSG:3857 (Web Mercator) stretches horizontal distances by 1/cos(latitude). Slope, hillshade and distance tools then give wrong answers. Reproject first with <strong>Raster → Projections → Warp (Reproject)</strong>:</p>
+        <ul>
+          <li>Target CRS: your local UTM zone (for example EPSG:32632 for the Alps).</li>
+          <li>Resampling: <strong>Bilinear</strong> or <strong>Cubic</strong>.</li>
+        </ul>
+        <p>Then <strong>Raster → Analysis → Hillshade / Slope</strong> work correctly with a Z factor of 1.</p>
+        <h3>Command line</h3>
+        <pre><code># georeference and rescale to metres in one go (heights 120–1620 m)
+gdal_translate -a_srs EPSG:3857 -ot Float32 -scale 0 65535 120 1620 heightmap.png heightmap_m.tif
+# reproject to UTM 32N at 10 m pixels
+gdalwarp -t_srs EPSG:32632 -tr 10 10 -r cubic heightmap_m.tif heightmap_utm.tif</code></pre>
+      </article>
+
+      <article class="container content" id="gaea">
+        <h2>Gaea</h2>
+        <p>Use Gaea to add erosion, snow and detail on top of real terrain, then export maps for your engine.</p>
+        <ol>
+          <li>Set the terrain's world <strong>Scale</strong> to the area width in metres, and its <strong>Height</strong> to the height range in metres.</li>
+          <li>Add a <strong>File</strong> node and load the 16-bit PNG. Gaea stores heights from 0 to 1 internally and multiplies them by the terrain Height, so a normalised PNG maps directly to true relative heights.</li>
+          <li>Keep the source unclamped. Gaea's docs suggest <strong>Raw</strong> scale for most files.</li>
+          <li>Add erosion nodes. Because the scale is real, erosion and flow features come out at plausible sizes.</li>
+          <li>Export at Unreal sizes (2017, 4033) for Unreal, and use the same Z scale maths as in the <a href="guide-unreal.html#scale">Unreal guide</a>. The range is the Gaea terrain Height.</li>
+        </ol>
+        <p>Gaea's docs also describe a <em>Match / Correct Heights</em> recipe for terrains that need absolute altitudes. See the <a href="https://docs.gaea.app" target="_blank" rel="noopener">Gaea documentation</a>.</p>
+      </article>
+
+      <article class="container content" id="worldmachine">
+        <h2>World Machine</h2>
+        <ol>
+          <li>Add a <strong>File Input</strong> device and load the 16-bit PNG.</li>
+          <li>Under elevation mapping, choose <strong>Specify</strong> and enter the lowest and highest heights in metres. <em>Full Range</em> would stretch it to the whole world height instead.</li>
+          <li>Under <strong>World Placement</strong>, set its size to the area's width and height in metres (<strong>Set in Layout…</strong>), so it matches your world extents.</li>
+          <li>Build erosion and texture outputs as usual. For tiled builds into Unreal, use World Machine's own tiled output.</li>
+        </ol>
+        <p>See the <a href="https://help.world-machine.com/topic/file-input-and-output/" target="_blank" rel="noopener">File Input documentation</a>.</p>
+      </article>
+
+      <article class="container content" id="houdini">
+        <h2>Houdini</h2>
+        <ol>
+          <li>Add a <strong>HeightField File</strong> SOP and load the PNG, with <strong>Type</strong> set to Height.</li>
+          <li><strong>Size Method</strong>: <strong>Grid Spacing</strong>, set to the metres per pixel.</li>
+          <li><strong>Height Scale</strong>: the height range in metres.</li>
+          <li>For absolute altitudes, add a <strong>HeightField Transform</strong> or a Volume Wrangle (<code>@height += 120;</code>, using your lowest height).</li>
+          <li>Load the extra masks into a second HeightField File with Type <strong>Mask</strong> to drive erosion, scattering or layer exports.</li>
+        </ol>
+        <p>See the <a href="https://www.sidefx.com/docs/houdini/nodes/sop/heightfield_file.html" target="_blank" rel="noopener">HeightField File documentation</a>.</p>
+      </article>
+
+      <article class="container content" id="editors">
+        <h2>Photoshop, GIMP and Substance Designer</h2>
+        <p>The rule for all of them: <strong>never let the heightmap drop to 8 bits</strong>. One 8-bit save cuts 65,536 levels to 256, and the terrain comes out terraced.</p>
+        <ul>
+          <li><strong>Photoshop:</strong> the PNG opens in <strong>16 Bits/Channel</strong> mode (check <strong>Image → Mode</strong>). Edit in 16-bit, and save with <strong>Save As</strong> (PNG or TIFF). Some <em>Export As</em> and <em>Save for Web</em> paths write 8-bit. Avoid sharpening and levels with clipping, which flatten peaks and valleys.</li>
+          <li><strong>GIMP:</strong> check <strong>Image → Precision</strong> shows 16-bit, and choose a <em>linear</em> precision so edits don't apply a gamma curve. Export the PNG with 16 bpc (on by default for 16-bit images).</li>
+          <li><strong>Substance 3D Designer:</strong> set the bitmap's colour space to raw or linear (non-colour) and graph precision to 16-bit or higher. Bitmap painting only works on 8-bit images, so do painting on separate masks.</li>
+          <li><strong>Extra maps</strong> (slope, curvature, bands, water) are 8-bit masks by design. They're fine to edit, paint and blur in any editor.</li>
+        </ul>
+      </article>
+    </main>
+    <script type="text/javascript" src="public/dist/js/main.js"></script>
+  </body>
+</html>

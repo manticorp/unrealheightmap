@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Unity Guide · 16/32 Bit Heightmap Generator</title>
+    <meta name="description" content="Import real-world heightmaps into Unity Terrain at true scale: converting to 16-bit RAW, terrain sizing, splatmaps from height bands, and GLB meshes with glTFast.">
+    <link rel="stylesheet" href="public/dist/css/main.css">
+    <script data-goatcounter="https://unrealheightmap.goatcounter.com/count"
+            async src="//gc.zgo.at/count.js"></script>
+  </head>
+  <body class="docs">
+    <main>
+      <article class="container content">
+        <p class="guide-meta"><a href="guides.html">Import Guides</a> › Unity</p>
+        <h1>Unity: Terrain import at real-world scale</h1>
+        <p>This works the same in Unity 2022 LTS and Unity 6. Unity's Terrain imports 16-bit RAW heightmaps with sides of 2<sup>n</sup>+1 pixels, so the work is mostly choosing the right export and converting it.</p>
+      </article>
+
+      <article class="container content">
+        <h2>1. Export</h2>
+        <ul>
+          <li><strong>Format:</strong> PNG 16-bit.</li>
+          <li><strong>Size:</strong> a square 2<sup>n</sup>+1. Type <strong>1025</strong>, <strong>2049</strong> or <strong>4097</strong> into Output Width and Height. The largest Unity Terrain heightmap is 4097. For more, use a tiled export with 2049 or 4097 tiles and one Terrain per tile.</li>
+          <li><strong>Normalisation:</strong> Smart.</li>
+          <li><strong>Extra Outputs:</strong> OpenGL normal map and height bands, if you want them.</li>
+        </ul>
+        <p>Note the <strong>height range</strong> (lowest and highest in metres) and the area width in metres.</p>
+      </article>
+
+      <article class="container content">
+        <h2>2. Convert to RAW</h2>
+        <p>Unity's Import Raw reads headerless 16-bit grayscale, little-endian ("Windows" byte order). With <a href="https://imagemagick.org" target="_blank" rel="noopener">ImageMagick</a> 7:</p>
+        <pre><code>magick heightmap.png -depth 16 -endian LSB gray:heightmap.raw</code></pre>
+        <p>If your export isn't already 2<sup>n</sup>+1 (for example 1024 or 2048), pad it by repeating the edge pixels:</p>
+        <pre><code>magick heightmap.png -virtual-pixel edge -set option:distort:viewport 1025x1025+0+0 -filter point -distort SRT 0 -depth 16 -endian LSB gray:heightmap.raw</code></pre>
+        <p>On ImageMagick 6, use <code>convert</code>. In Photoshop, save as <strong>Photoshop Raw</strong> with <strong>IBM PC</strong> byte order, keeping the image in 16 Bits/Channel mode.</p>
+      </article>
+
+      <article class="container content">
+        <h2>3. Import into a Terrain</h2>
+        <ol>
+          <li><strong>GameObject → 3D Object → Terrain.</strong></li>
+          <li>Select it, open <strong>Terrain Settings</strong> (gear icon) → <strong>Texture Resolutions (On Terrain Data)</strong> → <strong>Import Raw…</strong>, and pick the <code>.raw</code> file.</li>
+          <li>In the Import Heightmap window:
+            <ul>
+              <li><strong>Depth</strong>: Bit 16</li>
+              <li><strong>Resolution</strong>: detected from the file size. Check it reads 1025, 2049 or 4097.</li>
+              <li><strong>Byte Order</strong>: Windows</li>
+              <li><strong>Terrain Size</strong>: X = Z = the area width in metres, and Y = the <strong>height range</strong> in metres</li>
+              <li><strong>Flip Vertically</strong>: Unity puts the first image row (north) at the terrain's −Z edge. Tick it if you want north at +Z.</li>
+            </ul>
+          </li>
+          <li>Set the Terrain's Transform <strong>Position Y</strong> to the <strong>lowest height</strong> for absolute heights.</li>
+        </ol>
+        <div class="box">
+          <p><strong>Example:</strong> a 2049 px export covering 13.5 km, with heights from 120 m to 1,620 m.</p>
+          <p>Terrain Size <code>13500, 1500, 13500</code>, Position Y <code>120</code>.</p>
+        </div>
+        <ul>
+          <li><strong>Height limit:</strong> Terrain Height must be between 1 and 10,000 m, which fits every real-world range.</li>
+          <li><strong>Unpadded size:</strong> Width and Length = (pixels − 1) × metres per pixel. If you padded a 1024 export to 1025, the extra pixel adds one metres-per-pixel step of width.</li>
+        </ul>
+        <h3>Terrain Toolbox alternative</h3>
+        <p>The <strong>Terrain Tools</strong> package (<code>com.unity.terrain-tools</code>) adds <strong>Window → Terrain → Terrain Toolbox</strong>. Its Create New Terrain → <strong>Import Heightmap</strong> can build several tiled terrains from a batch of RAW files, and has <strong>Height Remap</strong> and <strong>Flip Axis</strong> options. Use RAW files there too. 16-bit PNGs imported as Unity textures may lose precision.</p>
+      </article>
+
+      <article class="container content">
+        <h2>4. Terrain layers from the height bands</h2>
+        <p>Unity stores terrain painting in splatmaps: RGBA textures where each channel is one Terrain Layer. Layer 1 is red, layer 2 green, layer 3 blue and layer 4 alpha, and the next splatmap carries on with layer 5. The tool's height bands add up to white, so they make a valid splatmap.</p>
+        <ol>
+          <li>Pack up to four band masks into one RGBA image:
+            <pre><code>magick *_band_00_*.png *_band_01_*.png *_band_02_*.png *_band_03_*.png -set colorspace sRGB -combine -define png:color-type=6 splat0.png</code></pre>
+            If you padded the heightmap, pad the bands to the terrain's <strong>Control Texture Resolution</strong> too (or resize them to it).
+          </li>
+          <li>Create Terrain Layers (grass, rock, snow and so on) on the Terrain, in the same order as the bands.</li>
+          <li>Apply the image with Terrain Toolbox → <strong>Terrain Utilities → Import Splatmaps</strong> → add <code>splat0.png</code> → <strong>Apply to Terrain</strong>.</li>
+        </ol>
+        <p>The OpenGL normal map and albedo are whole-terrain textures. Unity's Terrain Layers are tiling textures, so use them in a custom terrain shader, or on a mesh exported from the tool (below).</p>
+      </article>
+
+      <article class="container content">
+        <h2>5. Meshes instead of Terrain</h2>
+        <ul>
+          <li><strong>GLB:</strong> install <strong>glTFast</strong> (Package Manager → <strong>+</strong> → Install package by name → <code>com.unity.cloud.gltfast</code>). Version 6.18 is the last that supports 2022.3; newer versions need Unity 6. GLB files then import like any model, at 1 unit = 1 m.</li>
+          <li><strong>OBJ:</strong> imports natively. Check the <strong>Scale Factor</strong> and tick <strong>Generate Colliders</strong> on the Model tab.</li>
+          <li>Export with <strong>Top surface only</strong> and <strong>Real world (metres)</strong>. The UVs cover the top, so the albedo and OpenGL normal map line up in a standard Lit material.</li>
+        </ul>
+      </article>
+
+      <article class="container content faq">
+        <h2>Troubleshooting</h2>
+        <details>
+          <summary>The Import Raw resolution is wrong, or the terrain is noise</summary>
+          <p>The file isn't 16-bit little-endian, or isn't a square 2<sup>n</sup>+1. Re-run the ImageMagick command with <code>-endian LSB</code>, check the file is exactly width × height × 2 bytes, and set Byte Order to Windows.</p>
+        </details>
+        <details>
+          <summary>The terrain is terraced</summary>
+          <p>The heightmap went through 8 bits somewhere. Convert from the tool's 16-bit PNG directly, and choose Depth: Bit 16 in the import window.</p>
+        </details>
+        <details>
+          <summary>The mountains are the wrong height</summary>
+          <p>Terrain Size Y must equal the height range of <em>that</em> export. Unity maps white to the full Terrain Height.</p>
+        </details>
+        <details>
+          <summary>Tiled terrains don't line up in height</summary>
+          <p>All tiles from one tiled export share one height scale, so give every Terrain the same Size Y and Position Y. For separate exports, set the same Norm From and Norm To in the tool.</p>
+        </details>
+      </article>
+
+      <article class="container content">
+        <h2>References</h2>
+        <ul>
+          <li><a href="https://docs.unity3d.com/Manual/terrain-Heightmaps.html" target="_blank" rel="noopener">Unity manual: working with heightmaps</a></li>
+          <li><a href="https://docs.unity3d.com/Packages/com.unity.terrain-tools@5.3/manual/toolbox-import-heightmap.html" target="_blank" rel="noopener">Terrain Toolbox: Import Heightmap</a> and <a href="https://docs.unity3d.com/Packages/com.unity.terrain-tools@5.3/manual/toolbox-import-splatmaps.html" target="_blank" rel="noopener">Import Splatmaps</a></li>
+          <li><a href="https://docs.unity3d.com/Packages/com.unity.cloud.gltfast@6.20/manual/installation.html" target="_blank" rel="noopener">glTFast installation</a></li>
+        </ul>
+      </article>
+    </main>
+    <script type="text/javascript" src="public/dist/js/main.js"></script>
+  </body>
+</html>

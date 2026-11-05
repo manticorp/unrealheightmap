@@ -311,3 +311,29 @@
     text-decoration: underline;
   }
 }
+
+// Import guides
+.guide-cards {
+  a.box {
+    display: block;
+    height: 100%;
+    color: inherit;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    h2 { margin-top: 0; font-size: 1.35rem; }
+    p { margin-bottom: 0; }
+    &:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); }
+  }
+}
+.docs .guide-meta {
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+.docs .content .notification code {
+  background: rgba(0, 0, 0, 0.2);
+}
+.docs .content pre {
+  white-space: pre-wrap;
+}
+.docs .content :not(pre) > code {
+  color: #ffc9a8;
+}
