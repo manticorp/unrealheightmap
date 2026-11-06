@@ -8,6 +8,7 @@
  */
 
 import {DerivedMap} from './derived-maps';
+import {rotateIn, rotateOut} from './area';
 
 export type LatLng = [number, number];
 
@@ -33,6 +34,13 @@ export type OsmFeature = {
   layer: string;
   kind: 'line' | 'area';
   widthMetres?: number;
+  /** Tag value that matched, e.g. "motorway" or "stream". */
+  value?: string;
+  name?: string;
+  /** Buildings: height in metres from height=* or building:levels=*. */
+  heightMetres?: number;
+  /** Lines on a bridge: kept as splines but never carved into the ground. */
+  bridge?: boolean;
   /** Area rings, filled together with the even-odd rule so inner rings become holes. */
   rings?: LatLng[][];
   lines?: LatLng[][];
@@ -259,6 +267,28 @@ const parseWidth = (text: string | undefined): number | undefined => {
   return w > 0.3 && w < 500 ? w : undefined;
 };
 
+/** Height of a building in metres from height=* or building:levels=*. */
+export const buildingHeight = (tags: {[key: string]: string}): number | undefined => {
+  const h = /^\s*([0-9]+(?:\.[0-9]+)?)\s*(m)?\s*$/.exec(tags.height || '');
+  if (h) {
+    const v = parseFloat(h[1]);
+    if (v > 0 && v < 1000) return v;
+  }
+  const levels = parseFloat(tags['building:levels'] || '');
+  if (levels > 0 && levels < 200) return levels * 3 + (parseFloat(tags['roof:levels'] || '') > 0 ? 1.5 : 0);
+  return undefined;
+};
+
+const extraTags = (tags: {[key: string]: string}) => {
+  const out: {name?: string, heightMetres?: number} = {};
+  if (tags.name) out.name = tags.name;
+  if (tags.building) {
+    const h = buildingHeight(tags);
+    if (h) out.heightMetres = h;
+  }
+  return out;
+};
+
 const toLatLngs = (geometry: OverpassPoint[] | undefined): LatLng[] | undefined => {
   if (!geometry) return undefined;
   const out: LatLng[] = [];
@@ -352,14 +382,15 @@ export const parseOverpass = (json: OverpassResponse, layerIds: string[]): OsmFe
         const line = toLatLngs(el.geometry);
         if (!line || line.length < 2) continue;
         const widthMetres = parseWidth(tags.width) ?? (layer.widths && layer.widths[value]) ?? 3;
-        features.push({layer: layer.id, kind: 'line', widthMetres, lines: [line]});
+        const bridge = !!tags.bridge && tags.bridge !== 'no';
+        features.push({layer: layer.id, kind: 'line', widthMetres, lines: [line], value, ...extraTags(tags), ...(bridge ? {bridge} : {})});
       } else if (el.type === 'way') {
         const ring = toLatLngs(el.geometry);
         if (!ring || !isClosed(ring)) continue;
-        features.push({layer: layer.id, kind: 'area', rings: [ring]});
+        features.push({layer: layer.id, kind: 'area', rings: [ring], value, ...extraTags(tags)});
       } else if (el.type === 'relation' && tags.type === 'multipolygon' && el.members) {
         const rings = multipolygonRings(el.members);
-        if (rings.length) features.push({layer: layer.id, kind: 'area', rings});
+        if (rings.length) features.push({layer: layer.id, kind: 'area', rings, value, ...extraTags(tags)});
       }
     }
   }
@@ -450,6 +481,8 @@ export type OsmGrid = {
   height: number;
   /** Fixed ground scale for line widths; omit to use the true scale at each feature's latitude. */
   metresPerPixel?: number;
+  /** Degrees clockwise the pixel grid is rotated about its centre. */
+  rotation?: number;
 };
 
 const TILE_SIZE = 256;
@@ -459,10 +492,20 @@ export const latLngToPixel = (grid: OsmGrid, lat: number, lng: number): [number,
   const latRad = lat * Math.PI / 180;
   const tx = (lng + 180) / 360 * n;
   const ty = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
-  return [(tx - grid.x0) * TILE_SIZE, (ty - grid.y0) * TILE_SIZE];
+  const px = (tx - grid.x0) * TILE_SIZE, py = (ty - grid.y0) * TILE_SIZE;
+  if (!grid.rotation) return [px, py];
+  const cx = grid.width / 2, cy = grid.height / 2;
+  const [u, v] = rotateIn(px - cx, py - cy, grid.rotation);
+  return [cx + u, cy + v];
 };
 
 export const pixelToLatLng = (grid: OsmGrid, px: number, py: number): LatLng => {
+  if (grid.rotation) {
+    const cx = grid.width / 2, cy = grid.height / 2;
+    const [dx, dy] = rotateOut(px - cx, py - cy, grid.rotation);
+    px = cx + dx;
+    py = cy + dy;
+  }
   const n = Math.pow(2, grid.zoom);
   const tx = grid.x0 + px / TILE_SIZE;
   const ty = grid.y0 + py / TILE_SIZE;
@@ -472,9 +515,14 @@ export const pixelToLatLng = (grid: OsmGrid, px: number, py: number): LatLng => 
 
 /** Lat/lng box covering the grid, for the Overpass query. */
 export const gridBBox = (grid: OsmGrid): BBox => {
-  const [north, west] = pixelToLatLng(grid, 0, 0);
-  const [south, east] = pixelToLatLng(grid, grid.width, grid.height);
-  return {south, west, north, east};
+  const corners = [[0, 0], [grid.width, 0], [0, grid.height], [grid.width, grid.height]]
+    .map(([x, y]) => pixelToLatLng(grid, x, y));
+  return {
+    south: Math.min(...corners.map(c => c[0])),
+    north: Math.max(...corners.map(c => c[0])),
+    west: Math.min(...corners.map(c => c[1])),
+    east: Math.max(...corners.map(c => c[1])),
+  };
 };
 
 const groundMetresPerPixel = (zoom: number, lat: number) =>

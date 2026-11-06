@@ -10,7 +10,7 @@
 
 import {simplifyGrid} from './mesh-simplify';
 
-export type MeshFormat = 'stl' | 'obj' | 'glb';
+export type MeshFormat = 'stl' | 'obj' | 'glb' | '3mf';
 export type MeshScale = 'real' | 'print';
 export type SimplifyPreset = 'off' | 'low' | 'medium' | 'high';
 
@@ -31,6 +31,10 @@ export type MeshOptions = {
    * height (before exaggeration). 0 = full regular grid. See simplifyErrorForPreset.
    */
   simplify?: number;
+  /** Height (metres) that sits on top of the base; defaults to the lowest point. */
+  datum?: number;
+  /** Z of the walls' bottom edge and the floor, in output units; defaults to 0. */
+  floorZ?: number;
 };
 
 export type MeshInput = {
@@ -147,6 +151,8 @@ export const estimateFileBytes = (
   const tris = counts ? counts.triangles : triangleCount(gridWidth, gridHeight, solid);
   const verts = counts ? counts.vertices : gridWidth * gridHeight + (solid ? (2 * (gridWidth - 1) + 2 * (gridHeight - 1)) * 4 + 1 : 0);
   if (format === 'stl') return 84 + tris * 50;
+  // 3MF is zipped XML: roughly 60 bytes per vertex and 45 per triangle before compression, ~25% after
+  if (format === '3mf') return Math.round((verts * 60 + tris * 45) * 0.25);
   if (format === 'glb') return verts * 32 + tris * 3 * (verts <= 65535 ? 2 : 4) + 1024;
   // OBJ text: ~26 bytes per "v", ~16 per "vt", "f a/a b/b c/c" by index width
   const digits = String(Math.max(1, verts)).length;
@@ -241,6 +247,8 @@ export const buildMesh = (input: MeshInput, options: MeshOptions): Mesh => {
     if (heights[i] < minH) minH = heights[i];
   }
   if (!Number.isFinite(minH)) minH = 0;
+  if (options.datum !== undefined && Number.isFinite(options.datum)) minH = options.datum;
+  const floorZ = options.floorZ !== undefined && Number.isFinite(options.floorZ) ? options.floorZ : 0;
 
   const top: TopSurface = simplifyError > 0 ? simplifyGrid(heights, W, H, simplifyError) : gridSurface(heights, W, H);
   const perimeter = options.solid ? top.perimeter : [];
@@ -279,8 +287,8 @@ export const buildMesh = (input: MeshInput, options: MeshOptions): Mesh => {
       const q = perimeter[(e + 1) % P];
       const pt = copyVertex(p, positions[p * 3 + 2]);
       const qt = copyVertex(q, positions[q * 3 + 2]);
-      const pb = copyVertex(p, 0);
-      const qb = copyVertex(q, 0);
+      const pb = copyVertex(p, floorZ);
+      const qb = copyVertex(q, floorZ);
       indices[t++] = pt; indices[t++] = pb; indices[t++] = qb;
       indices[t++] = pt; indices[t++] = qb; indices[t++] = qt;
     }
@@ -288,11 +296,11 @@ export const buildMesh = (input: MeshInput, options: MeshOptions): Mesh => {
     const centre = v++;
     positions[centre * 3] = 0;
     positions[centre * 3 + 1] = 0;
-    positions[centre * 3 + 2] = 0;
+    positions[centre * 3 + 2] = floorZ;
     uvs[centre * 2] = 0.5;
     uvs[centre * 2 + 1] = 0.5;
     const bottomStart = v;
-    for (let e = 0; e < P; e++) copyVertex(perimeter[e], 0);
+    for (let e = 0; e < P; e++) copyVertex(perimeter[e], floorZ);
     for (let e = 0; e < P; e++) {
       const a = bottomStart + e;
       const b = bottomStart + (e + 1) % P;
@@ -558,7 +566,7 @@ export const meshToGlb = (mesh: Mesh, name: string = 'terrain', texture?: MeshTe
 };
 
 /** STL ignores the texture; OBJ ignores it too (use meshToObjWithMaterial for a textured OBJ). */
-export const encodeMesh = (mesh: Mesh, format: MeshFormat, name?: string, texture?: MeshTexture): ArrayBuffer => {
+export const encodeMesh = (mesh: Mesh, format: Exclude<MeshFormat, '3mf'>, name?: string, texture?: MeshTexture): ArrayBuffer => {
   if (format === 'obj') {
     return new TextEncoder().encode(meshToObj(mesh, name)).buffer as ArrayBuffer;
   }

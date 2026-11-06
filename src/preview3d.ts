@@ -99,6 +99,9 @@ export class TerrainPreview {
   texture: THREE_NS.Texture | null = null;
   lastData: PreviewMeshData | null = null;
   lastColouring: PreviewColouring | null = null;
+  /** Copies of the mesh around it, to check that a seamless heightmap repeats. */
+  tileCopies: THREE_NS.Mesh[] = [];
+  tiling = false;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -196,6 +199,7 @@ export class TerrainPreview {
     this.lastColouring = colouring;
     this.applyMaterial();
     this.scene.add(this.mesh);
+    this.applyTiling();
     this.applySun();
 
     if (reframe || !this.hasFramed) {
@@ -203,6 +207,40 @@ export class TerrainPreview {
       this.hasFramed = true;
     }
     this.requestRender();
+  }
+
+  /** Show the mesh repeated 3 × 3, for checking seamless heightmaps. */
+  setTiling(on: boolean) {
+    this.tiling = on;
+    this.applyTiling();
+    this.requestRender();
+  }
+
+  applyTiling() {
+    const THREE = this.THREE;
+    if (!THREE || !this.scene) return;
+    for (const copy of this.tileCopies) this.scene.remove(copy);
+    this.tileCopies = [];
+    if (!this.tiling || !this.mesh || !this.lastData) return;
+    // The top surface spans the whole footprint; walls (if any) sit on its edge
+    const p = this.lastData.positions;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let v = 0; v < this.lastData.topVertexCount; v++) {
+      minX = Math.min(minX, p[v * 3]); maxX = Math.max(maxX, p[v * 3]);
+      minY = Math.min(minY, p[v * 3 + 1]); maxY = Math.max(maxY, p[v * 3 + 1]);
+    }
+    const sx = maxX - minX, sy = maxY - minY;
+    for (let i = -1; i <= 1; i++) {
+      for (let j = -1; j <= 1; j++) {
+        if (!i && !j) continue;
+        const copy = new THREE.Mesh(this.mesh.geometry, this.mesh.material);
+        copy.position.set(i * sx, j * sy, 0);
+        copy.castShadow = true;
+        copy.receiveShadow = true;
+        this.scene.add(copy);
+        this.tileCopies.push(copy);
+      }
+    }
   }
 
   /** Drape an image (e.g. satellite imagery) over the top surface, or null for height colours. */

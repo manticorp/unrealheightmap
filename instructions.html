@@ -17,24 +17,41 @@
         <p>This tool turns real-world elevation data into heightmaps for Unreal Engine, Godot, Terrain3D, Blender, Unity and 3D printing. It runs entirely in your browser, with nothing to install or sign up for.</p>
         <p>You can export:</p>
         <ul>
-          <li><strong>Heightmaps</strong> as 16-bit PNG, or 16- or 32-bit OpenEXR, either as one file or tiled</li>
-          <li><strong>Texture maps</strong> that line up with the heightmap: normal, slope, curvature, height bands and water mask</li>
+          <li><strong>Heightmaps</strong> as 16-bit PNG, 16- or 32-bit OpenEXR or GeoTIFF, as one file or tiled, rotated, cut to a custom shape or made seamless</li>
+          <li><strong>Texture maps</strong> that line up with the heightmap: normal, slope, curvature, AO, water flow, aspect, sunlight, height bands, OpenStreetMap masks and rule-painted material weightmaps</li>
+          <li><strong>Splines and scatter points</strong> for roads, rivers, trees and rocks, with Blender and Unreal scripts</li>
           <li><strong>Albedo</strong> (colour) images from satellite, topographic and other map styles</li>
-          <li><strong>3D models</strong> as STL, OBJ or GLB, with a 3D preview before you download</li>
+          <li><strong>3D models</strong> as STL, OBJ, GLB or multi-colour 3MF, with buildings, labels and lithophanes, and a 3D preview before you download</li>
+          <li><strong>Contours, laser-cut layers and shaded-relief posters</strong></li>
         </ul>
         <nav class="box">
           <p><strong>Contents</strong></p>
           <ol>
             <li><a href="#quick-start">Quick start</a></li>
+            <li><a href="#layout">Finding your way around</a></li>
             <li><a href="#finding">Finding a place and sharing links</a></li>
             <li><a href="#elevation-data">Elevation data</a></li>
             <li><a href="#size">Output zoom and size</a></li>
             <li><a href="#formats">Output formats</a></li>
             <li><a href="#tiling">Tiled exports</a></li>
+            <li><a href="#rotation">Rotated and custom-shaped areas</a></li>
+            <li><a href="#seamless">Seamless tiling</a></li>
             <li><a href="#normalisation">Normalisation</a></li>
             <li><a href="#extra-maps">Water and extra texture maps</a></li>
+            <li><a href="#sea-level">Sea level</a></li>
+            <li><a href="#carve">Carving roads, rivers and lakes</a></li>
+            <li><a href="#osm">OpenStreetMap layers</a></li>
+            <li><a href="#painter">Material painter</a></li>
+            <li><a href="#scatter">Scatter points</a></li>
+            <li><a href="#splines">Road and river splines</a></li>
             <li><a href="#albedo">Albedo</a></li>
             <li><a href="#3d">3D preview and 3D model export</a></li>
+            <li><a href="#printing">3D printing extras</a></li>
+            <li><a href="#contours">Contour lines</a></li>
+            <li><a href="#profile">Elevation profile</a></li>
+            <li><a href="#viewshed">Viewshed</a></li>
+            <li><a href="#sunlight">Sunlight</a></li>
+            <li><a href="#poster">Posters</a></li>
             <li><a href="#unreal">Importing into Unreal Engine</a></li>
             <li><a href="#other-software">Godot, Terrain3D, Blender and Unity</a></li>
             <li><a href="#gis">Georeferencing (QGIS and GIS)</a></li>
@@ -50,12 +67,30 @@
           <li><strong>Choose the elevation data.</strong> Mapterhorn is the most detailed in most places. See <a href="#elevation-data">Elevation data</a>.</li>
           <li><strong>Set the output zoom and size.</strong> The orange rectangle on the map shows exactly what will be exported.</li>
           <li><strong>Choose a format.</strong> For Unreal, use PNG 16-bit with Smart normalisation (the defaults).</li>
-          <li><strong>Click Generate Heightmap.</strong> Your file downloads when it's ready. Any extra maps you ticked download with it.</li>
+          <li><strong>Click Generate Heightmap.</strong> Your file downloads when it's ready. Any extra maps you ticked download with it, and the <strong>Results</strong> tab shows the Unreal scale values and links to the import helpers.</li>
         </ol>
         <figure class="image">
           <img src="public/im/mapview.png" alt="The map with an orange rectangle marking the export area">
           <figcaption>The orange rectangle shows the area that will be exported.</figcaption>
         </figure>
+      </article>
+
+      <article class="container content" id="layout">
+        <h2>Finding your way around</h2>
+        <p>The map fills the left of the page. The settings are in a sidebar on the right (below the map on phones), grouped into tabs:</p>
+        <table class="table is-fullwidth">
+          <tbody>
+            <tr><th>Area</th><td>Where and how big: latitude, longitude, output zoom, size, map style, rotation, custom shapes and seamless tiling.</td></tr>
+            <tr><th>Terrain</th><td>Where the heights come from and what happens to them: elevation data, sea level, water, and carving roads, rivers and lakes.</td></tr>
+            <tr><th>Layers</th><td>Maps that go with the heightmap: OpenStreetMap masks, the material painter, scatter points and texture maps.</td></tr>
+            <tr><th>Analysis</th><td>Looking at the terrain: elevation profiles, viewsheds, sunlight and contour lines.</td></tr>
+            <tr><th>3D &amp; Print</th><td>3D models, buildings and 3D printing extras (colour bands, labels, lithophanes).</td></tr>
+            <tr><th>Export</th><td>The heightmap file format, tiles, splines, import helpers and posters.</td></tr>
+            <tr><th>Results</th><td>What your last export made: height range, Unreal scale values, download links and notes.</td></tr>
+          </tbody>
+        </table>
+        <p>Each tab is made of sections you can fold away; a small label on a folded section shows when it's switched on. The size, resolution and height range of the area, and the <strong>Generate Heightmap</strong> and <strong>Albedo</strong> buttons, stay at the bottom of the sidebar.</p>
+        <p>The <strong>Map / Split / 3D</strong> switch at the top right of the map shows the map, the 3D preview, or both.</p>
       </article>
 
       <article class="container content" id="finding">
@@ -107,14 +142,29 @@
               <td>12</td>
             </tr>
             <tr>
+              <th>Mapterhorn land + ETOPO sea floor</th>
+              <td>Mapterhorn's detailed land, with ETOPO's bathymetry wherever Mapterhorn shows flat sea, blended along the coast. The best choice for harbours, coasts and islands. Land below sea level away from the coast (the Dead Sea, polders) keeps its real height.</td>
+              <td>18</td>
+            </tr>
+            <tr>
               <th>Mars: MOLA</th>
               <td>The whole of Mars at 463 m, from NASA's Mars Global Surveyor laser altimeter. Heights are relative to the Mars "sea level" (areoid). The map switches to a Mars base map, and all sizes and scales use Mars's radius.</td>
               <td>11</td>
             </tr>
             <tr>
+              <th>Mars: Gale crater</th>
+              <td>A 1 m model of Gale crater and Mount Sharp, where NASA's Curiosity rover is exploring, made from HiRISE stereo images. Outside it, MOLA fills in. The map draws its own shaded relief from the heights.</td>
+              <td>17</td>
+            </tr>
+            <tr>
               <th>Moon: LRO LOLA</th>
               <td>The whole Moon at 118 m, from NASA's Lunar Reconnaissance Orbiter laser altimeter. Heights are relative to a 1,737.4 km sphere.</td>
               <td>12</td>
+            </tr>
+            <tr>
+              <th>Mercury: MESSENGER</th>
+              <td>The whole of Mercury at 665 m, from NASA's MESSENGER mission. Heights are relative to a 2,439.4 km sphere. The map draws its own shaded relief from the heights, since there's no Mercury tile server.</td>
+              <td>10</td>
             </tr>
             <tr>
               <th>Your own file</th>
@@ -123,7 +173,7 @@
             </tr>
           </tbody>
         </table>
-        <p>On Mars and the Moon, OpenStreetMap layers, georeferencing files and the real-sun preview are switched off, since they only describe Earth.</p>
+        <p>On Mars, the Moon and Mercury, OpenStreetMap layers (and everything built on them: carving, splines, buildings), georeferencing files, the sunlight map and the real-sun preview are switched off, since they only describe Earth. Switching world picks a sensible output zoom for it.</p>
         <ul>
           <li><strong>Upscaling.</strong> Where Mapterhorn only has 30 m data, higher output zooms are smoothly upscaled from it. After each export, a line under the result tells you how detailed the source data really was (in metres per pixel), and whether any of it was upscaled.</li>
           <li><strong>Surface model.</strong> Copernicus measures the top of whatever is there, so dense forests and large buildings can show up as bumps. The lidar areas show bare ground.</li>
@@ -177,7 +227,7 @@
 
       <article class="container content" id="tiling">
         <h2>Tiled exports</h2>
-        <p>Use <strong>Tiled Export</strong> to split one big area into several files, for example for Unreal World Partition, or to get past the single-image size limit.</p>
+        <p>Use <strong>Export → Tiles</strong> to split one big area into several files, for example for Unreal World Partition, or to get past the single-image size limit.</p>
         <ul>
           <li><strong>Tile by size</strong>: set the width and height of each tile in pixels.</li>
           <li><strong>Tile by count</strong>: set how many tiles across and down.</li>
@@ -187,6 +237,35 @@
         </ul>
         <p>All tiles share one height scale, so heights match across the seams.</p>
         <p><strong>Very large areas.</strong> With Regular or Smart normalisation, the whole area is generated in memory first and then cut into tiles. If you set normalisation to Off, or enter your own Norm From and Norm To, tiles are generated one at a time instead. That uses far less memory and is the way to go for huge exports.</p>
+      </article>
+
+      <article class="container content" id="rotation">
+        <h2>Rotated and custom-shaped areas</h2>
+        <p>Under <strong>Area → Rotation &amp; custom shape</strong>:</p>
+        <ul>
+          <li><strong>Rotation</strong> turns the export area about its centre (degrees clockwise; 90° makes the top of the image point east), so a valley, coastline or ridge can run along the heightmap. The heights, texture maps, OpenStreetMap masks, splines, scatter points, albedo and 3D models all follow the rotation. World files (<code>.pgw</code>) include the rotation for GIS; GeoTIFFs are written without it.</li>
+          <li><strong>Draw a custom shape</strong> to export just an island, a national park or a county: click points around it, then double-click, press Enter or click the first point. The area moves and resizes to fit the shape (using Unreal sizes). Outside the shape the ground drops to the lowest point inside it, and an <code>area_mask</code> map is exported with the texture maps. Press Escape to cancel.</li>
+        </ul>
+      </article>
+
+      <article class="container content" id="seamless">
+        <h2>Seamless tiling</h2>
+        <p>Real terrain doesn't repeat, so the left edge never matches the right. <strong>Area → Seamless tiling</strong> changes the heights so the heightmap repeats without a visible join, for tiling backgrounds, distant terrain or endless levels.</p>
+        <dl>
+          <dt>Seam cutting (recommended)</dt>
+          <dd>Fetches a strip of extra terrain past the right and bottom edges. Fine detail near each join comes from that strip, switching to the other side along the path where the two differ least (usually a valley floor), as in texture quilting. Then the remaining broad mismatch is spread out smoothly (below). <strong>Overlap strip</strong> sets the strip's width; wider strips find better joins.</dd>
+          <dt>Smooth only</dt>
+          <dd>Splits the heights into a part that repeats, which keeps every crag and gully, and a smooth part that only exists because the edges don't match (Moisan's "periodic plus smooth" method), and drops the smooth part. The broad tilt of the area is spread out across it.</dd>
+          <dt>Mirror</dt>
+          <dd>Repeats a mirrored copy of the middle of the area as a 2 × 2 block. Always seamless, but every feature gets a mirror twin.</dd>
+        </dl>
+        <ul>
+          <li><strong>Repeat</strong>: textures and most engines repeat every N pixels. Unreal landscape sections placed side by side share their edge vertices, so choose <em>last row = first row</em> for those.</li>
+          <li>Absolute heights change, by up to the amount shown in Results, so "sea level at Z = 0" no longer holds.</li>
+          <li>The <strong>seam score</strong> shows how well the area tiles as it is: move the box so similar ground sits at opposite edges for the best results.</li>
+          <li>Tick <strong>3 × 3 tiles</strong> in the 3D preview to see the joins.</li>
+          <li>Seamless tiling works up to about 4,100 × 4,100 px.</li>
+        </ul>
       </article>
 
       <article class="container content" id="normalisation">
@@ -231,7 +310,7 @@
 
       <article class="container content" id="extra-maps">
         <h2>Water and extra texture maps</h2>
-        <p>The settings under <strong>Extra Outputs</strong> add 8-bit PNGs that download alongside the heightmap. They're the same size as the heightmap, and they're split into matching tiles for tiled exports. The summary under Extra Outputs lists what will be included.</p>
+        <p>The settings under <strong>Terrain → Water</strong> and <strong>Layers → Texture maps</strong> add 8-bit PNGs that download alongside the heightmap (in a zip when there are several). They're the same size as the heightmap, and they're split into matching tiles for tiled exports. The summary under Texture maps lists what will be included.</p>
         <h3>Water</h3>
         <ul>
           <li><strong>Water Level (m)</strong> is the height treated as the water surface. 0 is sea level. To pick out a mountain lake, set it to the lake's surface height.</li>
@@ -250,17 +329,64 @@
         </ul>
       </article>
 
+      <article class="container content" id="sea-level">
+        <h2>Sea level</h2>
+        <p><strong>Terrain → Sea level</strong> moves the sea up or down. Heights are shifted so the new sea level is 0 m, so the water mask, "flatten below water level", the 3D preview's water and the Unreal script's Z = 0 all follow it. Presets include the last glacial maximum (−120 m), when land bridges joined Britain to Europe and Asia to America, and all the ice melting (+70 m). Tick <strong>Show the new coastline on the map</strong> to see what floods. The flooding is by height only, so low ground behind hills floods too.</p>
+      </article>
+
+      <article class="container content" id="carve">
+        <h2>Carving roads, rivers and lakes</h2>
+        <p><strong>Terrain → Carve roads, rivers &amp; lakes</strong> shapes the terrain around OpenStreetMap features, so they sit right in a game level:</p>
+        <ul>
+          <li><strong>Roads</strong> get a flat bed that follows a smoothed profile along the road (ignoring bumps and trees in the data), blending back into the hillside over the <strong>shoulder</strong> width. Railways and paths can be included. Bridges are left alone.</li>
+          <li><strong>Rivers and streams</strong> get a channel that always runs downhill, since OpenStreetMap draws them in the direction of flow. Channels are about 15% as deep as the river is wide (0.5 to 6 m), times <strong>River depth</strong>.</li>
+          <li><strong>Lakes</strong> are levelled to one surface height.</li>
+        </ul>
+        <p>Carving applies to the heightmap, 3D models, contours and posters. The OpenStreetMap features are downloaded once per area and reused.</p>
+      </article>
+
       <article class="container content" id="osm">
         <h2>OpenStreetMap layers</h2>
         <p>Tick any of the <strong>OpenStreetMap Layers</strong> (roads, paths, railways, rivers and streams, lakes, forest, grass, farmland, scrub, rock, glacier, sand, wetland, urban areas and buildings) and the export includes a mask for each: white where the feature is, the same size as the heightmap and split into matching tiles. Roads and rivers are drawn at a realistic width for their type.</p>
         <ul>
           <li><strong>Export as weightmaps</strong> makes the layers add up to full white at every pixel, with a <em>base</em> layer for whatever is left. Where layers overlap, the more specific one wins (roads over buildings over water over forest over grass, and so on). That's what Unreal landscape layers expect.</li>
-          <li>The data comes from the public Overpass API, for areas up to 2,500 km². Busy cities with buildings selected can take a minute.</li>
+          <li>The data comes from the public Overpass API, for areas up to 2,500 km². Busy cities with buildings selected can take a minute, and the servers are sometimes slow; if no answer comes within two minutes the export carries on without them.</li>
           <li>OpenStreetMap has no sea areas, so use the height-based <strong>Water mask</strong> for the sea.</li>
           <li>Map data © OpenStreetMap contributors, available under the <a href="https://opendatacommons.org/licenses/odbl/" target="_blank" rel="noopener">Open Database License</a>. Credit it if you publish something made with these masks.</li>
         </ul>
         <h3>Import scripts</h3>
         <p>With <strong>Blender &amp; Unreal import scripts</strong> ticked, links appear under each heightmap export: a Python script for Blender that builds the terrain at real size (with the albedo, if it's in the same folder), a script for Unreal that sets the landscape's scale and height after you import it, so sea level ends up at Z = 0, and a README with all the numbers.</p>
+      </article>
+
+      <article class="container content" id="painter">
+        <h2>Material painter</h2>
+        <p><strong>Layers → Material painter</strong> builds landscape layer weightmaps from rules, such as "rock above 35°", "snow above 2,800 m on north faces" or "forest where OpenStreetMap says forest". Start from a preset (Alpine, Temperate lowland, Desert, Tropical island, Moon / Mars / Mercury) and change it to suit.</p>
+        <ul>
+          <li>Each layer has a height range, a slope range, which way it faces, an optional OpenStreetMap layer it's limited to, a <strong>strength</strong> and some <strong>noise</strong> to break up the edges into natural patches.</li>
+          <li>Layers apply top to bottom. Each takes its share of whatever the layers above it left; the <strong>base layer</strong> gets the rest. Use ▲ ▼ to change the order.</li>
+          <li>The weightmaps always add up to 100%, which is what Unreal landscape layers expect. They're exported as <code>paint_01_snow.png</code> and so on, with a <code>paint_preview.png</code> in the layer colours.</li>
+          <li><strong>Preview on map</strong> paints the area on the map and shows how much each layer covers.</li>
+        </ul>
+      </article>
+
+      <article class="container content" id="scatter">
+        <h2>Scatter points</h2>
+        <p><strong>Layers → Scatter</strong> places trees, rocks, bushes or anything else: positions with a random scale and rotation, at a density (per hectare) wherever a painted layer or OpenStreetMap layer says, never closer than a minimum spacing, and only on slopes gentler than the limit. They're exported with the heightmap in a zip:</p>
+        <ul>
+          <li><code>_scatter.csv</code>: every point, in pixels, Blender metres and Unreal coordinates.</li>
+          <li><code>_scatter_blender.py</code>: one point-cloud object per set, with <em>scale</em> and <em>yaw</em> attributes. Add Geometry Nodes → Instance on Points to place your models.</li>
+          <li><code>_scatter_unreal.py</code>: run it with the landscape selected (after <code>unreal_set_scale.py</code>). It adds one actor per set with an instanced static mesh component, using the mesh path you set (or a basic shape).</li>
+        </ul>
+      </article>
+
+      <article class="container content" id="splines">
+        <h2>Road and river splines</h2>
+        <p><strong>Export → Road &amp; river splines</strong> exports roads, railways, paths and rivers from OpenStreetMap as 3D splines, with heights from the (carved) heightmap, clipped to the area. Bridges get a straight deck between their ends.</p>
+        <ul>
+          <li><code>_splines.csv</code> and <code>_splines.geojson</code> for Houdini, GIS or your own tools.</li>
+          <li><code>_splines_blender.py</code> makes a curve for each one, with a bevel as wide as the road or river.</li>
+          <li><code>_splines_unreal.py</code> (run with the landscape selected, after <code>unreal_set_scale.py</code>) adds an actor with a Spline component for each one, in an <em>OSM Splines</em> folder, tagged with its type and width. Use them with PCG, spline meshes or a Blueprint to place roads, fences or water. It needs Unreal 5.1 or later.</li>
+        </ul>
       </article>
 
       <article class="container content" id="albedo">
@@ -286,6 +412,17 @@
         </table>
         <p>In the 3D preview, tick <strong>Real sun</strong> to light the terrain from where the sun really is over that place, for the chosen date and time of day, with shadows. Press ▶ to play through a day. Times are local solar time, so the sun is highest at 12:00.</p>
         <p>3D models are built from the real heights in metres, not the normalised heightmap, so their proportions are true whatever normalisation you chose.</p>
+        <p><strong>3D buildings from OpenStreetMap</strong> extrudes building footprints to their tagged height (or levels × 3 m, or the default height) and stands them on the terrain. Textured models get real roof colours from the satellite image. They're included in the 3D preview and every 3D format.</p>
+      </article>
+
+      <article class="container content" id="printing">
+        <h2>3D printing extras</h2>
+        <ul>
+          <li><strong>3MF</strong> is a modern 3D printing format that keeps colours and parts. PrusaSlicer, Bambu Studio, OrcaSlicer and Cura all open it.</li>
+          <li><strong>Colour bands</strong> split the model by height into 2 to 6 stacked parts in one 3MF, so a multi-colour printer can print lowlands, slopes and peaks in different filaments: assign a filament to each part in your slicer. Leave <strong>Band heights</strong> empty for equal bands. With one extruder, Results lists the heights (in mm) at which to change filament.</li>
+          <li><strong>Raised label</strong> adds a plinth along the front (south) edge with the place name and coordinates in raised letters. It needs a solid, print-size STL or 3MF.</li>
+          <li><strong>Lithophane</strong> makes a thin flat plate whose thickness follows the hillshade: hold it up to a light or a window and the terrain appears. Print it upright with 100% infill. <strong>Thinnest</strong> and <strong>Thickest</strong> set the range; Print Width sets the size.</li>
+        </ul>
       </article>
 
       <article class="container content" id="contours">
@@ -301,7 +438,22 @@
 
       <article class="container content" id="profile">
         <h2>Elevation profile</h2>
-        <p>Click the mountain button under the zoom controls on the map, then click to draw a line (as many points as you like). Double-click or press Enter to finish. A chart under the map shows the heights along the line, with length, highest and lowest point, total climb and descent, and the steepest gradient. Hover the chart to see the spot on the map, or download it as CSV.</p>
+        <p>Click the mountain button under the zoom controls on the map (or <strong>Analysis → Draw a profile on the map</strong>), then click to draw a line (as many points as you like). Double-click or press Enter to finish. A panel along the bottom of the map shows the heights along the line, with length, highest and lowest point, total climb and descent, and the steepest gradient. Hover the chart to see the spot on the map, or download it as CSV.</p>
+      </article>
+
+      <article class="container content" id="viewshed">
+        <h2>Viewshed</h2>
+        <p><strong>Analysis → Viewshed</strong> shows everything visible from one spot inside the export area. Click <strong>Pick a viewpoint on the map</strong>, then click the map: green is visible and red is hidden. It allows for the curvature of the planet and standard atmospheric refraction. <strong>Eye height</strong> is how far above the ground you are; <strong>Target height</strong> asks "could I see something this tall there?" (0 is the ground itself). <strong>Download visibility mask</strong> saves a white-is-visible PNG the same size as the heightmap.</p>
+      </article>
+
+      <article class="container content" id="sunlight">
+        <h2>Sunlight</h2>
+        <p><strong>Analysis → Sunlight over a year</strong> works out how much sun each spot gets over a year: one day each month, sampled every hour, with shadows from the surrounding terrain and the angle of each slope to the sun. Tick <strong>Export a yearly sunlight map</strong> to get a <code>sunlight.png</code> with the heightmap (white is sunniest), or press <strong>Preview on map</strong>. It assumes clear skies, so read it as relative brightness. Use it for snow, moss, vegetation, or where people would build.</p>
+      </article>
+
+      <article class="container content" id="poster">
+        <h2>Posters</h2>
+        <p><strong>Export → Poster print</strong> makes a print-ready shaded-relief map of the area as a PNG, with a title (from the search box unless you type one), coordinates, height range, a scale bar and a north arrow. Choose a style (classic relief, Swiss, night, blueprint, vintage, red planet), paper size (A4 to A1, square or a 16:9 wallpaper), resolution (300 dpi for print shops) and contour spacing. <strong>Relief exaggeration</strong> deepens the shading for gentle landscapes.</p>
       </article>
 
       <article class="container content">

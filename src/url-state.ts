@@ -23,7 +23,14 @@ export type SettingKey =
   | 'aomap' | 'flowmap' | 'aspectmap'
   | 'osmlayers' | 'osmweights' | 'importscripts'
   | 'contourinterval' | 'contourmode' | 'contourformat' | 'contourwidth' | 'contoursmooth'
-  | 'elevsource';
+  | 'elevsource'
+  | 'rotation' | 'shape' | 'seammode' | 'seamperiod' | 'seamoverlap'
+  | 'sealevel' | 'carveroads' | 'carverail' | 'carverivers' | 'carvelakes' | 'carveshoulder' | 'carvedepth'
+  | 'paint' | 'scatter' | 'sunmap' | 'splines'
+  | 'buildings' | 'buildingheight' | 'label' | 'labeltext' | 'colorbands' | 'bandlevels' | 'bandcolors'
+  | 'lithophane' | 'lithomin' | 'lithomax'
+  | 'posterstyle' | 'posterpaper' | 'posterdpi' | 'postertitle' | 'postercontours' | 'posterz'
+  | 'viewheight';
 
 type SettingDef = {
   /** Short name used in the URL. */
@@ -81,6 +88,39 @@ export const SETTINGS: Record<SettingKey, SettingDef> = {
   contourformat:  {param: 'cfmt',  default: 'svg'},
   contourwidth:   {param: 'cw',    default: '300'},
   contoursmooth:  {param: 'csm',   default: '1'},
+  rotation:       {param: 'rot',   default: '0'},
+  shape:          {param: 'shape', default: ''},
+  seammode:       {param: 'seam',  default: 'off'},
+  seamperiod:     {param: 'seamp', default: 'texture'},
+  seamoverlap:    {param: 'seamo', default: '12'},
+  sealevel:       {param: 'sea',   default: '0'},
+  carveroads:     {param: 'croad', default: '0'},
+  carverail:      {param: 'crail', default: '0'},
+  carverivers:    {param: 'criv',  default: '0'},
+  carvelakes:     {param: 'clake', default: '0'},
+  carveshoulder:  {param: 'cshl',  default: '8'},
+  carvedepth:     {param: 'cdep',  default: '1'},
+  paint:          {param: 'paint', default: ''},
+  scatter:        {param: 'scat',  default: ''},
+  sunmap:         {param: 'sunmap', default: '0'},
+  splines:        {param: 'spl',   default: ''},
+  buildings:      {param: 'bld',   default: '0'},
+  buildingheight: {param: 'bldh',  default: '8'},
+  label:          {param: 'label', default: '0'},
+  labeltext:      {param: 'ltext', default: ''},
+  colorbands:     {param: 'cb',    default: '0'},
+  bandlevels:     {param: 'cblev', default: ''},
+  bandcolors:     {param: 'cbcol', default: ''},
+  lithophane:     {param: 'litho', default: '0'},
+  lithomin:       {param: 'lmin',  default: '0.8'},
+  lithomax:       {param: 'lmax',  default: '3'},
+  posterstyle:    {param: 'pst',   default: 'classic'},
+  posterpaper:    {param: 'ppr',   default: 'a3'},
+  posterdpi:      {param: 'pdpi',  default: '150'},
+  postertitle:    {param: 'ptl',   default: ''},
+  postercontours: {param: 'pci',   default: 'auto'},
+  posterz:        {param: 'pz',    default: '1.5'},
+  viewheight:     {param: 'vsh',   default: '1.7'},
 };
 
 const PARAM_TO_KEY: Record<string, SettingKey> = Object.fromEntries(
@@ -132,7 +172,12 @@ export const buildHash = (values: SettingValues): string => {
     params.set(def.param, toUrlValue(key, value));
   }
   // URLSearchParams encodes commas; they are safe in a fragment and read better unencoded.
-  return '#' + params.toString().replace(/%2C/gi, ',');
+  return '#' + params.toString()
+    .replace(/%2C/gi, ',')
+    .replace(/%7E/gi, '~')
+    .replace(/%3A/gi, ':')
+    .replace(/%2F/gi, '/')
+    .replace(/%3B/gi, ';');
 };
 
 /** Read settings from a hash. Unknown parameters are ignored. */

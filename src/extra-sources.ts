@@ -8,16 +8,17 @@
  *
  * All of them return the usual 256 × 256 grid of metres per slippy tile.
  */
-import {ElevationSource, ElevationSourceId, ElevationStats, Limiter, LruCache, TILE_SIZE} from "./elevation";
+import {ElevationSource, ElevationSourceId, ElevationStats, Limiter, LruCache, TILE_SIZE, parentRegion, resampleRegion} from "./elevation";
 import {decodeTiff} from "./tiff";
 
-export type Body = 'earth' | 'mars' | 'moon';
+export type Body = 'earth' | 'mars' | 'moon' | 'mercury';
 
 /** Sphere radius (metres) used for each body's ground distances. Earth matches the app's haversine. */
 export const BODY_RADIUS: Record<Body, number> = {
   earth: 6371e3,
   mars: 3396190,
   moon: 1737400,
+  mercury: 2439400,
 };
 
 /** Equatorial radius web mercator tiles are defined on. */
@@ -125,6 +126,8 @@ export type PlanetConfig = {
   nativeMetres: number;
   maxZoom: number;
   attributionHtml: string;
+  /** Regional DEMs: where the file has data, in degrees. Elsewhere the fallback source is used. */
+  bounds?: {west: number, east: number, south: number, north: number};
 };
 
 export const PLANETS: PlanetConfig[] = [
@@ -148,6 +151,27 @@ export const PLANETS: PlanetConfig[] = [
     maxZoom: 12,
     attributionHtml: 'Moon elevation: LRO LOLA Science Team, NASA / <a href="https://astrogeology.usgs.gov" target="_blank" rel="noopener">USGS Astrogeology</a> (public domain). Heights are relative to a 1,737.4 km sphere',
   },
+  {
+    id: 'mercury',
+    body: 'mercury',
+    label: 'Mercury: MESSENGER (665 m)',
+    url: 'https://asc-pds-services.s3.us-west-2.amazonaws.com/wms_basemaps3/Mercury/Messenger/Mercury_Messenger_USGS_DEM_Global_665m_v2_32bit_clon0_cog.tif',
+    units: 'metres',
+    nativeMetres: 665,
+    maxZoom: 10,
+    attributionHtml: 'Mercury elevation: MESSENGER MDIS global DEM, NASA / JHU APL / Carnegie Institution, processed by <a href="https://astrogeology.usgs.gov" target="_blank" rel="noopener">USGS Astrogeology</a> (public domain). Heights are relative to a 2,439.4 km sphere',
+  },
+  {
+    id: 'gale',
+    body: 'mars',
+    label: 'Mars: Gale crater, Curiosity rover site (1 m)',
+    url: 'https://asc-pds-services.s3.us-west-2.amazonaws.com/wms_basemaps3/Mars/MSL/MSL_Gale_DEM_Mosaic_1m_v3_deg_cog.tif',
+    units: 'degrees',
+    nativeMetres: 1,
+    maxZoom: 17,
+    bounds: {west: 137.1242, east: 137.6806, south: -5.0986, north: -4.1297},
+    attributionHtml: 'Gale crater elevation: HiRISE stereo DEM mosaic for the Mars Science Laboratory, NASA / JPL / University of Arizona / <a href="https://astrogeology.usgs.gov" target="_blank" rel="noopener">USGS Astrogeology</a> (public domain), with MOLA outside it. Heights are relative to the Mars areoid',
+  },
 ];
 
 type CogLevel = {image: any, width: number, height: number, resX: number, resY: number};
@@ -170,8 +194,12 @@ export class PlanetSource implements ElevationSource {
   cache = new LruCache<Promise<Float32Array>>(64);
   limiter = new Limiter(4);
 
-  constructor(config: PlanetConfig) {
+  /** Used outside a regional DEM's bounds, and to fill its gaps. */
+  fallback?: ElevationSource;
+
+  constructor(config: PlanetConfig, fallback?: ElevationSource) {
     this.config = config;
+    this.fallback = fallback;
     this.id = config.id;
     this.body = config.body;
     this.radius = BODY_RADIUS[config.body];
@@ -220,7 +248,19 @@ export class PlanetSource implements ElevationSource {
     return [lng * k, lat * k];
   }
 
+  /** Does the tile touch the regional DEM at all? */
+  overlaps(z: number, x: number, y: number): boolean {
+    const b = this.config.bounds;
+    if (!b) return true;
+    const west = tileXToLng(x, z), east = tileXToLng(x + 1, z);
+    const north = tileYToLat(y, z), south = tileYToLat(y + 1, z);
+    return east > b.west && west < b.east && north > b.south && south < b.north;
+  }
+
   getTile(z: number, x: number, y: number): Promise<Float32Array> {
+    if (this.fallback && !this.overlaps(z, x, y)) {
+      return this.fallbackAt(z, x, y);
+    }
     trackZoom(this.stats, Math.min(z, this.nativeZoom));
     const key = `${z}/${x}/${y}`;
     const cached = this.cache.get(key);
@@ -276,16 +316,104 @@ export class PlanetSource implements ElevationSource {
         add(x1, y0, tx * (1 - ty));
         add(x0, y1, (1 - tx) * ty);
         add(x1, y1, tx * ty);
-        out[py * TILE_SIZE + px] = weight > 0 ? sum / weight : 0;
+        out[py * TILE_SIZE + px] = weight > 0 ? sum / weight : NaN;
       }
+    }
+    let gaps = 0;
+    for (let i = 0; i < out.length; i++) if (Number.isNaN(out[i])) gaps++;
+    if (gaps && this.fallback) {
+      const fill = await this.fallbackAt(z, x, y);
+      for (let i = 0; i < out.length; i++) if (Number.isNaN(out[i])) out[i] = fill[i];
+    } else if (gaps) {
+      for (let i = 0; i < out.length; i++) if (Number.isNaN(out[i])) out[i] = 0;
     }
     return out;
   }
+
+  /** The fallback source at any zoom, upscaled from its finest tile when needed. */
+  async fallbackAt(z: number, x: number, y: number): Promise<Float32Array> {
+    const fb = this.fallback!;
+    if (z <= fb.maxZoom) return fb.getTile(z, x, y);
+    const region = parentRegion(z, x, y, fb.maxZoom, TILE_SIZE);
+    const parent = await fb.getTile(fb.maxZoom, region.px, region.py);
+    return resampleRegion(parent, TILE_SIZE, region.x0, region.y0, region.size);
+  }
 }
+
+/**
+ * Land from one source and sea floor from another: Mapterhorn's detailed land
+ * (whose sea is flat at 0 m) over ETOPO's bathymetry, blended along the coast.
+ */
+export class LandSeaSource implements ElevationSource {
+  id: ElevationSourceId = 'landsea';
+  body: Body = 'earth';
+  radius = BODY_RADIUS.earth;
+  label = 'Mapterhorn land + ETOPO sea floor';
+  maxZoom: number;
+  attributionHtml: string;
+  stats: ElevationStats = {bestZoom: null, worstZoom: null};
+
+  constructor(private land: ElevationSource, private sea: ElevationSource) {
+    this.maxZoom = land.maxZoom;
+    this.attributionHtml = `${land.attributionHtml}; ${sea.attributionHtml}`;
+  }
+  resetStats() {
+    this.land.resetStats();
+    this.sea.resetStats();
+  }
+  getStats() {
+    return this.land.getStats();
+  }
+
+  async seaTile(z: number, x: number, y: number): Promise<Float32Array> {
+    if (z <= this.sea.maxZoom) return this.sea.getTile(z, x, y);
+    const region = parentRegion(z, x, y, this.sea.maxZoom, TILE_SIZE);
+    const parent = await this.sea.getTile(this.sea.maxZoom, region.px, region.py);
+    return resampleRegion(parent, TILE_SIZE, region.x0, region.y0, region.size);
+  }
+
+  async getTile(z: number, x: number, y: number): Promise<Float32Array> {
+    const land = await this.land.getTile(z, x, y);
+    // Only fetch the sea floor where the land data shows sea
+    let anySea = false;
+    for (let i = 0; i < land.length; i++) if (land[i] < 2 && land[i] > -1) { anySea = true; break; }
+    if (!anySea) return land;
+    const sea = await this.seaTile(z, x, y);
+    return blendLandSea(land, sea);
+  }
+}
+
+/**
+ * Where the land data sits at sea level (|h| < 2 m, i.e. the flat sea of a
+ * land-only model) use the sea floor, never above 0 m, fading over the first
+ * couple of metres so beaches don't get a step. Land below sea level away from
+ * the coast (the Dead Sea, polders) keeps its real height.
+ */
+export const blendLandSea = (land: Float32Array, sea: Float32Array): Float32Array => {
+  const out = new Float32Array(land.length);
+  for (let i = 0; i < land.length; i++) {
+    const h = land[i];
+    if (h >= 2 || h <= -1) {
+      out[i] = h;
+      continue;
+    }
+    const floor = Math.min(sea[i], -0.5);
+    const t = Math.max(0, Math.min(1, (h - 0.2) / 1.8));
+    const w = t * t * (3 - 2 * t);
+    out[i] = h * w + floor * (1 - w);
+  }
+  return out;
+};
 
 /** A handy starting view for each body. */
 export const BODY_HOME: Record<Body, {lat: number, lng: number, zoom: number, label: string}> = {
   earth: {lat: 27.9881, lng: 86.925, zoom: 12, label: 'Everest'},
   mars: {lat: 18.4, lng: -134.0, zoom: 6, label: 'Olympus Mons'},
   moon: {lat: -43.31, lng: -11.36, zoom: 8, label: 'Tycho crater'},
+  mercury: {lat: 31.5, lng: -170.0, zoom: 4, label: 'Caloris basin'},
+};
+
+/** Starting views for sources that cover only part of a world. */
+export const SOURCE_HOME: Partial<Record<ElevationSourceId, {lat: number, lng: number, zoom: number, label: string}>> = {
+  gale: {lat: -4.72, lng: 137.38, zoom: 12, label: 'Mount Sharp, Gale crater'},
 };
