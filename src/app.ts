@@ -30,7 +30,7 @@ import {PainterEditor, ScatterEditor} from "./painter-ui";
 import {PaintSettings, decodePaint, encodePaint, paintOsmLayers} from "./painter";
 import {ScatterSet, decodeScatter, encodeScatter} from "./scatter";
 import {LeafType, TreeRaster, TreeSettings, defaultTreeSettings} from "./trees";
-import {fetchTreeRasters, overlapsSwitzerland} from "./tree-sources";
+import {TreeProgress, fetchTreeRasters, overlapsSwitzerland} from "./tree-sources";
 import {SeamlessOptions, SEAMLESS_MAX_PIXELS, seamlessMargin, seamScore} from "./seamless";
 import {CarveOptions, carveLayers, wantsCarve} from "./carve";
 import {SPLINE_LAYERS} from "./splines";
@@ -2342,6 +2342,10 @@ export default class App {
     this.els.treePreview = button('Preview on map', 'is-small is-info is-light');
     this.els.treeHide = button('Hide preview', 'is-small').hide();
     this.els.treeNote = note();
+    this.els.treeProgress = $('<div class="tree-progress" role="status" aria-live="polite">').hide().append(
+      $('<progress class="progress is-small is-info" max="100" value="0">'),
+      $('<p class="tree-progress-text">'),
+    );
     this.sections.trees.append(
       note('A treemap from real data: where the trees are, how tall, and conifer or broadleaf. Exported with the heightmap as greyscale maps on the same grid (density, conifer, broadleaf and canopy height) plus every tree as CSV, Blender and Unreal scripts. Earth only.'),
       on.label,
@@ -2353,6 +2357,7 @@ export default class App {
       ),
       swiss.label,
       $('<div class="buttons are-small">').append(this.els.treePreview, this.els.treeHide),
+      this.els.treeProgress,
       this.els.treeNote,
     );
     const keys : [SettingKey, JQuery<HTMLElement>][] = [
@@ -2390,44 +2395,85 @@ export default class App {
     return this.isEarth() && (this.inputs.treeMap?.is(':checked') ?? false);
   }
   /** Canopy height / tree cover rasters for an output state's area. */
-  async treeRastersFor(state : ConfigState, settings : TreeSettings) : Promise<TreeRaster[]> {
+  async treeRastersFor(state : ConfigState, settings : TreeSettings, progress? : TreeProgress) : Promise<TreeRaster[]> {
     const box = gridBBox(this.osmGridFor(state));
     const mpp = (state.phys.width / state.width + state.phys.height / state.height) / 2;
-    return fetchTreeRasters(box, mpp, {swiss: settings.swiss, singleTrees: true});
+    return fetchTreeRasters(box, mpp, {swiss: settings.swiss, singleTrees: true}, undefined, progress);
   }
+  /** Show (fraction 0–1) or hide (null) the tree preview's progress bar. */
+  setTreeProgress(message : string | null, fraction = 0) {
+    const wrap = this.els.treeProgress;
+    if (!wrap) return;
+    if (message === null) {
+      wrap.hide();
+      return;
+    }
+    wrap.show();
+    wrap.find('progress').val(Math.round(Math.max(0, Math.min(1, fraction)) * 100));
+    wrap.find('.tree-progress-text').text(message);
+  }
+  treePreviewRun = 0;
   async previewTrees() {
     if (!this.isEarth()) {
       this.els.treeNote.text('Tree data is for Earth only.');
       return;
     }
+    const run = ++this.treePreviewRun;
     const button = this.els.treePreview;
     button.addClass('is-loading');
+    this.els.treeNote.empty();
+    // Steps: heights 0–10%, tree data 10–90% (OpenStreetMap leaf types alongside), drawing 90–100%
+    const step = (message : string, fraction : number) => { if (run === this.treePreviewRun) this.setTreeProgress(message, fraction); };
     try {
       const settings = this.getTreeSettings();
+      step('Loading the terrain…', 0.02);
       const o = await this.fetchOverlayHeights(512);
       const grid = this.osmGridFor(o.state);
-      const [rasters, features] = await Promise.all([
-        fetchTreeRasters(gridBBox(grid), (o.mpp.x + o.mpp.y) / 2, {swiss: settings.swiss}),
-        this.fetchOsm(o.state, ['forest'], true),
-      ]);
+      // OpenStreetMap (for conifer / broadleaf) can be slow, so it doesn't hold up the first preview
+      const osm = this.fetchOsm(o.state, ['forest'], true);
+      let osmArrived = false;
+      osm.finally(() => { osmArrived = true; });
+      step('Finding tree data for this area…', 0.1);
+      const rasters = await fetchTreeRasters(gridBBox(grid), (o.mpp.x + o.mpp.y) / 2, {swiss: settings.swiss}, undefined,
+        (message, fraction) => step(message, 0.1 + 0.8 * fraction));
+      if (run !== this.treePreviewRun) return;
       if (!rasters.length) {
         this.removeOverlay('trees');
         this.els.treeNote.text('No tree data found here.');
         return;
       }
-      const result = await processor.treePreview(o.heights, o.width, o.height, grid, o.mpp, rasters, features ?? undefined, settings);
-      this.showOverlay('trees', result.preview, o.width, o.height, o.bounds, 0.9);
-      this.els.treeHide.show();
-      const s = result.stats;
       const swissHere = overlapsSwitzerland(gridBBox(grid));
-      this.els.treeNote.text(`Trees cover ${(s.cover * 100).toFixed(s.cover < 0.1 ? 1 : 0)}% of the box. Data: ${s.sources.join(' + ')}. Dark green = conifer, light green = broadleaf.` +
-        (swissHere && settings.swiss && !s.sources.some(x => x.startsWith('Swiss')) ? ' No Swiss canopy heights here, so tree cover is used.' : '') +
-        (s.sources.some(x => x.startsWith('Swiss')) ? ' Single trees are picked out of the canopy heights in the export.' : ''));
+      const draw = async (features : OsmFeature[] | undefined, leafPending : boolean) => {
+        const result = await processor.treePreview(o.heights, o.width, o.height, grid, o.mpp, rasters, features, settings);
+        if (run !== this.treePreviewRun) return;
+        this.showOverlay('trees', result.preview, o.width, o.height, o.bounds, 0.9);
+        this.els.treeHide.show();
+        const st = result.stats;
+        const leafName = settings.leaf === 'conifer' ? 'conifers' : settings.leaf === 'broadleaf' ? 'broadleaf' : 'mixed';
+        this.els.treeNote.text(`Trees cover ${(st.cover * 100).toFixed(st.cover < 0.1 ? 1 : 0)}% of the box. Data: ${st.sources.join(' + ')}. Dark green = conifer, light green = broadleaf.` +
+          (swissHere && settings.swiss && !st.sources.some(x => x.startsWith('Swiss')) ? ' No Swiss canopy heights here, so tree cover is used.' : '') +
+          (st.sources.some(x => x.startsWith('Swiss')) ? ' Single trees are picked out of the canopy heights in the export.' : '') +
+          (leafPending ? ` Showing all trees as ${leafName} until OpenStreetMap's forest types arrive.` : ''));
+      };
+      step('Mapping the trees…', 0.93);
+      const ready = osmArrived ? await osm : null;
+      await draw(ready ?? undefined, !osmArrived);
+      if (osmArrived || run !== this.treePreviewRun) return;
+      // Keep the bar up (without blocking the map) until the leaf types are in
+      button.removeClass('is-loading');
+      step('Preview shown. Adding conifer / broadleaf from OpenStreetMap (this server can be slow)…', 0.97);
+      const features = await osm;
+      if (run !== this.treePreviewRun) return;
+      if (features?.some(f => f.leafType)) await draw(features, false);
+      else await draw(undefined, false);
     } catch (e) {
       console.error('Tree preview failed', e);
-      this.els.treeNote.text('Could not load the tree data. Please try again.');
+      if (run === this.treePreviewRun) this.els.treeNote.text('Could not load the tree data. Please try again.');
     } finally {
-      button.removeClass('is-loading');
+      if (run === this.treePreviewRun) {
+        button.removeClass('is-loading');
+        this.setTreeProgress(null);
+      }
     }
   }
   createAnalysisOptions() {
@@ -5078,7 +5124,7 @@ export default class App {
         this.showProcessingProgress('Downloading tree data…', 0);
         const settings = this.getTreeSettings();
         try {
-          const rasters = await this.treeRastersFor(target, settings);
+          const rasters = await this.treeRastersFor(target, settings, (message, fraction) => this.showProcessingProgress(message, Math.round(fraction * 100)));
           if (rasters.length) terrain.trees = {settings, rasters};
           else this.displayError({text: 'No tree data was found for this area, so the treemap was skipped.'});
         } catch (e) {

@@ -738,3 +738,17 @@ span.info-icon {
     pointer-events: none;
   }
 }
+
+// Tree data download progress in the Real trees section
+.tree-progress {
+  margin: 0.5rem 0;
+
+  .progress {
+    margin-bottom: 0.3rem;
+  }
+
+  .tree-progress-text {
+    font-size: 0.75rem;
+    color: $grey-light;
+  }
+}

@@ -30,6 +30,9 @@ type CogLevel = {
 
 type Cog = {url: string, query: string, levels: CogLevel[], originX: number, originY: number, noData: number | null, float: boolean};
 
+/** Progress for the slow downloads: a message and how far along (0–1). */
+export type TreeProgress = (message: string, fraction: number) => void;
+
 /** Most pixels a single tree raster may have (about 64 MB of floats). */
 export const TREE_RASTER_MAX_PIXELS = 4096 * 4096;
 
@@ -88,7 +91,7 @@ const pickLevel = (cog: Cog, target: number, spanX: number, spanY: number): numb
  * Read a window of one level into `out` (row-major, `w` wide), only filling
  * pixels that are still NaN, so older data can fill gaps left by newer data.
  */
-const readWindow = async (cog: Cog, levelIndex: number, col0: number, row0: number, w: number, h: number, out: Float32Array, signal?: AbortSignal) => {
+const readWindow = async (cog: Cog, levelIndex: number, col0: number, row0: number, w: number, h: number, out: Float32Array, signal?: AbortSignal, onTile?: (done: number, total: number) => void) => {
   const {getDecoder} = await import(/* webpackChunkName: "geotiff" */ 'geotiff');
   const level = cog.levels[levelIndex];
   const fd = level.fd;
@@ -124,9 +127,12 @@ const readWindow = async (cog: Cog, levelIndex: number, col0: number, row0: numb
             out[o] = v;
           }
         }
+        onTile?.(++done, jobs.length);
       }));
     }
   }
+  let done = 0;
+  onTile?.(0, jobs.length);
   await Promise.all(jobs);
 };
 
@@ -152,7 +158,8 @@ const worldCoverTileName = (lat: number, lng: number) => {
 };
 
 /** WorldCover land-cover classes over the box, at about `metresPerPixel` (never finer than 10 m). */
-export const fetchWorldCover = async (box: BBox, metresPerPixel: number, signal?: AbortSignal): Promise<TreeRaster | null> => {
+export const fetchWorldCover = async (box: BBox, metresPerPixel: number, signal?: AbortSignal, progress?: TreeProgress): Promise<TreeRaster | null> => {
+  progress?.('Connecting to ESA WorldCover…', 0);
   const query = await worldCoverQuery();
   const latMid = (box.south + box.north) / 2;
   const targetDeg = Math.max(1 / 12000, metresPerPixel / (111320 * Math.cos(latMid * Math.PI / 180)));
@@ -162,6 +169,7 @@ export const fetchWorldCover = async (box: BBox, metresPerPixel: number, signal?
   for (let la = Math.floor(box.south / 3) * 3; la < box.north; la += 3) {
     for (let lo = Math.floor(box.west / 3) * 3; lo < box.east; lo += 3) tiles.push(worldCoverTileName(la + 0.5, lo + 0.5));
   }
+  progress?.('Opening ESA WorldCover tree cover…', 0.05);
   const opened = await Promise.all(tiles.map(t => openCog(t.url, query)));
   const first = opened.find(Boolean);
   if (!first) return null;
@@ -170,12 +178,17 @@ export const fetchWorldCover = async (box: BBox, metresPerPixel: number, signal?
   const west = Math.floor(box.west / res) * res, north = Math.ceil(box.north / res) * res;
   const width = Math.max(1, Math.ceil((box.east - west) / res)), height = Math.max(1, Math.ceil((north - box.south) / res));
   const data = new Float32Array(width * height).fill(NaN);
-  await Promise.all(opened.map(async (cog) => {
+  const tileCounts = opened.map(() => ({done: 0, total: 0}));
+  const report = () => {
+    const done = tileCounts.reduce((a, t) => a + t.done, 0), total = tileCounts.reduce((a, t) => a + t.total, 0);
+    if (total) progress?.(`Reading tree cover: ${done} of ${total} tiles`, 0.1 + 0.9 * done / total);
+  };
+  await Promise.all(opened.map(async (cog, k) => {
     if (!cog || cog.levels.length <= levelIndex) return;
     const l = cog.levels[levelIndex];
     const col0 = Math.round((west - cog.originX) / l.resX), row0 = Math.round((cog.originY - north) / l.resY);
     const sub = new Float32Array(width * height).fill(NaN);
-    await readWindow(cog, levelIndex, col0, row0, width, height, sub, signal);
+    await readWindow(cog, levelIndex, col0, row0, width, height, sub, signal, (done, total) => { tileCounts[k] = {done, total}; report(); });
     for (let i = 0; i < sub.length; i++) if (Number.isNaN(data[i]) && !Number.isNaN(sub[i])) data[i] = sub[i];
   }));
   return {kind: 'cover', crs: '4326', data, width, height, originX: west, originY: north, resX: res, resY: res, label: `ESA WorldCover 2021 (${Math.max(10, Math.round(res * 111320 / 10) * 10)} m)`};
@@ -195,28 +208,39 @@ export const overlapsSwitzerland = (box: BBox) =>
   box.east > SWISS_BOUNDS.west && box.west < SWISS_BOUNDS.east && box.north > SWISS_BOUNDS.south && box.south < SWISS_BOUNDS.north;
 
 /** Canopy heights (m) over the box, newest survey first, at about `metresPerPixel` (never finer than 1 m). */
-export const fetchSwissCanopy = async (box: BBox, metresPerPixel: number, signal?: AbortSignal): Promise<TreeRaster | null> => {
+export const fetchSwissCanopy = async (box: BBox, metresPerPixel: number, signal?: AbortSignal, progress?: TreeProgress): Promise<TreeRaster | null> => {
   if (!overlapsSwitzerland(box)) return null;
   const corners = [[box.south, box.west], [box.south, box.east], [box.north, box.west], [box.north, box.east]].map(([la, lo]) => wgs84ToLv95(la, lo));
   const minE = Math.min(...corners.map(c => c[0])) - 20, maxE = Math.max(...corners.map(c => c[0])) + 20;
   const minN = Math.min(...corners.map(c => c[1])) - 20, maxN = Math.max(...corners.map(c => c[1])) + 20;
-  const opened = (await Promise.all(VHM_YEARS.map(y => openCog(vhmUrl(y)).catch(() => null)))).filter((c): c is Cog => !!c);
-  if (!opened.length) return null;
-  const levelIndex = pickLevel(opened[0], Math.max(1, metresPerPixel), maxE - minE, maxN - minN);
-  const l0 = opened[0].levels[levelIndex];
+  let openedCount = 0;
+  progress?.(`Opening Swiss canopy surveys: 0 of ${VHM_YEARS.length}`, 0);
+  const surveys = (await Promise.all(VHM_YEARS.map(year => openCog(vhmUrl(year)).catch(() => null).then(cog => {
+    openedCount++;
+    progress?.(`Opening Swiss canopy surveys: ${openedCount} of ${VHM_YEARS.length}`, 0.25 * openedCount / VHM_YEARS.length);
+    return {year, cog};
+  })))).filter((s): s is {year: number, cog: Cog} => !!s.cog);
+  if (!surveys.length) return null;
+  const levelIndex = pickLevel(surveys[0].cog, Math.max(1, metresPerPixel), maxE - minE, maxN - minN);
+  const l0 = surveys[0].cog.levels[levelIndex];
   const res = l0.resX;
   const west = Math.floor(minE / res) * res, north = Math.ceil(maxN / res) * res;
   const width = Math.ceil((maxE - west) / res), height = Math.ceil((north - minN) / res);
   const data = new Float32Array(width * height).fill(NaN);
   let used = 0;
-  for (const cog of opened) {
+  for (let k = 0; k < surveys.length; k++) {
+    const {year, cog} = surveys[k];
     const l = cog.levels[levelIndex];
     if (!l) continue;
     const before = countNaN(data);
-    await readWindow(cog, levelIndex, Math.round((west - cog.originX) / l.resX), Math.round((cog.originY - north) / l.resY), width, height, data, signal);
+    const base = 0.25 + 0.75 * k / surveys.length, span = 0.75 / surveys.length;
+    progress?.(`Reading canopy heights from the ${year} survey (${res} m)…`, base);
+    await readWindow(cog, levelIndex, Math.round((west - cog.originX) / l.resX), Math.round((cog.originY - north) / l.resY), width, height, data, signal,
+      (done, total) => { if (total) progress?.(`Reading canopy heights from the ${year} survey: ${done} of ${total} tiles`, base + span * done / total); });
     if (countNaN(data) < before) used++;
     if (countNaN(data) === 0) break;
   }
+  progress?.('Canopy heights read', 1);
   if (countNaN(data) === data.length) return null;
   return {kind: 'height', crs: '2056', data, width, height, originX: west, originY: north, resX: res, resY: res, label: `Swiss NFI vegetation height (${res} m${used > 1 ? `, ${used} survey years` : ''})`};
 };
@@ -232,10 +256,21 @@ const countNaN = (a: Float32Array) => {
  * `singleTrees` reads the canopy at full 1 m detail (as far as the size limit allows), which
  * picking out single trees needs; otherwise it is read at about the output's detail.
  */
-export const fetchTreeRasters = async (box: BBox, metresPerPixel: number, options: {swiss: boolean, singleTrees?: boolean}, signal?: AbortSignal): Promise<TreeRaster[]> => {
+export const fetchTreeRasters = async (box: BBox, metresPerPixel: number, options: {swiss: boolean, singleTrees?: boolean}, signal?: AbortSignal, progress?: TreeProgress): Promise<TreeRaster[]> => {
+  // Both downloads run at once; report the slower one's message with their combined progress
+  const useSwiss = options.swiss && overlapsSwitzerland(box);
+  const parts = {swiss: useSwiss ? 0 : 1, cover: 0};
+  const messages = {swiss: '', cover: ''};
+  const report = (part: 'swiss' | 'cover') => (message: string, fraction: number) => {
+    parts[part] = fraction;
+    messages[part] = message;
+    const total = useSwiss ? parts.swiss * 0.75 + parts.cover * 0.25 : parts.cover;
+    const shown = useSwiss && parts.swiss < 1 ? messages.swiss : parts.cover < 1 ? messages.cover : message;
+    progress?.(shown, total);
+  };
   const [swiss, cover] = await Promise.all([
-    options.swiss ? fetchSwissCanopy(box, options.singleTrees ? 1 : metresPerPixel, signal).catch(e => { console.warn('Swiss canopy failed', e); return null; }) : Promise.resolve(null),
-    fetchWorldCover(box, metresPerPixel, signal),
+    useSwiss ? fetchSwissCanopy(box, options.singleTrees ? 1 : metresPerPixel, signal, report('swiss')).catch(e => { console.warn('Swiss canopy failed', e); return null; }) : Promise.resolve(null),
+    fetchWorldCover(box, metresPerPixel, signal, report('cover')),
   ]);
   return [swiss, cover].filter((r): r is TreeRaster => !!r);
 };
