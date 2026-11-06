@@ -52,7 +52,8 @@ import {
   ContourResult,
 } from './processor';
 
-const worker = new Worker("public/dist/js/processor.js");
+// The build id in the URL stops browsers reusing a cached worker from an older build
+const worker = new Worker(`public/dist/js/processor.js?v=${typeof __BUILD__ !== 'undefined' ? __BUILD__ : 'dev'}`);
 const processor = Comlink.wrap<ProcessorWorker>(worker);
 
 import {
