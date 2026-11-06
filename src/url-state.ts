@@ -31,7 +31,7 @@ export type SettingKey =
   | 'buildings' | 'buildingheight' | 'label' | 'labeltext' | 'colorbands' | 'bandlevels' | 'bandcolors'
   | 'lithophane' | 'lithomin' | 'lithomax'
   | 'posterstyle' | 'posterpaper' | 'posterdpi' | 'postertitle' | 'postercontours' | 'posterz'
-  | 'posterwidth' | 'posterheight' | 'posterunit' | 'postercredit'
+  | 'posterwidth' | 'posterheight' | 'posterunit' | 'postercredit' | 'posterqr'
   | 'viewheight';
 
 type SettingDef = {
@@ -132,6 +132,7 @@ export const SETTINGS: Record<SettingKey, SettingDef> = {
   posterheight:   {param: 'pdh',   default: '40'},
   posterunit:     {param: 'pu',    default: 'cm'},
   postercredit:   {param: 'pcr',   default: '1'},
+  posterqr:       {param: 'pqr',   default: '1'},
   viewheight:     {param: 'vsh',   default: '1.7'},
 };
 

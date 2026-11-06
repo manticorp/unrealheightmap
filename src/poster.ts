@@ -204,6 +204,31 @@ export const pagePixels = (paper: PaperSize, dpi: number, mapAspect: number, cus
 /** Tracked link printed as a QR code on posters that carry the credit. */
 export const POSTER_CREDIT_URL = 'https://links.ikibiko.com/y6mKuO';
 
+/**
+ * Link for the poster's QR code: the tracked link with UTM tags, plus the
+ * page's settings hash so scanning it reopens the same area and options.
+ */
+export const posterQrUrl = (hash: string, content: string): string => {
+  const query = new URLSearchParams({utm_source: 'poster', utm_medium: 'qr', utm_content: content}).toString();
+  const h = hash && !hash.startsWith('#') ? `#${hash}` : hash;
+  return `${POSTER_CREDIT_URL}?${query}${h}`;
+};
+
+const luminance = (hex: string) => {
+  const c = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(v => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+};
+
+/**
+ * QR colours from a poster theme. Scanners expect dark modules on a light
+ * background, so the darker of ink and paper draws the modules and the lighter
+ * one fills the square (on dark styles that is an ink-coloured tile).
+ */
+export const qrColours = (theme: {ink: string, paper: string}): {dark: string, light: string, onPaper: boolean} => {
+  const inkDarker = luminance(theme.ink) < luminance(theme.paper);
+  return inkDarker ? {dark: theme.ink, light: theme.paper, onPaper: true} : {dark: theme.paper, light: theme.ink, onPaper: false};
+};
+
 /** QR code modules for `text` (true = dark), medium error correction. */
 export const qrModules = (text: string): boolean[][] => {
   const qr = qrcode(0, 'M');

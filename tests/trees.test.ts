@@ -3,7 +3,7 @@ import {
   lv95ToWgs84, rasterLatLng, rasterXY, treeFraction, treesToCsv, wgs84ToLv95,
 } from '../src/trees';
 import {OsmGrid, latLngToPixel} from '../src/osm-layers';
-import {MM_PER_UNIT, POSTER_CREDIT_URL, pagePixels, qrModules} from '../src/poster';
+import {MM_PER_UNIT, POSTER_CREDIT_URL, POSTER_THEMES, pagePixels, posterQrUrl, qrColours, qrModules} from '../src/poster';
 import {scatterUnrealScript} from '../src/scatter';
 
 describe('Swiss projection', () => {
@@ -138,6 +138,17 @@ describe('poster extras', () => {
     expect(m.every(row => row.length === m.length)).toBe(true);
     // Finder pattern corners are dark
     expect(m[0][0] && m[0][m.length - 1] && m[m.length - 1][0]).toBe(true);
+  });
+  it('links the QR code to the same settings, with UTM tags', () => {
+    const url = posterQrUrl('#lat=1&lng=2', 'mars_a4');
+    expect(url).toBe(`${POSTER_CREDIT_URL}?utm_source=poster&utm_medium=qr&utm_content=mars_a4#lat=1&lng=2`);
+    expect(posterQrUrl('', 'x')).toBe(`${POSTER_CREDIT_URL}?utm_source=poster&utm_medium=qr&utm_content=x`);
+  });
+  it('keeps QR modules dark on light in every poster style', () => {
+    const classic = qrColours(POSTER_THEMES.classic);
+    expect(classic).toEqual({dark: POSTER_THEMES.classic.ink, light: POSTER_THEMES.classic.paper, onPaper: true});
+    const night = qrColours(POSTER_THEMES.dark);
+    expect(night).toEqual({dark: POSTER_THEMES.dark.paper, light: POSTER_THEMES.dark.ink, onPaper: false});
   });
   it('lets tree scripts size basic shapes by real height', () => {
     const script = scatterUnrealScript([], 'x', {meshSize: 10, note: 'hello'});

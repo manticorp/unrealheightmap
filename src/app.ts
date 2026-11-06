@@ -35,7 +35,7 @@ import {SeamlessOptions, SEAMLESS_MAX_PIXELS, seamlessMargin, seamScore} from ".
 import {CarveOptions, carveLayers, wantsCarve} from "./carve";
 import {SPLINE_LAYERS} from "./splines";
 import {ResampleSpec, decodeShape, encodeShape, normaliseAngle, resampleRotatedRgba, rotateOut, rotatedBounds, rotatedCorners} from "./area";
-import {LengthUnit, MM_PER_UNIT, POSTER_CREDIT_URL, POSTER_MAX_PIXELS, POSTER_MAX_SIDE, POSTER_THEMES, PaperSize, PosterStyle, niceDistance, pagePixels, qrModules} from "./poster";
+import {LengthUnit, MM_PER_UNIT, POSTER_MAX_PIXELS, POSTER_MAX_SIDE, POSTER_THEMES, PaperSize, PosterStyle, niceDistance, pagePixels, posterQrUrl, qrColours, qrModules} from "./poster";
 import {AreaPlan, ExtendedProcessOptions, MeshExtras, PipelineExtras, TerrainOps, TextFile} from "./processor";
 import {LandSeaSource, SOURCE_HOME} from "./extra-sources";
 import {HillshadeLayer} from "./hillshade-layer";
@@ -2579,9 +2579,12 @@ export default class App {
     this.inputs.posterWidth = numberInput('posterwidth', {min: '1', step: 'any', value: '30'});
     this.inputs.posterHeight = numberInput('posterheight', {min: '1', step: 'any', value: '40'});
     this.inputs.posterUnit = selectInput('posterunit', [['mm', 'mm'], ['cm', 'cm'], ['in', 'inches']], 'cm');
-    const credit = checkbox('Include unrealheightmap credit', 'postercredit', 'A small "Generated with unrealheightmap" line and QR code link in the bottom margin.');
+    const credit = checkbox('Include unrealheightmap credit', 'postercredit', 'A small "Generated with unrealheightmap" line in the bottom margin.');
     this.inputs.posterCredit = credit.input;
     this.inputs.posterCredit.prop('checked', true);
+    const qr = checkbox('Include QR code link', 'posterqr', 'A QR code in the poster\'s colours that opens unrealheightmap with this area and these settings, so anyone can make their own.');
+    this.inputs.posterQr = qr.input;
+    this.inputs.posterQr.prop('checked', true);
     this.els.posterCustom = grid(
       field('Width', this.inputs.posterWidth),
       field('Height', this.inputs.posterHeight),
@@ -2604,6 +2607,7 @@ export default class App {
         field('Relief exaggeration', this.inputs.posterZ, {tip: 'Deepens the shading. 1 is true to life; 1.5 to 3 suits gentle landscapes.'}),
       ),
       credit.label,
+      qr.label,
       this.els.posterPreview,
       $('<div class="buttons are-small">').append(this.els.posterButton),
       this.els.posterNote,
@@ -2612,7 +2616,7 @@ export default class App {
       ['posterstyle', this.inputs.posterStyle], ['posterpaper', this.inputs.posterPaper], ['posterdpi', this.inputs.posterDpi],
       ['postertitle', this.inputs.posterTitle], ['postercontours', this.inputs.posterContours], ['posterz', this.inputs.posterZ],
       ['posterwidth', this.inputs.posterWidth], ['posterheight', this.inputs.posterHeight], ['posterunit', this.inputs.posterUnit],
-      ['postercredit', this.inputs.posterCredit],
+      ['postercredit', this.inputs.posterCredit], ['posterqr', this.inputs.posterQr],
     ];
     for (const [key, input] of keys) {
       input.on('change', () => {
@@ -2680,6 +2684,7 @@ export default class App {
       z: parseFloat((this.inputs.posterZ.val() ?? '1.5').toString()) || 1.5,
       title: (this.inputs.posterTitle.val() ?? '').toString(),
       credit: this.inputs.posterCredit?.is(':checked') ?? true,
+      qr: this.inputs.posterQr?.is(':checked') ?? true,
     };
   }
   /** Small heights grid for the live preview, reused until the area changes. */
@@ -3453,6 +3458,21 @@ export default class App {
     ctx.strokeStyle = theme.ink;
     ctx.lineWidth = Math.max(scale < 1 ? 0.5 : 1, unit * 0.12);
     ctx.strokeRect(mapX, mapY, mapW, mapH);
+    // QR code link (bottom left of the footer, a full margin above the page edge)
+    let qr : {x : number, y : number, size : number, module : number, modules : boolean[][], quiet : number} | null = null;
+    if (settings.qr) {
+      const modules = qrModules(posterQrUrl(buildHash(this.readSettings()), `${style}_${settings.paper}`));
+      const n = modules.length;
+      // Modules of at least 0.4 mm printed, so phones can read a long link
+      const minModule = 0.4 / 25.4 * settings.dpi * scale;
+      let size = Math.min(footer * 0.78, Math.max(unit * 7, n * minModule));
+      let module = size / n;
+      if (scale >= 1 && module >= 2) module = Math.floor(module);
+      size = module * n;
+      const quiet = module * 2;
+      qr = {x: mapX + quiet, y: pageH - margin - quiet - size, size, module, modules, quiet};
+    }
+    const reserve = qr ? qr.size + qr.quiet * 2 + unit * 2 : 0;
     // Title block
     const title = (settings.title || this.placeName() || this.formatCoord(state.latitude, state.longitude)).toUpperCase();
     const titleY = pageH - margin - footer + Math.round(footer * 0.42);
@@ -3462,21 +3482,26 @@ export default class App {
     let titleSize = unit * 5.2;
     ctx.font = `600 ${titleSize}px ${theme.font}`;
     const spaced = title.split('').join(String.fromCharCode(8202));
-    while (ctx.measureText(spaced).width > pageW - margin * 2 && titleSize > unit * 2) {
+    while (ctx.measureText(spaced).width > pageW - (margin + reserve) * 2 && titleSize > unit * 2) {
       titleSize *= 0.92;
       ctx.font = `600 ${titleSize}px ${theme.font}`;
     }
     ctx.fillText(spaced, pageW / 2, titleY);
     ctx.fillStyle = theme.muted;
-    ctx.font = `${unit * 1.6}px ${theme.font}`;
+    let subSize = unit * 1.6;
+    ctx.font = `${subSize}px ${theme.font}`;
     const world = this.getBody() === 'earth' ? '' : ` · ${this.getBody().charAt(0).toUpperCase()}${this.getBody().slice(1)}`;
     const sub = `${this.formatCoord(state.latitude, state.longitude)}${world}  ·  ${localFormatNumber(min, 0)} m to ${localFormatNumber(max, 0)} m${interval ? `  ·  contours every ${localFormatNumber(interval, 0)} m` : ''}`;
+    while (ctx.measureText(sub).width > pageW - (margin + reserve) * 2 && subSize > unit) {
+      subSize *= 0.92;
+      ctx.font = `${subSize}px ${theme.font}`;
+    }
     ctx.fillText(sub, pageW / 2, titleY + unit * 3.2);
     // Scale bar (bottom left of the footer)
     const metresPerPx = state.phys.width / mapW;
     const barMetres = niceDistance(metresPerPx * mapW * 0.22);
     const barPx = barMetres / metresPerPx;
-    const barX = mapX, barY = pageH - margin - unit * 1.2;
+    const barX = mapX + reserve, barY = pageH - margin - unit * 1.2;
     ctx.fillStyle = theme.ink;
     for (let k = 0; k < 4; k++) {
       ctx.globalAlpha = k % 2 ? 0.25 : 1;
@@ -3510,24 +3535,22 @@ export default class App {
     ctx.font = `${unit * 0.9}px ${theme.font}`;
     const credit = $('<div>').html(this.getElevationSource().attributionHtml).text().replace(/\s+/g, ' ').slice(0, 160);
     ctx.fillText(`Elevation: ${credit}`, mapX + mapW, creditY);
-    if (settings.credit) {
-      const modules = qrModules(POSTER_CREDIT_URL);
-      const size = Math.min(margin * 0.62, unit * 4.2);
-      const cell = size / modules.length;
-      const qx = mapX, qy = pageH - margin * 0.2 - size;
-      // Light quiet zone so it scans on dark styles too
-      ctx.globalAlpha = 0.9;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(qx - cell * 1.5, qy - cell * 1.5, size + cell * 3, size + cell * 3);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = '#1a1a1a';
-      modules.forEach((row, r) => row.forEach((dark, c) => {
-        if (dark) ctx.fillRect(qx + c * cell, qy + r * cell, Math.ceil(cell * 100) / 100 + 0.02, Math.ceil(cell * 100) / 100 + 0.02);
+    if (qr) {
+      const colours = qrColours(theme);
+      ctx.fillStyle = colours.light;
+      ctx.fillRect(qr.x - qr.quiet, qr.y - qr.quiet, qr.size + qr.quiet * 2, qr.size + qr.quiet * 2);
+      ctx.fillStyle = colours.dark;
+      // Slight overlap between modules so no hairline gaps show when scaled
+      const m = qr.module, pad = scale < 1 ? 0.3 : 0;
+      qr.modules.forEach((row, r) => row.forEach((dark, c) => {
+        if (dark) ctx.fillRect(qr!.x + c * m, qr!.y + r * m, m + pad, m + pad);
       }));
+    }
+    if (settings.credit) {
       ctx.textAlign = 'left';
       ctx.fillStyle = theme.muted;
       ctx.font = `${unit * 0.9}px ${theme.font}`;
-      ctx.fillText('Generated with unrealheightmap', qx + size + cell * 1.5 + unit * 0.8, creditY);
+      ctx.fillText('Generated with unrealheightmap', mapX, creditY);
     }
   }
   createSubmitButton() {
@@ -3664,6 +3687,7 @@ export default class App {
       posterheight: this.inputs.posterHeight,
       posterunit: this.inputs.posterUnit,
       postercredit: this.inputs.posterCredit,
+      posterqr: this.inputs.posterQr,
       viewheight: this.inputs.viewHeight,
     };
     return controls[key];
