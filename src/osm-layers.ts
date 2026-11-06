@@ -39,6 +39,8 @@ export type OsmFeature = {
   name?: string;
   /** Buildings: height in metres from height=* or building:levels=*. */
   heightMetres?: number;
+  /** Forests: OpenStreetMap leaf_type (needleleaved, broadleaved, mixed...). */
+  leafType?: string;
   /** Lines on a bridge: kept as splines but never carved into the ground. */
   bridge?: boolean;
   /** Area rings, filled together with the even-odd rule so inner rings become holes. */
@@ -280,8 +282,9 @@ export const buildingHeight = (tags: {[key: string]: string}): number | undefine
 };
 
 const extraTags = (tags: {[key: string]: string}) => {
-  const out: {name?: string, heightMetres?: number} = {};
+  const out: {name?: string, heightMetres?: number, leafType?: string} = {};
   if (tags.name) out.name = tags.name;
+  if (tags.leaf_type) out.leafType = tags.leaf_type;
   if (tags.building) {
     const h = buildingHeight(tags);
     if (h) out.heightMetres = h;

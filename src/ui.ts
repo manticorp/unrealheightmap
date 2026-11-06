@@ -2,9 +2,34 @@
  * Small builders for the sidebar UI: tabs, collapsible sections and fields.
  */
 import $ from "jquery";
-import tippy from 'tippy.js';
+import tippy, {Instance, Props} from 'tippy.js';
 
-export const tippyDefaults = {interactive: true, allowHTML: true, theme: 'light'};
+/**
+ * Long info tooltips must stay on screen: attach them to the body (so the
+ * sidebar's scrolling can't clip them), let Popper flip them to whichever side
+ * has room, and cap their height to that room so the rest scrolls inside.
+ */
+const fitTooltipHeight = (instance : Instance) => {
+  const rect = instance.reference.getBoundingClientRect();
+  const margin = 16;
+  const room = Math.max(rect.top, window.innerHeight - rect.bottom) - margin * 2;
+  const content = instance.popper.querySelector<HTMLElement>('.tippy-content');
+  if (content) content.style.maxHeight = `${Math.max(120, Math.floor(room))}px`;
+};
+export const tippyDefaults : Partial<Props> = {
+  interactive: true,
+  allowHTML: true,
+  theme: 'light',
+  appendTo: () => document.body,
+  maxWidth: 'min(420px, calc(100vw - 32px))',
+  popperOptions: {
+    modifiers: [
+      {name: 'flip', options: {fallbackPlacements: ['bottom', 'left', 'right'], padding: 8}},
+      {name: 'preventOverflow', options: {altAxis: true, padding: 8}},
+    ],
+  },
+  onShow: fitTooltipHeight,
+};
 
 export type TabDef = {id: string, label: string, icon: string};
 

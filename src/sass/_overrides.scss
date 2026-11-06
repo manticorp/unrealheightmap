@@ -310,6 +310,30 @@
     color: $grey-light;
     text-decoration: underline;
   }
+
+  .coverage-details {
+    margin-top: 0.4rem;
+    border-left: 2px solid $primary;
+    padding-left: 0.6rem;
+
+    summary {
+      cursor: pointer;
+      color: $white-ter;
+    }
+
+    p, ul {
+      margin: 0.35rem 0;
+    }
+
+    ul {
+      list-style: disc;
+      padding-left: 1.1rem;
+    }
+
+    li + li {
+      margin-top: 0.2rem;
+    }
+  }
 }
 
 // Import guides
@@ -498,4 +522,10 @@
 .dem-upload-note {
   font-size: 0.8rem;
   color: $grey-light;
+}
+
+// Long info tooltips scroll inside themselves (height set in ui.ts)
+.tippy-box .tippy-content {
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }

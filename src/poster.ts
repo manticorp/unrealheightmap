@@ -5,6 +5,7 @@
  * laid out on a canvas in the app.
  */
 
+import qrcode from 'qrcode-generator';
 import {sampleBilinear} from './area';
 
 export type PosterStyle = 'classic' | 'swiss' | 'dark' | 'blueprint' | 'vintage' | 'mars';
@@ -175,18 +176,47 @@ export const renderPosterMap = (heights: Float32Array, hw: number, hh: number, o
   return out;
 };
 
-export type PaperSize = 'a4' | 'a3' | 'a2' | 'a1' | 'square' | 'screen';
+export type PaperSize = 'a4' | 'a3' | 'a2' | 'a1' | 'square' | 'screen' | 'custom';
 
 /** Width × height in millimetres, portrait (screen is a 16:9 wallpaper in px at 150 dpi-equivalent). */
 export const PAPER_MM: Record<PaperSize, [number, number]> = {
-  a4: [210, 297], a3: [297, 420], a2: [420, 594], a1: [594, 841], square: [300, 300], screen: [338.7, 190.5],
+  a4: [210, 297], a3: [297, 420], a2: [420, 594], a1: [594, 841], square: [300, 300], screen: [338.7, 190.5], custom: [300, 400],
 };
 
-/** Page size in pixels: portrait or landscape to suit the map. */
-export const pagePixels = (paper: PaperSize, dpi: number, mapAspect: number): {width: number, height: number} => {
-  let [w, h] = PAPER_MM[paper];
-  if (paper !== 'screen' && paper !== 'square' && mapAspect > 1.15) [w, h] = [h, w];
-  return {width: Math.round(w / 25.4 * dpi), height: Math.round(h / 25.4 * dpi)};
+export type LengthUnit = 'mm' | 'cm' | 'in';
+
+export const MM_PER_UNIT: Record<LengthUnit, number> = {mm: 1, cm: 10, in: 25.4};
+
+/** Largest poster side and area a browser canvas reliably handles. */
+export const POSTER_MAX_SIDE = 16000;
+export const POSTER_MAX_PIXELS = 180e6;
+
+/**
+ * Page size in pixels: portrait or landscape to suit the map. A custom size
+ * (width × height in mm) is used exactly as given.
+ */
+export const pagePixels = (paper: PaperSize, dpi: number, mapAspect: number, customMm?: [number, number]): {width: number, height: number} => {
+  let [w, h] = paper === 'custom' && customMm ? customMm : PAPER_MM[paper];
+  if (paper !== 'screen' && paper !== 'square' && paper !== 'custom' && mapAspect > 1.15) [w, h] = [h, w];
+  return {width: Math.max(1, Math.round(w / 25.4 * dpi)), height: Math.max(1, Math.round(h / 25.4 * dpi))};
+};
+
+/** Tracked link printed as a QR code on posters that carry the credit. */
+export const POSTER_CREDIT_URL = 'https://links.ikibiko.com/y6mKuO';
+
+/** QR code modules for `text` (true = dark), medium error correction. */
+export const qrModules = (text: string): boolean[][] => {
+  const qr = qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  const n = qr.getModuleCount();
+  const out: boolean[][] = [];
+  for (let r = 0; r < n; r++) {
+    const row: boolean[] = [];
+    for (let c = 0; c < n; c++) row.push(qr.isDark(r, c));
+    out.push(row);
+  }
+  return out;
 };
 
 /** A round scale-bar length (1, 2 or 5 × 10^n metres) close to `target` metres. */

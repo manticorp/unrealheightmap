@@ -26,7 +26,8 @@ import {EdgeMismatch, SeamlessOptions, edgeMismatch, makeSeamless} from "./seaml
 import {CarveOptions, CarveResult, carveTerrain, wantsCarve} from "./carve";
 import {PaintSettings, paintTerrain, terrainFields} from "./painter";
 import {NamedPoints, ScatterSet, scatterBlenderScript, scatterPoints, scatterToCsv, scatterUnrealScript} from "./scatter";
-import {buildSplines, splinesBlenderScript, splinesToCsv, splinesToGeoJson, splinesUnrealScript} from "./splines";
+import {LeafMasks, TREE_STRIDE, TreeRaster, TreeSettings, TreemapResult, buildTreemap, treesToCsv} from "./trees";
+import {buildSplines, splinesBlenderScript, splinesToCsv, splinesToGeoJson, splinesUnrealScript, toBlender} from "./splines";
 import {annualInsolation, resizeGrid, viewshed as computeViewshed, ViewshedOptions, InsolationOptions} from "./analysis";
 import {PosterMapOptions, renderPosterMap} from "./poster";
 import {BuildingOptions, appendBuildings, buildingFootprints, defaultBuildingOptions} from "./buildings";
@@ -106,10 +107,38 @@ export type TerrainOps = {
   /** OSM layers to export as splines. */
   splines?: string[];
   sunlight?: InsolationOptions;
+  /** Real treemap from canopy height / tree cover rasters. */
+  trees?: {settings: TreeSettings, rasters: TreeRaster[]};
   /** Report how well the area tiles as fetched. */
   edgeStats?: boolean;
   /** Base name for script files. */
   name?: string;
+};
+
+export type TreeStats = Pick<TreemapResult, 'cover' | 'conifers' | 'broadleaf' | 'detected' | 'scattered' | 'sources'> & {count: number, capped: boolean};
+
+const treeStats = (r : TreemapResult) : TreeStats => ({
+  cover: r.cover, conifers: r.conifers, broadleaf: r.broadleaf, detected: r.detected, scattered: r.scattered,
+  sources: r.sources, count: r.points.count, capped: r.points.capped,
+});
+
+/** OpenStreetMap forests split by leaf_type, as masks on the grid. */
+const leafMasks = (features : OsmFeature[] | undefined, grid : OsmGrid) : LeafMasks => {
+  if (!features) return {};
+  const groups : Record<keyof LeafMasks, OsmFeature[]> = {conifer: [], broadleaf: [], mixed: []};
+  for (const f of features) {
+    if (f.layer !== 'forest' || !f.leafType) continue;
+    const t = f.leafType.toLowerCase();
+    const key = t.startsWith('needle') ? 'conifer' : t.startsWith('broad') ? 'broadleaf' : t === 'mixed' ? 'mixed' : null;
+    if (key) groups[key].push({...f, layer: key});
+  }
+  const out : LeafMasks = {};
+  for (const key of Object.keys(groups) as (keyof LeafMasks)[]) {
+    if (!groups[key].length) continue;
+    const [mask] = rasterizeLayers(groups[key], grid, {layerIds: [key]});
+    out[key] = mask.data;
+  }
+  return out;
 };
 
 export type ExtendedProcessOptions = ProcessOptions & {area?: AreaPlan, terrain?: TerrainOps};
@@ -125,6 +154,7 @@ export type PipelineExtras = {
   scatterCounts?: {name: string, count: number, capped: boolean}[];
   splineCount?: number;
   sunlight?: {min: number, max: number, mean: number, flat: number};
+  trees?: TreeStats;
   files?: TextFile[];
 };
 
@@ -503,6 +533,29 @@ const processor = {
       maps.push({name: 'sunlight', channels: 1, data});
       extras.sunlight = {min: sun.min, max: sun.max, mean: sun.mean, flat: sun.flatReference};
     }
+    if (t.trees && grid) {
+      progress('maps', 0, 1);
+      const result = buildTreemap(heights, width, height, grid, mpp, t.trees.rasters, leafMasks(t.features, grid), t.trees.settings);
+      maps.push(...result.maps);
+      const sg = {width, height, metresPerPixelX: mpp.x, metresPerPixelY: mpp.y};
+      files.push({filename: `${name}_trees.csv`, contents: treesToCsv(result.points, (x, y) => toBlender(sg, x, y))});
+      // One instance set per leaf type; "scale" is the tree's height / 10 m
+      const sets : NamedPoints[] = ['Conifers', 'Broadleaf'].map((label, type) => {
+        const out : number[] = [];
+        const d = result.points.data;
+        for (let k = 0; k < d.length; k += TREE_STRIDE) {
+          if (d[k + 6] === type) out.push(d[k], d[k + 1], d[k + 2], d[k + 3] / 10, d[k + 5]);
+        }
+        return {
+          set: {name: label, source: 'trees', density: 0, spacing: 0, minScale: 1, maxScale: 1, maxSlope: 90, mesh: '/Engine/BasicShapes/Cone.Cone'},
+          points: {data: Float32Array.from(out), count: out.length / 5, capped: false},
+        };
+      }).filter(s => s.points.count > 0);
+      const note = 'Real trees: positions and heights from measured canopy data where available.\n"scale" is each tree\'s real height divided by 10 m: use tree models about\n10 m tall at scale 1 and every tree comes out at its real height.';
+      files.push({filename: `${name}_trees_blender.py`, contents: scatterBlenderScript(sets, sg, name, {note})});
+      files.push({filename: `${name}_trees_unreal.py`, contents: scatterUnrealScript(sets, name, {note, meshSize: 10})});
+      extras.trees = treeStats(result);
+    }
     if (files.length) extras.files = files;
     return maps;
   },
@@ -551,6 +604,27 @@ const processor = {
       files.push({name: 'contours.svg', text: contoursToSvg(contours, {width, height, outputWidthMm: options.widthMm, mode: options.mode, interval, title: options.title})});
     }
     return {files, interval, levels: levels.length, min, max};
+  },
+  /** Tree cover for the map overlay (no single trees, for speed). */
+  treePreview(heights : Float32Array, width : number, height : number, grid : OsmGrid, mpp : {x : number, y : number}, rasters : TreeRaster[], features : OsmFeature[] | undefined, settings : TreeSettings) {
+    const g = {...grid, width, height};
+    const result = buildTreemap(heights, width, height, g, mpp, rasters, leafMasks(features, g), settings, {points: false});
+    return Comlink.transfer({preview: result.preview, stats: treeStats(result)}, [result.preview.buffer]);
+  },
+  /** Contour rings for drawing on the map: same levels and smoothing as the export. */
+  contourPreview(heights : Float32Array, width : number, height : number, options : {interval : number, smooth : number, closed : boolean}) {
+    const smoothed = options.smooth > 0 ? smoothHeights(heights, width, height, options.smooth) : heights;
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < smoothed.length; i++) {
+      if (smoothed[i] < min) min = smoothed[i];
+      if (smoothed[i] > max) max = smoothed[i];
+    }
+    const interval = options.interval > 0 ? options.interval : autoContourInterval(max - min);
+    const levels = contourLevels(min, max, interval);
+    const contours = simplifyContours(traceContours(smoothed, width, height, levels, {closed: options.closed}), 0.5);
+    const buffers = new Set<ArrayBuffer>();
+    contours.forEach(c => c.rings.forEach(r => buffers.add(r.points.buffer as ArrayBuffer)));
+    return Comlink.transfer({contours, interval, min, max}, Array.from(buffers));
   },
   /** Build a mesh and encode it as STL/OBJ/GLB/3MF, ready to download. */
   async buildMeshFile(input : MeshInput, options : MeshOptions, format : MeshFormat, name : string, preset : SimplifyPreset = 'off', texture? : MeshTexture & {filename : string}, extras : MeshExtras = {}) {

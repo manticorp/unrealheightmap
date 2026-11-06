@@ -48,6 +48,7 @@
     "leaflet": "^1.9.4",
     "leaflet-providers": "^2.0.0",
     "pako": "^2.1.0",
+    "qrcode-generator": "^1.4.4",
     "three": "^0.170.0",
     "throttle-debounce": "^5.0.0",
     "tippy.js": "^6.3.7",

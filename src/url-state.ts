@@ -27,9 +27,11 @@ export type SettingKey =
   | 'rotation' | 'shape' | 'seammode' | 'seamperiod' | 'seamoverlap'
   | 'sealevel' | 'carveroads' | 'carverail' | 'carverivers' | 'carvelakes' | 'carveshoulder' | 'carvedepth'
   | 'paint' | 'scatter' | 'sunmap' | 'splines'
+  | 'treemap' | 'treemin' | 'treedensity' | 'treespacing' | 'treeleaf' | 'treeswiss'
   | 'buildings' | 'buildingheight' | 'label' | 'labeltext' | 'colorbands' | 'bandlevels' | 'bandcolors'
   | 'lithophane' | 'lithomin' | 'lithomax'
   | 'posterstyle' | 'posterpaper' | 'posterdpi' | 'postertitle' | 'postercontours' | 'posterz'
+  | 'posterwidth' | 'posterheight' | 'posterunit' | 'postercredit'
   | 'viewheight';
 
 type SettingDef = {
@@ -103,6 +105,12 @@ export const SETTINGS: Record<SettingKey, SettingDef> = {
   paint:          {param: 'paint', default: ''},
   scatter:        {param: 'scat',  default: ''},
   sunmap:         {param: 'sunmap', default: '0'},
+  treemap:        {param: 'tree',  default: '0'},
+  treemin:        {param: 'treeh', default: '3'},
+  treedensity:    {param: 'treed', default: '350'},
+  treespacing:    {param: 'trees', default: '3'},
+  treeleaf:       {param: 'treel', default: 'conifer'},
+  treeswiss:      {param: 'treech', default: '1'},
   splines:        {param: 'spl',   default: ''},
   buildings:      {param: 'bld',   default: '0'},
   buildingheight: {param: 'bldh',  default: '8'},
@@ -120,6 +128,10 @@ export const SETTINGS: Record<SettingKey, SettingDef> = {
   postertitle:    {param: 'ptl',   default: ''},
   postercontours: {param: 'pci',   default: 'auto'},
   posterz:        {param: 'pz',    default: '1.5'},
+  posterwidth:    {param: 'pdw',   default: '30'},
+  posterheight:   {param: 'pdh',   default: '40'},
+  posterunit:     {param: 'pu',    default: 'cm'},
+  postercredit:   {param: 'pcr',   default: '1'},
   viewheight:     {param: 'vsh',   default: '1.7'},
 };
 

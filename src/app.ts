@@ -25,15 +25,17 @@ import {ProfileTool} from "./profile-ui";
 import {sunDirectionZUp, sunPosition, sunTimes} from "./sun";
 import {ScriptTile, buildImportScripts} from "./import-scripts";
 import {OSM_LAYERS, OSM_MAX_AREA_KM2, OsmFeature, OsmGrid, bboxAreaKm2, fetchOsmLayers, gridBBox, osmAttribution} from "./osm-layers";
-import {Tabs, section, sectionStatus, field, grid, selectInput, selectControl, numberInput, textInput, checkbox, button, note, info} from "./ui";
+import {Tabs, section, sectionStatus, field, grid, selectInput, selectControl, numberInput, textInput, checkbox, button, note, info, tippyDefaults} from "./ui";
 import {PainterEditor, ScatterEditor} from "./painter-ui";
 import {PaintSettings, decodePaint, encodePaint, paintOsmLayers} from "./painter";
 import {ScatterSet, decodeScatter, encodeScatter} from "./scatter";
+import {LeafType, TreeRaster, TreeSettings, defaultTreeSettings} from "./trees";
+import {fetchTreeRasters, overlapsSwitzerland} from "./tree-sources";
 import {SeamlessOptions, SEAMLESS_MAX_PIXELS, seamlessMargin, seamScore} from "./seamless";
 import {CarveOptions, carveLayers, wantsCarve} from "./carve";
 import {SPLINE_LAYERS} from "./splines";
 import {ResampleSpec, decodeShape, encodeShape, normaliseAngle, resampleRotatedRgba, rotateOut, rotatedBounds, rotatedCorners} from "./area";
-import {POSTER_THEMES, PaperSize, PosterStyle, niceDistance, pagePixels} from "./poster";
+import {LengthUnit, MM_PER_UNIT, POSTER_CREDIT_URL, POSTER_MAX_PIXELS, POSTER_MAX_SIDE, POSTER_THEMES, PaperSize, PosterStyle, niceDistance, pagePixels, qrModules} from "./poster";
 import {AreaPlan, ExtendedProcessOptions, MeshExtras, PipelineExtras, TerrainOps, TextFile} from "./processor";
 import {LandSeaSource, SOURCE_HOME} from "./extra-sources";
 import {HillshadeLayer} from "./hillshade-layer";
@@ -136,11 +138,21 @@ const TABS = [
   {id: 'results', label: 'Results', icon: '✓'},
 ];
 
-const deafultTippyOptions = {
-  interactive: true,
-  allowHTML: true,
-  theme: 'light'
-};
+/** Summary of Mapterhorn's sources (https://download.mapterhorn.com/attribution.json). */
+const MAPTERHORN_COVERAGE_HTML = `<details class="coverage-details">
+<summary>Where is Mapterhorn detailed?</summary>
+<p>Everywhere has <b>Copernicus GLO-30</b> (30 m). On top of that, Mapterhorn adds national lidar and terrain models:</p>
+<ul>
+<li><b>0.25 to 0.5 m</b>: Switzerland, Zürich (0.25 m), Baden-Württemberg (0.25 m), Denmark (0.4 m), France (LiDAR HD, where flown), Wallonia, Luxembourg, mainland Portugal, Romania, parts of Spain, Saba, St Eustatius and Bonaire.</li>
+<li><b>1 m</b>: most of the USA (USGS 3DEP), England, Scotland, Wales, all of Germany, Austria (1 m in Salzburg, Upper Austria and Carinthia), Flanders, Norway, Sweden, Estonia, Poland, Slovenia, Slovakia, Cyprus, New Zealand, metropolitan France and its overseas regions, parts of Japan and Sardinia.</li>
+<li><b>2 to 5 m</b>: Canada, Finland, Spain, Czechia, Greenland, Australia (5 m lidar areas), Tasmania, Aosta Valley, South Tyrol, Lombardy, Piedmont, Trentino, Sicily, Burgenland, the Netherlands (5 m), and much of Japan.</li>
+<li><b>10 to 20 m</b>: the rest of the USA (10 m), the rest of Italy (TINITALY), Iceland, Israel, Madeira, the Faroe Islands, Rwanda, Taiwan, Latvia and Svalbard.</li>
+</ul>
+<p>Elsewhere (most of Africa, Asia, South America and the oceans' islands) it is the 30 m Copernicus model, which is a surface model, so forests and buildings show as bumps. Higher output zooms there are upscaled, not more detailed. After each export, the result shows how detailed the source really was.</p>
+<p>Full list: <a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">mapterhorn.com/attribution</a>.</p>
+</details>`;
+
+const deafultTippyOptions = tippyDefaults;
 
 export default class App {
   static cache : Record<string, any> = {};
@@ -212,6 +224,8 @@ export default class App {
   osmCache = new Map<string, Promise<OsmFeature[] | null>>();
   /** Map overlays (sea level, painted layers, sunlight, viewshed). */
   overlays : Record<string, L.ImageOverlay> = {};
+  /** Contour lines drawn on the map as vectors. */
+  contourLayer : L.LayerGroup | null = null;
   areaPolygon : L.Polygon | null = null;
   shapeLayer : L.Polygon | null = null;
   shapeDrawing : {points: L.LatLng[], line: L.Polyline} | null = null;
@@ -253,6 +267,7 @@ export default class App {
       carve: section(p('terrain'), 'carve', 'Carve roads, rivers & lakes', {open: false}),
       osm: section(p('layers'), 'osm', 'OpenStreetMap masks'),
       painter: section(p('layers'), 'painter', 'Material painter', {open: false}),
+      trees: section(p('layers'), 'trees', 'Real trees (treemap)', {open: false}),
       scatter: section(p('layers'), 'scatter', 'Scatter: trees, rocks, bushes', {open: false}),
       maps: section(p('layers'), 'maps', 'Texture maps', {open: false}),
       profile: section(p('analysis'), 'profile', 'Elevation profile'),
@@ -280,10 +295,12 @@ export default class App {
     this.createAreaOptions();
     this.createTerrainOptions();
     this.createLayerEditors();
+    this.createTreeOptions();
     this.createAnalysisOptions();
     this.createPrintOptions();
     this.createSplineOptions();
     this.createPosterOptions();
+    this.tabs.onChange = (id) => { if (id === 'export') this.refreshPosterPreview(); };
     this.createViewSwitch();
     this.resetOutput();
   }
@@ -371,7 +388,7 @@ export default class App {
       this.updatePhysicalDimensions();
     }
     const earth = body === 'earth';
-    for (const key of ['carve', 'osm', 'splines'] as const) this.sections[key]?.closest('.ui-section').toggleClass('is-disabled', !earth);
+    for (const key of ['carve', 'osm', 'splines', 'trees'] as const) this.sections[key]?.closest('.ui-section').toggleClass('is-disabled', !earth);
     this.inputs.buildings?.prop('disabled', !earth);
     this.inputs.sunMap?.prop('disabled', !earth);
     if (body === this.currentBody) return;
@@ -1623,6 +1640,9 @@ export default class App {
     const control = (input : JQuery<HTMLElement>) => $('<div class="control">').append(input);
     this.els.contourButton = $('<button class="button is-primary" type="button">Export Contours</button>');
     this.els.contourNote = $('<p class="mesh-estimate">');
+    this.els.contourPreview = button('Preview on map', 'is-small is-info is-light');
+    this.els.contourHide = button('Hide preview', 'is-small').hide();
+    this.els.contourPreviewNote = note();
     this.els.columnsContours = $('<div class="columns columns-output columns-output--contours">')
       .append($('<div class="column field">')
         .append(App.withInfo(App.createLabel('Contour Interval (m)', {for: 'contourinterval'}), 'Height between lines in metres. Leave empty to pick a round number giving about 20 levels. Every 5th line is drawn thicker (index contours).'))
@@ -1639,7 +1659,8 @@ export default class App {
         .append(control(this.inputs.contourWidth))
         .append($('<div class="buttons mesh-buttons">').append(this.els.contourButton))
         .append(this.els.contourNote));
-    this.sections.contours.append(this.els.columnsContours);
+    this.sections.contours.append(this.els.columnsContours,
+      $('<div class="buttons are-small">').append(this.els.contourPreview, this.els.contourHide), this.els.contourPreviewNote);
   }
   hookContourControls() {
     const keys : [SettingKey, JQuery<HTMLElement>][] = [
@@ -1654,8 +1675,11 @@ export default class App {
         this.storeValue(key, this.readSetting(key) ?? '');
         trackControl(key, input.is('select') ? this.readSetting(key) : undefined);
         this.toggleContourInputs();
+        if (this.contourLayer && key !== 'contourformat' && key !== 'contourwidth') this.refreshContourPreview();
       }));
     }
+    this.els.contourPreview.on('click', () => { trackEvent('contours/preview'); this.previewContours(); });
+    this.els.contourHide.on('click', () => this.hideContourPreview());
     this.els.contourButton.on('click', debounce(100, () => {
       trackEvent(`generate/contours/${this.inputs.contourFormat.val()}/${this.inputs.contourMode.val()}`);
       this.exportContours();
@@ -2305,6 +2329,107 @@ export default class App {
       this.updateOsmNote();
     }));
   }
+  createTreeOptions() {
+    const on = checkbox('Export a real treemap with the heightmap', 'treemap', 'Maps where the real trees are, from measured data: Swiss 1 m canopy heights (with every tree found one by one, at its real height) and ESA WorldCover 10 m tree cover everywhere else. Leaf type comes from OpenStreetMap forests where mapped.');
+    this.inputs.treeMap = on.input;
+    this.inputs.treeMin = numberInput('treemin', {min: '0.5', step: '0.5', value: '3'});
+    this.inputs.treeDensity = numberInput('treedensity', {min: '1', step: '10', value: '350'});
+    this.inputs.treeSpacing = numberInput('treespacing', {min: '0.5', step: '0.5', value: '3'});
+    this.inputs.treeLeaf = selectInput('treeleaf', [['conifer', 'Conifers'], ['broadleaf', 'Broadleaf'], ['mixed', 'Mixed (half and half)']], 'conifer');
+    const swiss = checkbox('Use Swiss 1 m canopy heights where available', 'treeswiss');
+    this.inputs.treeSwiss = swiss.input;
+    this.inputs.treeSwiss.prop('checked', true);
+    this.els.treePreview = button('Preview on map', 'is-small is-info is-light');
+    this.els.treeHide = button('Hide preview', 'is-small').hide();
+    this.els.treeNote = note();
+    this.sections.trees.append(
+      note('A treemap from real data: where the trees are, how tall, and conifer or broadleaf. Exported with the heightmap as greyscale maps on the same grid (density, conifer, broadleaf and canopy height) plus every tree as CSV, Blender and Unreal scripts. Earth only.'),
+      on.label,
+      grid(
+        field('Smallest tree (m)', this.inputs.treeMin, {tip: 'Canopy lower than this counts as bushes or grass, not trees. Used with canopy heights.'}),
+        field('Leaf type if unmapped', selectControl(this.inputs.treeLeaf), {tip: 'OpenStreetMap forests often say needleleaved, broadleaved or mixed. Where they don\'t, trees get this type.'}),
+        field('Trees per hectare', this.inputs.treeDensity, {tip: 'Where only tree cover is known (outside Switzerland), trees are scattered through the forest at this density. Mature forests have roughly 200 to 600 trees per hectare.'}),
+        field('Min spacing (m)', this.inputs.treeSpacing, {tip: 'Scattered trees are never closer than this.'}),
+      ),
+      swiss.label,
+      $('<div class="buttons are-small">').append(this.els.treePreview, this.els.treeHide),
+      this.els.treeNote,
+    );
+    const keys : [SettingKey, JQuery<HTMLElement>][] = [
+      ['treemap', this.inputs.treeMap], ['treemin', this.inputs.treeMin], ['treedensity', this.inputs.treeDensity],
+      ['treespacing', this.inputs.treeSpacing], ['treeleaf', this.inputs.treeLeaf], ['treeswiss', this.inputs.treeSwiss],
+    ];
+    for (const [key, input] of keys) {
+      input.on('change', debounce(100, () => {
+        this.storeValue(key, this.readSetting(key) ?? '');
+        trackControl(key, input.is('select') || input.is(':checkbox') ? this.readSetting(key) : undefined);
+        this.updateLayerStatus();
+        this.updateOsmNote();
+        if (this.overlays.trees && key !== 'treemap') this.previewTrees();
+      }));
+    }
+    this.els.treePreview.on('click', () => { trackEvent('trees/preview'); this.previewTrees(); });
+    this.els.treeHide.on('click', () => this.removeOverlay('trees'));
+  }
+  getTreeSettings() : TreeSettings {
+    const num = (input : JQuery<HTMLElement>, def : number) => {
+      const v = parseFloat((input?.val() ?? '').toString());
+      return Number.isFinite(v) && v > 0 ? v : def;
+    };
+    const d = defaultTreeSettings;
+    const leaf = (this.inputs.treeLeaf?.val() ?? d.leaf).toString() as LeafType;
+    return {
+      minHeight: num(this.inputs.treeMin, d.minHeight),
+      density: num(this.inputs.treeDensity, d.density),
+      spacing: num(this.inputs.treeSpacing, d.spacing),
+      leaf: ['conifer', 'broadleaf', 'mixed'].includes(leaf) ? leaf : d.leaf,
+      swiss: this.inputs.treeSwiss?.is(':checked') ?? true,
+    };
+  }
+  wantsTrees() : boolean {
+    return this.isEarth() && (this.inputs.treeMap?.is(':checked') ?? false);
+  }
+  /** Canopy height / tree cover rasters for an output state's area. */
+  async treeRastersFor(state : ConfigState, settings : TreeSettings) : Promise<TreeRaster[]> {
+    const box = gridBBox(this.osmGridFor(state));
+    const mpp = (state.phys.width / state.width + state.phys.height / state.height) / 2;
+    return fetchTreeRasters(box, mpp, {swiss: settings.swiss, singleTrees: true});
+  }
+  async previewTrees() {
+    if (!this.isEarth()) {
+      this.els.treeNote.text('Tree data is for Earth only.');
+      return;
+    }
+    const button = this.els.treePreview;
+    button.addClass('is-loading');
+    try {
+      const settings = this.getTreeSettings();
+      const o = await this.fetchOverlayHeights(512);
+      const grid = this.osmGridFor(o.state);
+      const [rasters, features] = await Promise.all([
+        fetchTreeRasters(gridBBox(grid), (o.mpp.x + o.mpp.y) / 2, {swiss: settings.swiss}),
+        this.fetchOsm(o.state, ['forest'], true),
+      ]);
+      if (!rasters.length) {
+        this.removeOverlay('trees');
+        this.els.treeNote.text('No tree data found here.');
+        return;
+      }
+      const result = await processor.treePreview(o.heights, o.width, o.height, grid, o.mpp, rasters, features ?? undefined, settings);
+      this.showOverlay('trees', result.preview, o.width, o.height, o.bounds, 0.9);
+      this.els.treeHide.show();
+      const s = result.stats;
+      const swissHere = overlapsSwitzerland(gridBBox(grid));
+      this.els.treeNote.text(`Trees cover ${(s.cover * 100).toFixed(s.cover < 0.1 ? 1 : 0)}% of the box. Data: ${s.sources.join(' + ')}. Dark green = conifer, light green = broadleaf.` +
+        (swissHere && settings.swiss && !s.sources.some(x => x.startsWith('Swiss')) ? ' No Swiss canopy heights here, so tree cover is used.' : '') +
+        (s.sources.some(x => x.startsWith('Swiss')) ? ' Single trees are picked out of the canopy heights in the export.' : ''));
+    } catch (e) {
+      console.error('Tree preview failed', e);
+      this.els.treeNote.text('Could not load the tree data. Please try again.');
+    } finally {
+      button.removeClass('is-loading');
+    }
+  }
   createAnalysisOptions() {
     const profileButton = button('Draw a profile on the map');
     profileButton.on('click', () => {
@@ -2341,8 +2466,9 @@ export default class App {
     const sun = checkbox('Export a yearly sunlight map with the heightmap', 'sunmap', 'A greyscale map of how much sun each spot gets over a year: one day a month, sampled every hour, with terrain shadows and each slope\'s angle to the sun. Brightest = sunniest. Great for snow, moss, vegetation and where players would build.');
     this.inputs.sunMap = sun.input;
     this.els.sunPreview = button('Preview on map', 'is-small is-info is-light');
+    this.els.sunHide = button('Hide preview', 'is-small').hide();
     this.els.sunNote = note();
-    this.sections.sunlight.append(sun.label, $('<div class="buttons are-small">').append(this.els.sunPreview), this.els.sunNote,
+    this.sections.sunlight.append(sun.label, $('<div class="buttons are-small">').append(this.els.sunPreview, this.els.sunHide), this.els.sunNote,
       note('The 3D preview can also show the real sun for any date and time: open it from the 3D &amp; Print tab.'));
     this.inputs.sunMap.on('change', () => {
       this.storeValue('sunmap', this.readSetting('sunmap') ?? '0');
@@ -2350,6 +2476,7 @@ export default class App {
       this.updateLayerStatus();
     });
     this.els.sunPreview.on('click', () => { trackEvent('sunlight/preview'); this.previewSunlight(); });
+    this.els.sunHide.on('click', () => this.removeOverlay('sun'));
   }
   createPrintOptions() {
     const buildings = checkbox('3D buildings from OpenStreetMap', 'buildings', 'Extrudes building footprints to their tagged height (or levels × 3 m, or the default) and stands them on the terrain. Textured models get real roof colours from the satellite image. Earth only.');
@@ -2444,13 +2571,25 @@ export default class App {
   }
   createPosterOptions() {
     this.inputs.posterStyle = selectInput('posterstyle', Object.entries(POSTER_THEMES).map(([id, t]) => [id, t.label] as [string, string]));
-    this.inputs.posterPaper = selectInput('posterpaper', [['a4', 'A4'], ['a3', 'A3'], ['a2', 'A2'], ['a1', 'A1'], ['square', 'Square (30 cm)'], ['screen', 'Wallpaper (16:9)']], 'a3');
+    this.inputs.posterPaper = selectInput('posterpaper', [['a4', 'A4'], ['a3', 'A3'], ['a2', 'A2'], ['a1', 'A1'], ['square', 'Square (30 cm)'], ['screen', 'Wallpaper (16:9)'], ['custom', 'Custom size…']], 'a3');
     this.inputs.posterDpi = selectInput('posterdpi', [['100', '100 dpi (preview)'], ['150', '150 dpi'], ['200', '200 dpi'], ['300', '300 dpi (print shop)']], '150');
     this.inputs.posterTitle = textInput('postertitle', {placeholder: 'Title (default: the search result)'});
     this.inputs.posterContours = selectInput('postercontours', [['auto', 'Auto'], ['0', 'None'], ['10', '10 m'], ['20', '20 m'], ['50', '50 m'], ['100', '100 m'], ['200', '200 m'], ['500', '500 m'], ['1000', '1,000 m']], 'auto');
     this.inputs.posterZ = numberInput('posterz', {min: '0.5', max: '10', step: '0.5', value: '1.5'});
+    this.inputs.posterWidth = numberInput('posterwidth', {min: '1', step: 'any', value: '30'});
+    this.inputs.posterHeight = numberInput('posterheight', {min: '1', step: 'any', value: '40'});
+    this.inputs.posterUnit = selectInput('posterunit', [['mm', 'mm'], ['cm', 'cm'], ['in', 'inches']], 'cm');
+    const credit = checkbox('Include unrealheightmap credit', 'postercredit', 'A small "Generated with unrealheightmap" line and QR code link in the bottom margin.');
+    this.inputs.posterCredit = credit.input;
+    this.inputs.posterCredit.prop('checked', true);
+    this.els.posterCustom = grid(
+      field('Width', this.inputs.posterWidth),
+      field('Height', this.inputs.posterHeight),
+      field('Units', selectControl(this.inputs.posterUnit)),
+    ).addClass('poster-custom');
     this.els.posterButton = button('Make poster', 'is-primary is-small');
     this.els.posterNote = note();
+    this.els.posterPreview = $('<div class="poster-preview" aria-live="polite">').append($('<canvas>'), $('<p class="poster-preview-status">'));
     this.sections.poster.append(
       note('A print-ready shaded-relief map of the area with a title, coordinates, scale bar and north arrow, as a PNG.'),
       grid(
@@ -2458,24 +2597,124 @@ export default class App {
         field('Paper', selectControl(this.inputs.posterPaper)),
         field('Resolution', selectControl(this.inputs.posterDpi)),
         field('Contours', selectControl(this.inputs.posterContours)),
+      ),
+      this.els.posterCustom,
+      grid(
         field('Title', this.inputs.posterTitle, {full: true}),
         field('Relief exaggeration', this.inputs.posterZ, {tip: 'Deepens the shading. 1 is true to life; 1.5 to 3 suits gentle landscapes.'}),
       ),
+      credit.label,
+      this.els.posterPreview,
       $('<div class="buttons are-small">').append(this.els.posterButton),
       this.els.posterNote,
     );
-    for (const [key, input] of [['posterstyle', this.inputs.posterStyle], ['posterpaper', this.inputs.posterPaper], ['posterdpi', this.inputs.posterDpi], ['postertitle', this.inputs.posterTitle], ['postercontours', this.inputs.posterContours], ['posterz', this.inputs.posterZ]] as [SettingKey, JQuery<HTMLElement>][]) {
+    const keys : [SettingKey, JQuery<HTMLElement>][] = [
+      ['posterstyle', this.inputs.posterStyle], ['posterpaper', this.inputs.posterPaper], ['posterdpi', this.inputs.posterDpi],
+      ['postertitle', this.inputs.posterTitle], ['postercontours', this.inputs.posterContours], ['posterz', this.inputs.posterZ],
+      ['posterwidth', this.inputs.posterWidth], ['posterheight', this.inputs.posterHeight], ['posterunit', this.inputs.posterUnit],
+      ['postercredit', this.inputs.posterCredit],
+    ];
+    for (const [key, input] of keys) {
       input.on('change', () => {
         this.storeValue(key, this.readSetting(key) ?? '');
-        trackControl(key, input.is('select') ? this.readSetting(key) : undefined);
+        trackControl(key, input.is('select') || input.is(':checkbox') ? this.readSetting(key) : undefined);
+        this.updatePosterControls();
       });
+      if (input.is('input[type=text], input[type=number]')) input.on('input', () => this.updatePosterControls());
     }
+    // Changing units converts the numbers, so the size stays the same
+    let lastUnit = (this.inputs.posterUnit.val() ?? 'cm').toString() as LengthUnit;
+    this.inputs.posterUnit.on('change', () => {
+      const unit = (this.inputs.posterUnit.val() ?? 'cm').toString() as LengthUnit;
+      for (const input of [this.inputs.posterWidth, this.inputs.posterHeight]) {
+        const v = parseFloat((input.val() ?? '').toString());
+        if (Number.isFinite(v)) {
+          input.val(+(v * MM_PER_UNIT[lastUnit] / MM_PER_UNIT[unit]).toFixed(unit === 'mm' ? 0 : 2));
+          input.trigger('change');
+        }
+      }
+      lastUnit = unit;
+    });
+    // Live preview once the section is opened, and whenever the area moves
+    this.sections.poster.closest('details').on('toggle', () => this.updatePosterControls());
     this.els.posterButton.on('click', debounce(100, () => {
       trackEvent(`generate/poster/${this.inputs.posterStyle.val()}/${this.inputs.posterPaper.val()}`);
       this.exportPoster();
       countDonatePrompt();
     }));
+    this.updatePosterControls();
   }
+  updatePosterControls() {
+    if (!this.inputs.posterPaper) return;
+    const custom = this.inputs.posterPaper.val() === 'custom';
+    this.els.posterCustom.toggle(custom);
+    const settings = this.posterSettings();
+    if (settings.error) {
+      this.els.posterNote.addClass('has-text-warning').text(settings.error);
+    } else {
+      this.els.posterNote.removeClass('has-text-warning').text(`${settings.page.width.toLocaleString()} × ${settings.page.height.toLocaleString()} px at ${settings.dpi} dpi.`);
+    }
+    this.els.posterButton.prop('disabled', !!settings.error);
+    this.refreshPosterPreview();
+  }
+  /** Everything the poster layout needs from the controls. */
+  posterSettings() {
+    const style = (this.inputs.posterStyle.val() ?? 'classic').toString() as PosterStyle;
+    const paper = (this.inputs.posterPaper.val() ?? 'a3').toString() as PaperSize;
+    const dpi = parseInt((this.inputs.posterDpi.val() ?? '150').toString(), 10) || 150;
+    const unit = (this.inputs.posterUnit.val() ?? 'cm').toString() as LengthUnit;
+    const toMm = (input : JQuery<HTMLElement>, def : number) => {
+      const v = parseFloat((input.val() ?? '').toString());
+      return (Number.isFinite(v) && v > 0 ? v : def) * (MM_PER_UNIT[unit] ?? 10);
+    };
+    const customMm : [number, number] = [toMm(this.inputs.posterWidth, 30), toMm(this.inputs.posterHeight, 40)];
+    const state = this.getCurrentState();
+    const aspect = state.phys.width / Math.max(1, state.phys.height);
+    const page = pagePixels(paper, dpi, aspect, customMm);
+    let error = '';
+    if (paper === 'custom' && Math.min(...customMm) < 50) error = 'The poster needs to be at least 5 cm (2 in) on each side.';
+    else if (Math.max(page.width, page.height) > POSTER_MAX_SIDE || page.width * page.height > POSTER_MAX_PIXELS) error = `That's too big for the browser to draw (${page.width.toLocaleString()} × ${page.height.toLocaleString()} px). Lower the resolution or the size.`;
+    return {
+      style, theme: POSTER_THEMES[style] ?? POSTER_THEMES.classic, paper, dpi, page, aspect, state, error,
+      contours: (this.inputs.posterContours.val() ?? 'auto').toString(),
+      z: parseFloat((this.inputs.posterZ.val() ?? '1.5').toString()) || 1.5,
+      title: (this.inputs.posterTitle.val() ?? '').toString(),
+      credit: this.inputs.posterCredit?.is(':checked') ?? true,
+    };
+  }
+  /** Small heights grid for the live preview, reused until the area changes. */
+  posterPreviewHeights : {key : string, data : Promise<Awaited<ReturnType<App['fetchOverlayHeights']>>>} | null = null;
+  posterPreviewRun = 0;
+  refreshPosterPreview = debounce(250, async () => {
+    const details = this.sections.poster?.closest('details')[0] as HTMLDetailsElement | undefined;
+    const wrap = this.els.posterPreview;
+    if (!wrap || !details?.open || !wrap.is(':visible')) return;
+    const settings = this.posterSettings();
+    const status = wrap.find('.poster-preview-status');
+    if (settings.error) return;
+    const run = ++this.posterPreviewRun;
+    const state = settings.state;
+    const key = `${this.getElevationSource().id}|${state.latitude.toFixed(5)}|${state.longitude.toFixed(5)}|${state.zoom}|${state.width}|${state.height}|${this.getRotation()}`;
+    if (this.posterPreviewHeights?.key !== key) {
+      this.posterPreviewHeights = {key, data: this.fetchOverlayHeights(384)};
+      this.posterPreviewHeights.data.catch(() => { this.posterPreviewHeights = null; });
+    }
+    status.text('Updating preview…');
+    try {
+      const o = await this.posterPreviewHeights.data;
+      if (run !== this.posterPreviewRun) return;
+      // Draw the page at panel width (doubled for sharp screens), inside a square box
+      const box = Math.max(160, Math.round(wrap.width() || 320));
+      const scale = Math.min(box / settings.page.width, box / settings.page.height) * Math.min(2, window.devicePixelRatio || 1);
+      const canvas = wrap.find('canvas')[0] as HTMLCanvasElement;
+      await this.drawPoster(canvas, {heights: o.heights, width: o.width, height: o.height, physWidth: o.mpp.x * o.width, physHeight: o.mpp.y * o.height}, settings, scale);
+      if (run !== this.posterPreviewRun) return;
+      status.text('');
+    } catch (e) {
+      console.error('Poster preview failed', e);
+      if (run === this.posterPreviewRun) status.text('Could not draw the preview.');
+    }
+  });
   createViewSwitch() {
     const views : ['map' | '3d' | 'split', string][] = [['map', 'Map'], ['split', 'Split'], ['3d', '3D']];
     this.els.viewSwitch = $('<div class="view-switch buttons has-addons are-small" role="group" aria-label="View">');
@@ -2561,7 +2800,7 @@ export default class App {
   /** Features that need the whole area processed in one go (so no streamed tiles). */
   needsWholeArea() : boolean {
     return this.getRotation() !== 0 || this.getSeamlessOptions().mode !== 'off' || this.getShape().length >= 3 ||
-      this.getPaintSettings().enabled || this.getScatterSets().length > 0 || this.getSplineLayers().length > 0 ||
+      this.getPaintSettings().enabled || this.getScatterSets().length > 0 || this.getSplineLayers().length > 0 || this.wantsTrees() ||
       (this.inputs.sunMap?.is(':checked') ?? false) || wantsCarve(this.getCarveOptions()) || this.getSeaLevel() !== 0;
   }
   /** OpenStreetMap layers an export needs: masks, carving, painting, scatter, splines, buildings. */
@@ -2573,6 +2812,7 @@ export default class App {
       paintOsmLayers(this.getPaintSettings()).forEach(id => ids.add(id));
       for (const set of this.getScatterSets()) if (set.source.startsWith('osm:')) ids.add(set.source.slice(4));
       this.getSplineLayers().forEach(id => ids.add(id));
+      if (this.wantsTrees()) ids.add('forest');
     }
     if ((purpose === 'model' || purpose === 'preview') && this.wantsBuildings()) ids.add('buildings');
     return Array.from(ids);
@@ -2716,6 +2956,7 @@ export default class App {
     sectionStatus(this.sections.scatter, sets.length ? `${sets.length} set${sets.length === 1 ? '' : 's'}` : '', sets.length > 0);
     const splines = this.getSplineLayers();
     sectionStatus(this.sections.splines, splines.join(', '), splines.length > 0);
+    sectionStatus(this.sections.trees, this.wantsTrees() ? 'Exported' : '', this.wantsTrees());
     const sun = this.inputs.sunMap?.is(':checked') ?? false;
     sectionStatus(this.sections.sunlight, sun ? 'Exported' : '', sun);
     const osm = this.getOsmLayerIds();
@@ -2786,9 +3027,18 @@ export default class App {
   removeOverlay(key : string) {
     this.overlays[key]?.remove();
     delete this.overlays[key];
+    if (key === 'sun') {
+      this.els.sunHide?.hide();
+      this.els.sunNote?.empty();
+    }
+    if (key === 'trees') {
+      this.els.treeHide?.hide();
+      this.els.treeNote?.empty();
+    }
   }
   clearAreaOverlays() {
     for (const key of Object.keys(this.overlays)) this.removeOverlay(key);
+    this.hideContourPreview();
     this.viewshedMarker?.remove();
     this.viewshedMarker = null;
     this.viewshedResult = null;
@@ -2842,6 +3092,73 @@ export default class App {
       button.removeClass('is-loading');
     }
   }
+  refreshContourPreview = debounce(400, () => this.previewContours());
+  hideContourPreview() {
+    this.contourLayer?.remove();
+    this.contourLayer = null;
+    this.els.contourHide?.hide();
+    this.els.contourPreviewNote?.empty();
+  }
+  /** Draw the contours (or laser-cut layers, stacked) over the map as vectors. */
+  async previewContours() {
+    const button = this.els.contourPreview;
+    button.addClass('is-loading');
+    try {
+      const o = await this.fetchOverlayHeights(1024);
+      const sea = this.getSeaLevel();
+      if (sea) for (let i = 0; i < o.heights.length; i++) o.heights[i] -= sea;
+      const mode = (this.inputs.contourMode.val() ?? 'lines').toString();
+      const layers = mode !== 'lines';
+      const result = await processor.contourPreview(o.heights, o.width, o.height, {
+        interval: Math.max(0, parseFloat((this.inputs.contourInterval.val() ?? '').toString()) || 0),
+        smooth: parseInt((this.inputs.contourSmooth.val() ?? '1').toString(), 10) || 0,
+        closed: layers,
+      });
+      const st = o.state;
+      const x0 = st.exactPos.x - st.widthInTiles / 2, y0 = st.exactPos.y - st.heightInTiles / 2;
+      const toLatLng = (px : number, py : number) : L.LatLngTuple => {
+        const c = App.getLatLngFromTileCoords(x0 + px / o.width * st.widthInTiles, y0 + py / o.height * st.heightInTiles, st.z);
+        return [c.latitude, c.longitude];
+      };
+      const ringLatLngs = (pts : Float32Array) => {
+        const out : L.LatLngTuple[] = [];
+        for (let i = 0; i < pts.length; i += 2) out.push(toLatLng(pts[i], pts[i + 1]));
+        return out;
+      };
+      const renderer = L.canvas({padding: 0.2});
+      const group = L.layerGroup();
+      const count = result.contours.length;
+      result.contours.forEach((c, k) => {
+        const index = Math.round(c.level / result.interval) % 5 === 0;
+        if (layers) {
+          // Stacked sheets: each level a translucent fill, so higher ground builds up darker
+          const rings = c.rings.filter(r => r.points.length >= 6).map(r => ringLatLngs(r.points));
+          if (!rings.length) return;
+          const t = count > 1 ? k / (count - 1) : 1;
+          L.polygon(rings, {renderer, interactive: false, color: '#3b2a1a', weight: 1, opacity: 0.9,
+            fillColor: `hsl(${30 - t * 20}, ${45 + t * 20}%, ${78 - t * 45}%)`, fillOpacity: Math.min(0.35, 3 / count)}).addTo(group);
+        } else {
+          for (const r of c.rings) {
+            if (r.points.length < 4) continue;
+            const latlngs = ringLatLngs(r.points);
+            if (r.closed) latlngs.push(latlngs[0]);
+            L.polyline(latlngs, {renderer, interactive: false, color: index ? '#5a2d0c' : '#8a4b1f', weight: index ? 2 : 1, opacity: index ? 0.95 : 0.8}).addTo(group);
+          }
+        }
+      });
+      this.contourLayer?.remove();
+      this.contourLayer = group.addTo(this.map);
+      this.boundingRect?.bringToFront();
+      this.els.contourHide.show();
+      const unit = (v : number) => `${localFormatNumber(v, v < 10 ? 1 : 0)} m`;
+      this.els.contourPreviewNote.text(`${count} ${layers ? 'layers' : 'levels'} every ${unit(result.interval)}, from ${unit(result.min)} to ${unit(result.max)}. ${layers ? 'Darker = higher sheets.' : 'Thicker lines are every 5th (index) contour.'} The export uses the full resolution, so its lines are finer.`);
+    } catch (e) {
+      console.error('Contour preview failed', e);
+      this.els.contourPreviewNote.text('Could not preview the contours. Please try again.');
+    } finally {
+      button.removeClass('is-loading');
+    }
+  }
   async previewSunlight() {
     if (!this.isEarth()) {
       this.els.sunNote.text('Sunlight uses Earth\'s sun, so it only works on Earth.');
@@ -2863,6 +3180,7 @@ export default class App {
         rgba[i * 4 + 3] = 255;
       }
       this.showOverlay('sun', rgba, o.width, o.height, o.bounds, 0.7);
+      this.els.sunHide.show();
       this.els.sunNote.html(`Clear-sky sunlight over a year: ${localFormatNumber(result.min, 0)} to ${localFormatNumber(result.max, 0)} kWh/m² (flat open ground here: ${localFormatNumber(result.flatReference, 0)}). Real totals are lower because of clouds; use it as relative brightness.`);
     } catch (e) {
       console.error('Sunlight preview failed', e);
@@ -3058,115 +3376,33 @@ export default class App {
       this.displayError({text: `Cannot make a poster above output zoom ${this.getMaxOutputZoom()} with this elevation source`});
       return;
     }
+    const settings = this.posterSettings();
+    if (settings.error) {
+      this.displayError({text: settings.error});
+      return;
+    }
     const button = this.els.posterButton;
     button.prop('disabled', true).addClass('is-loading');
     this.resetOutput();
     try {
-      const style = (this.inputs.posterStyle.val() ?? 'classic').toString() as PosterStyle;
-      const theme = POSTER_THEMES[style] ?? POSTER_THEMES.classic;
-      const paper = (this.inputs.posterPaper.val() ?? 'a3').toString() as PaperSize;
-      const dpi = parseInt((this.inputs.posterDpi.val() ?? '150').toString(), 10) || 150;
-      const state = this.getCurrentState();
-      const aspect = state.phys.width / Math.max(1, state.phys.height);
-      const page = pagePixels(paper, dpi, aspect);
-      const margin = Math.round(Math.min(page.width, page.height) * 0.07);
-      const footer = Math.round(page.height * (paper === 'screen' ? 0.16 : 0.14));
-      const availW = page.width - margin * 2, availH = page.height - margin * 2 - footer;
-      let mapW = availW, mapH = Math.round(availW / aspect);
-      if (mapH > availH) { mapH = availH; mapW = Math.round(availH * aspect); }
+      const {page, style, paper, dpi, theme, state} = settings;
+      const map = this.posterLayout(settings, 1);
       this.getElevationSource().resetStats();
-      const input = await this.fetchRawHeights(Math.min(4096, Math.round(Math.max(mapW, mapH) / 1.25)), (msg, pct) => this.showProcessingProgress(msg, pct * 0.8), 'raw');
+      const input = await this.fetchRawHeights(Math.min(4096, Math.round(Math.max(map.w, map.h) / 1.25)), (msg, pct) => this.showProcessingProgress(msg, pct * 0.8), 'raw');
       this.showProcessingProgress('Drawing the relief…', 85);
-      let min = Infinity, max = -Infinity;
-      for (let i = 0; i < input.heights.length; i++) { if (input.heights[i] < min) min = input.heights[i]; if (input.heights[i] > max) max = input.heights[i]; }
-      const contourSetting = (this.inputs.posterContours.val() ?? 'auto').toString();
-      const interval = contourSetting === 'auto' ? niceDistance((max - min) / 15) : parseFloat(contourSetting) || 0;
-      const z = parseFloat((this.inputs.posterZ.val() ?? '1.5').toString()) || 1.5;
-      const water = this.isEarth() && min < 0.5 ? 0 : (this.inputs.flattenWater?.is(':checked') || this.inputs.waterMask?.is(':checked') ? this.getWaterLevel() : null);
-      const rgba = await processor.renderPoster(input.heights, input.width, input.height, {
-        style, width: mapW, height: mapH, mpp: {x: input.physWidth / input.width, y: input.physHeight / input.height},
-        zFactor: z, contourInterval: interval, waterLevel: water,
-      });
-      this.showProcessingProgress('Laying out the page…', 95);
       const canvas = document.createElement('canvas');
-      canvas.width = page.width;
-      canvas.height = page.height;
-      const ctx = canvas.getContext('2d')!;
-      ctx.fillStyle = theme.paper;
-      ctx.fillRect(0, 0, page.width, page.height);
-      const mapCanvas = document.createElement('canvas');
-      mapCanvas.width = mapW;
-      mapCanvas.height = mapH;
-      mapCanvas.getContext('2d')!.putImageData(new ImageData(rgba as any, mapW, mapH), 0, 0);
-      const mapX = Math.round((page.width - mapW) / 2), mapY = margin + Math.round((availH - mapH) / 2);
-      ctx.drawImage(mapCanvas, mapX, mapY);
-      const unit = Math.min(page.width, page.height) / 100;
-      ctx.strokeStyle = theme.ink;
-      ctx.lineWidth = Math.max(1, unit * 0.12);
-      ctx.strokeRect(mapX, mapY, mapW, mapH);
-      // Title block
-      const title = ((this.inputs.posterTitle.val() ?? '').toString() || this.placeName() || this.formatCoord(state.latitude, state.longitude)).toUpperCase();
-      const titleY = page.height - margin - footer + Math.round(footer * 0.42);
-      ctx.fillStyle = theme.ink;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'alphabetic';
-      let titleSize = unit * 5.2;
-      ctx.font = `600 ${titleSize}px ${theme.font}`;
-      const spaced = title.split('').join(String.fromCharCode(8202));
-      while (ctx.measureText(spaced).width > page.width - margin * 2 && titleSize > unit * 2) {
-        titleSize *= 0.92;
-        ctx.font = `600 ${titleSize}px ${theme.font}`;
-      }
-      ctx.fillText(spaced, page.width / 2, titleY);
-      ctx.fillStyle = theme.muted;
-      ctx.font = `${unit * 1.6}px ${theme.font}`;
-      const world = this.getBody() === 'earth' ? '' : ` · ${this.getBody().charAt(0).toUpperCase()}${this.getBody().slice(1)}`;
-      const sub = `${this.formatCoord(state.latitude, state.longitude)}${world}  ·  ${localFormatNumber(min, 0)} m to ${localFormatNumber(max, 0)} m${interval ? `  ·  contours every ${localFormatNumber(interval, 0)} m` : ''}`;
-      ctx.fillText(sub, page.width / 2, titleY + unit * 3.2);
-      // Scale bar (bottom left of the footer)
-      const metresPerPx = state.phys.width / mapW;
-      const barMetres = niceDistance(metresPerPx * mapW * 0.22);
-      const barPx = barMetres / metresPerPx;
-      const barX = mapX, barY = page.height - margin - unit * 1.2;
-      ctx.fillStyle = theme.ink;
-      for (let k = 0; k < 4; k++) {
-        ctx.globalAlpha = k % 2 ? 0.25 : 1;
-        ctx.fillRect(barX + barPx / 4 * k, barY - unit * 0.5, barPx / 4, unit * 0.5);
-      }
-      ctx.globalAlpha = 1;
-      ctx.strokeRect(barX, barY - unit * 0.5, barPx, unit * 0.5);
-      ctx.textAlign = 'left';
-      ctx.font = `${unit * 1.2}px ${theme.font}`;
-      ctx.fillText(barMetres >= 1000 ? `${localFormatNumber(barMetres / 1000, barMetres >= 10000 ? 0 : 1)} km` : `${localFormatNumber(barMetres, 0)} m`, barX + barPx + unit, barY);
-      // North arrow (bottom right), turned for rotated areas
-      const ax = mapX + mapW - unit * 2.5, ay = barY - unit * 1.2;
-      ctx.save();
-      ctx.translate(ax, ay);
-      ctx.rotate(-this.getRotation() * Math.PI / 180);
-      ctx.beginPath();
-      ctx.moveTo(0, -unit * 2.2);
-      ctx.lineTo(unit * 0.9, unit * 0.9);
-      ctx.lineTo(0, unit * 0.3);
-      ctx.lineTo(-unit * 0.9, unit * 0.9);
-      ctx.closePath();
-      ctx.fill();
-      ctx.font = `600 ${unit * 1.3}px ${theme.font}`;
-      ctx.textAlign = 'center';
-      ctx.fillText('N', 0, -unit * 2.6);
-      ctx.restore();
-      // Credits
-      ctx.textAlign = 'right';
-      ctx.fillStyle = theme.muted;
-      ctx.font = `${unit * 0.9}px ${theme.font}`;
-      const credit = $('<div>').html(this.getElevationSource().attributionHtml).text().replace(/\s+/g, ' ').slice(0, 160);
-      ctx.fillText(`Elevation: ${credit}`, mapX + mapW, page.height - margin * 0.45);
+      await this.drawPoster(canvas, input, settings, 1);
+      this.showProcessingProgress('Saving…', 95);
       const blob : Blob = await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('Could not encode the poster')), 'image/png'));
       const filename = `${this.baseName(state)}_poster_${style}_${paper}.png`;
       this.hideProcessingProgress();
       this.download(blob, filename);
       const url = URL.createObjectURL(blob);
+      const size = paper === 'custom'
+        ? `${(this.inputs.posterWidth.val() ?? '').toString()} × ${(this.inputs.posterHeight.val() ?? '').toString()} ${(this.inputs.posterUnit.val() ?? 'cm').toString()}`
+        : paper.toUpperCase();
       this.els.outputText.html('');
-      this.els.outputText.append($('<p>').text(`Saved ${filename}: ${page.width} × ${page.height} px (${paper.toUpperCase()} at ${dpi} dpi), ${theme.label}.`));
+      this.els.outputText.append($('<p>').text(`Saved ${filename}: ${page.width} × ${page.height} px (${size} at ${dpi} dpi), ${theme.label}.`));
       this.els.outputImage.append($('<img class="poster-thumb" alt="Poster preview">').attr('src', url));
       this.showResults();
     } catch (e) {
@@ -3176,6 +3412,122 @@ export default class App {
     } finally {
       button.prop('disabled', false).removeClass('is-loading');
       currentRequests = [];
+    }
+  }
+  /** Where the map sits on the page, at a given scale of the full-size page. */
+  posterLayout(settings : ReturnType<App['posterSettings']>, scale : number) {
+    const width = Math.max(1, Math.round(settings.page.width * scale)), height = Math.max(1, Math.round(settings.page.height * scale));
+    const margin = Math.round(Math.min(width, height) * 0.07);
+    const footer = Math.round(height * (settings.paper === 'screen' ? 0.16 : 0.14));
+    const availW = width - margin * 2, availH = height - margin * 2 - footer;
+    let w = availW, h = Math.round(availW / settings.aspect);
+    if (h > availH) { h = availH; w = Math.round(availH * settings.aspect); }
+    return {width, height, margin, footer, availH, w: Math.max(1, w), h: Math.max(1, h)};
+  }
+  /** Lay out the whole poster on `canvas`: full size for the export (scale 1), or scaled down for the preview. */
+  async drawPoster(canvas : HTMLCanvasElement, input : {heights : Float32Array, width : number, height : number, physWidth : number, physHeight : number}, settings : ReturnType<App['posterSettings']>, scale : number) {
+    const {theme, style, state} = settings;
+    const L0 = this.posterLayout(settings, scale);
+    const {width: pageW, height: pageH, margin, footer, availH} = L0;
+    const mapW = L0.w, mapH = L0.h;
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < input.heights.length; i++) { if (input.heights[i] < min) min = input.heights[i]; if (input.heights[i] > max) max = input.heights[i]; }
+    const interval = settings.contours === 'auto' ? niceDistance((max - min) / 15) : parseFloat(settings.contours) || 0;
+    const water = this.isEarth() && min < 0.5 ? 0 : (this.inputs.flattenWater?.is(':checked') || this.inputs.waterMask?.is(':checked') ? this.getWaterLevel() : null);
+    const rgba = await processor.renderPoster(input.heights, input.width, input.height, {
+      style, width: mapW, height: mapH, mpp: {x: input.physWidth / input.width, y: input.physHeight / input.height},
+      zFactor: settings.z, contourInterval: interval, waterLevel: water,
+    });
+    canvas.width = pageW;
+    canvas.height = pageH;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = theme.paper;
+    ctx.fillRect(0, 0, pageW, pageH);
+    const mapCanvas = document.createElement('canvas');
+    mapCanvas.width = mapW;
+    mapCanvas.height = mapH;
+    mapCanvas.getContext('2d')!.putImageData(new ImageData(rgba as any, mapW, mapH), 0, 0);
+    const mapX = Math.round((pageW - mapW) / 2), mapY = margin + Math.round((availH - mapH) / 2);
+    ctx.drawImage(mapCanvas, mapX, mapY);
+    const unit = Math.min(pageW, pageH) / 100;
+    ctx.strokeStyle = theme.ink;
+    ctx.lineWidth = Math.max(scale < 1 ? 0.5 : 1, unit * 0.12);
+    ctx.strokeRect(mapX, mapY, mapW, mapH);
+    // Title block
+    const title = (settings.title || this.placeName() || this.formatCoord(state.latitude, state.longitude)).toUpperCase();
+    const titleY = pageH - margin - footer + Math.round(footer * 0.42);
+    ctx.fillStyle = theme.ink;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    let titleSize = unit * 5.2;
+    ctx.font = `600 ${titleSize}px ${theme.font}`;
+    const spaced = title.split('').join(String.fromCharCode(8202));
+    while (ctx.measureText(spaced).width > pageW - margin * 2 && titleSize > unit * 2) {
+      titleSize *= 0.92;
+      ctx.font = `600 ${titleSize}px ${theme.font}`;
+    }
+    ctx.fillText(spaced, pageW / 2, titleY);
+    ctx.fillStyle = theme.muted;
+    ctx.font = `${unit * 1.6}px ${theme.font}`;
+    const world = this.getBody() === 'earth' ? '' : ` · ${this.getBody().charAt(0).toUpperCase()}${this.getBody().slice(1)}`;
+    const sub = `${this.formatCoord(state.latitude, state.longitude)}${world}  ·  ${localFormatNumber(min, 0)} m to ${localFormatNumber(max, 0)} m${interval ? `  ·  contours every ${localFormatNumber(interval, 0)} m` : ''}`;
+    ctx.fillText(sub, pageW / 2, titleY + unit * 3.2);
+    // Scale bar (bottom left of the footer)
+    const metresPerPx = state.phys.width / mapW;
+    const barMetres = niceDistance(metresPerPx * mapW * 0.22);
+    const barPx = barMetres / metresPerPx;
+    const barX = mapX, barY = pageH - margin - unit * 1.2;
+    ctx.fillStyle = theme.ink;
+    for (let k = 0; k < 4; k++) {
+      ctx.globalAlpha = k % 2 ? 0.25 : 1;
+      ctx.fillRect(barX + barPx / 4 * k, barY - unit * 0.5, barPx / 4, unit * 0.5);
+    }
+    ctx.globalAlpha = 1;
+    ctx.strokeRect(barX, barY - unit * 0.5, barPx, unit * 0.5);
+    ctx.textAlign = 'left';
+    ctx.font = `${unit * 1.2}px ${theme.font}`;
+    ctx.fillText(barMetres >= 1000 ? `${localFormatNumber(barMetres / 1000, barMetres >= 10000 ? 0 : 1)} km` : `${localFormatNumber(barMetres, 0)} m`, barX + barPx + unit, barY);
+    // North arrow (bottom right), turned for rotated areas
+    const ax = mapX + mapW - unit * 2.5, ay = barY - unit * 1.2;
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.rotate(-this.getRotation() * Math.PI / 180);
+    ctx.beginPath();
+    ctx.moveTo(0, -unit * 2.2);
+    ctx.lineTo(unit * 0.9, unit * 0.9);
+    ctx.lineTo(0, unit * 0.3);
+    ctx.lineTo(-unit * 0.9, unit * 0.9);
+    ctx.closePath();
+    ctx.fill();
+    ctx.font = `600 ${unit * 1.3}px ${theme.font}`;
+    ctx.textAlign = 'center';
+    ctx.fillText('N', 0, -unit * 2.6);
+    ctx.restore();
+    // Credits along the bottom margin: elevation data on the right, ours (with a QR link) on the left
+    const creditY = pageH - margin * 0.45;
+    ctx.textAlign = 'right';
+    ctx.fillStyle = theme.muted;
+    ctx.font = `${unit * 0.9}px ${theme.font}`;
+    const credit = $('<div>').html(this.getElevationSource().attributionHtml).text().replace(/\s+/g, ' ').slice(0, 160);
+    ctx.fillText(`Elevation: ${credit}`, mapX + mapW, creditY);
+    if (settings.credit) {
+      const modules = qrModules(POSTER_CREDIT_URL);
+      const size = Math.min(margin * 0.62, unit * 4.2);
+      const cell = size / modules.length;
+      const qx = mapX, qy = pageH - margin * 0.2 - size;
+      // Light quiet zone so it scans on dark styles too
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(qx - cell * 1.5, qy - cell * 1.5, size + cell * 3, size + cell * 3);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#1a1a1a';
+      modules.forEach((row, r) => row.forEach((dark, c) => {
+        if (dark) ctx.fillRect(qx + c * cell, qy + r * cell, Math.ceil(cell * 100) / 100 + 0.02, Math.ceil(cell * 100) / 100 + 0.02);
+      }));
+      ctx.textAlign = 'left';
+      ctx.fillStyle = theme.muted;
+      ctx.font = `${unit * 0.9}px ${theme.font}`;
+      ctx.fillText('Generated with unrealheightmap', qx + size + cell * 1.5 + unit * 0.8, creditY);
     }
   }
   createSubmitButton() {
@@ -3285,6 +3637,12 @@ export default class App {
       paint: this.inputs.paint,
       scatter: this.inputs.scatter,
       sunmap: this.inputs.sunMap,
+      treemap: this.inputs.treeMap,
+      treemin: this.inputs.treeMin,
+      treedensity: this.inputs.treeDensity,
+      treespacing: this.inputs.treeSpacing,
+      treeleaf: this.inputs.treeLeaf,
+      treeswiss: this.inputs.treeSwiss,
       splines: this.inputs.splines,
       buildings: this.inputs.buildings,
       buildingheight: this.inputs.buildingHeight,
@@ -3302,6 +3660,10 @@ export default class App {
       postertitle: this.inputs.posterTitle,
       postercontours: this.inputs.posterContours,
       posterz: this.inputs.posterZ,
+      posterwidth: this.inputs.posterWidth,
+      posterheight: this.inputs.posterHeight,
+      posterunit: this.inputs.posterUnit,
+      postercredit: this.inputs.posterCredit,
       viewheight: this.inputs.viewHeight,
     };
     return controls[key];
@@ -3880,6 +4242,9 @@ export default class App {
     }
     const source = this.getElevationSource();
     this.els.elevSourceNote?.html(`${source.attributionHtml}. Output zoom up to ${source.maxZoom}.`);
+    if (source.id === 'mapterhorn' || source.id === 'landsea') {
+      this.els.elevSourceNote?.append(MAPTERHORN_COVERAGE_HTML);
+    }
   }
   uploadBoundsRect : L.Rectangle | null = null;
   async loadDemFile(file : File) {
@@ -4684,7 +5049,20 @@ export default class App {
     //@ts-ignore
     let output : NormaliseResult<Float32Array>;
     try {
-      const options = this.getProcessOptions(target, true, {area, terrain: this.terrainOpsFor(target, 'heightmap', features)});
+      const terrain = this.terrainOpsFor(target, 'heightmap', features);
+      if (this.wantsTrees()) {
+        this.showProcessingProgress('Downloading tree data…', 0);
+        const settings = this.getTreeSettings();
+        try {
+          const rasters = await this.treeRastersFor(target, settings);
+          if (rasters.length) terrain.trees = {settings, rasters};
+          else this.displayError({text: 'No tree data was found for this area, so the treemap was skipped.'});
+        } catch (e) {
+          console.error('Tree data failed', e);
+          this.displayError({text: 'The tree data could not be downloaded, so the treemap was skipped. Please try again.'});
+        }
+      }
+      const options = this.getProcessOptions(target, true, {area, terrain});
       //@ts-ignore
       output = await processor.combineImages(states, this.getNormaliseModeValue(), norm, progressHandler, options) as NormaliseResult<Float32Array>;
     } finally {
@@ -4717,6 +5095,10 @@ export default class App {
     if (extras.paintCoverage) lines.push(`Painted layers: ${extras.paintCoverage.map(c => `${c.name} ${(c.share * 100).toFixed(c.share < 0.1 ? 1 : 0)}%`).join(', ')}. Saved as paint_NN_name weightmaps (they add up to 100%) plus a colour preview.`);
     if (extras.scatterCounts) lines.push(`Scatter: ${extras.scatterCounts.map(c => `${c.count.toLocaleString()} ${c.name.toLowerCase()}${c.capped ? ' (capped)' : ''}`).join(', ')}.`);
     if (extras.splineCount !== undefined) lines.push(`Splines: ${extras.splineCount.toLocaleString()} roads, paths and rivers.`);
+    if (extras.trees) {
+      const t = extras.trees;
+      lines.push(`Treemap: ${t.count.toLocaleString()} trees${t.capped ? ' (capped)' : ''} (${t.conifers.toLocaleString()} conifer, ${t.broadleaf.toLocaleString()} broadleaf; ${t.detected.toLocaleString()} found in canopy heights, ${t.scattered.toLocaleString()} scattered through tree cover). Trees cover ${(t.cover * 100).toFixed(t.cover < 0.1 ? 1 : 0)}% of the area. Data: ${t.sources.join(' + ')}. Saved as trees_density, trees_conifer, trees_broadleaf${t.detected ? ' and trees_canopy_height_0-51m (value ÷ 5 = metres)' : ''} maps plus a CSV and Blender/Unreal scripts. Please credit the tree data (see License Info).`);
+    }
     if (extras.sunlight) lines.push(`Sunlight map: ${localFormatNumber(extras.sunlight.min, 0)} to ${localFormatNumber(extras.sunlight.max, 0)} kWh/m² a year (clear sky), white = sunniest.`);
     if (this.getRotation()) lines.push(`Rotated ${Math.round(this.getRotation())}° clockwise. World files include the rotation; GeoTIFFs don't, so use the PNG with its .pgw in GIS.`);
     if (this.getSeaLevel()) lines.push(`Sea level moved ${this.getSeaLevel() > 0 ? 'up' : 'down'} ${Math.abs(this.getSeaLevel())} m: 0 m in these files is the new sea level.`);
@@ -4726,7 +5108,7 @@ export default class App {
     const zip = new JSZip();
     for (const f of files) zip.file(f.filename, f.contents);
     const blob = await zip.generateAsync({type: 'blob'});
-    const zipName = `${this.baseName(state)}_splines_scatter.zip`;
+    const zipName = `${this.baseName(state)}_${extras.trees ? 'trees_' : ''}splines_scatter.zip`;
     this.download(blob, zipName);
     const p = $('<p class="georefLinks">').text(`Splines and scatter (also saved together as ${zipName}): `);
     files.forEach((file, i) => {

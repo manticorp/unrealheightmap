@@ -42,6 +42,7 @@
             <li><a href="#carve">Carving roads, rivers and lakes</a></li>
             <li><a href="#osm">OpenStreetMap layers</a></li>
             <li><a href="#painter">Material painter</a></li>
+            <li><a href="#trees">Real trees (treemap)</a></li>
             <li><a href="#scatter">Scatter points</a></li>
             <li><a href="#splines">Road and river splines</a></li>
             <li><a href="#albedo">Albedo</a></li>
@@ -369,6 +370,25 @@
         </ul>
       </article>
 
+      <article class="container content" id="trees">
+        <h2>Real trees (treemap)</h2>
+        <p><strong>Layers → Real trees</strong> maps the real trees in the area from measured data, rather than from rules. Tick <strong>Export a real treemap with the heightmap</strong>, or press <strong>Preview on map</strong> to see the tree cover first (dark green is conifer, light green broadleaf).</p>
+        <ul>
+          <li><strong>Switzerland</strong>: the Swiss National Forest Inventory's 1 m vegetation height model, from swisstopo's yearly aerial surveys (the newest survey of each spot is used). Every tree is picked out one by one as a crown top, at its real height. Areas up to about 4 × 4 km get the full 1 m detail; bigger ones are read more coarsely and the trees are scattered instead.</li>
+          <li><strong>Everywhere else</strong>: the tree cover class of ESA WorldCover 2021 (10 m). Trees are scattered through the forest at <strong>Trees per hectare</strong>, never closer than <strong>Min spacing</strong>. Mature forests have roughly 200 to 600 trees per hectare.</li>
+          <li><strong>Conifer or broadleaf</strong> comes from OpenStreetMap forests tagged <code>leaf_type</code>; elsewhere trees get the <strong>Leaf type if unmapped</strong>.</li>
+          <li><strong>Smallest tree</strong> sets how tall canopy must be to count as a tree (Swiss data).</li>
+        </ul>
+        <p>The export adds, on the same grid as the heightmap:</p>
+        <ul>
+          <li><code>trees_density.png</code>: share of each pixel under trees (white = full forest). This is the map most game editors and tools like Gaea, World Machine, Unity terrain and Unreal's foliage or PCG want as a tree mask.</li>
+          <li><code>trees_conifer.png</code> and <code>trees_broadleaf.png</code>: the same split by leaf type, one mask per kind of tree.</li>
+          <li><code>trees_canopy_height_0-51m.png</code> (Swiss data): canopy height, where pixel value ÷ 5 = metres.</li>
+          <li><code>_trees.csv</code>: every tree with its type, position (pixels, Blender metres, Unreal coordinates), ground height, tree height and crown radius.</li>
+          <li><code>_trees_blender.py</code> and <code>_trees_unreal.py</code>: point clouds and instanced meshes like the scatter scripts, one set per leaf type. "Scale" is the tree's height ÷ 10 m, so tree models about 10 m tall come out at each tree's real height.</li>
+        </ul>
+      </article>
+
       <article class="container content" id="scatter">
         <h2>Scatter points</h2>
         <p><strong>Layers → Scatter</strong> places trees, rocks, bushes or anything else: positions with a random scale and rotation, at a density (per hectare) wherever a painted layer or OpenStreetMap layer says, never closer than a minimum spacing, and only on slopes gentler than the limit. They're exported with the heightmap in a zip:</p>
@@ -427,7 +447,7 @@
 
       <article class="container content" id="contours">
         <h2>Contour lines</h2>
-        <p><strong>Export Contours</strong> traces contour lines for the export area.</p>
+        <p><strong>Export Contours</strong> traces contour lines for the export area. <strong>Preview on map</strong> draws them over the map first (laser-cut layers as stacked, shaded sheets) and updates as you change the interval, smoothing or style; <strong>Hide preview</strong> removes them.</p>
         <ul>
           <li><strong>Contour Interval</strong> is the height between lines. Leave it empty to pick a round number giving about 20 levels. Every 5th line is drawn thicker.</li>
           <li><strong>Topo map lines</strong> are ordinary contour lines for maps and prints.</li>
@@ -448,12 +468,12 @@
 
       <article class="container content" id="sunlight">
         <h2>Sunlight</h2>
-        <p><strong>Analysis → Sunlight over a year</strong> works out how much sun each spot gets over a year: one day each month, sampled every hour, with shadows from the surrounding terrain and the angle of each slope to the sun. Tick <strong>Export a yearly sunlight map</strong> to get a <code>sunlight.png</code> with the heightmap (white is sunniest), or press <strong>Preview on map</strong>. It assumes clear skies, so read it as relative brightness. Use it for snow, moss, vegetation, or where people would build.</p>
+        <p><strong>Analysis → Sunlight over a year</strong> works out how much sun each spot gets over a year: one day each month, sampled every hour, with shadows from the surrounding terrain and the angle of each slope to the sun. Tick <strong>Export a yearly sunlight map</strong> to get a <code>sunlight.png</code> with the heightmap (white is sunniest), or press <strong>Preview on map</strong> (and <strong>Hide preview</strong> to remove it). It assumes clear skies, so read it as relative brightness. Use it for snow, moss, vegetation, or where people would build.</p>
       </article>
 
       <article class="container content" id="poster">
         <h2>Posters</h2>
-        <p><strong>Export → Poster print</strong> makes a print-ready shaded-relief map of the area as a PNG, with a title (from the search box unless you type one), coordinates, height range, a scale bar and a north arrow. Choose a style (classic relief, Swiss, night, blueprint, vintage, red planet), paper size (A4 to A1, square or a 16:9 wallpaper), resolution (300 dpi for print shops) and contour spacing. <strong>Relief exaggeration</strong> deepens the shading for gentle landscapes.</p>
+        <p><strong>Export → Poster print</strong> makes a print-ready shaded-relief map of the area as a PNG, with a title (from the search box unless you type one), coordinates, height range, a scale bar and a north arrow. Choose a style (classic relief, Swiss, night, blueprint, vintage, red planet), paper size (A4 to A1, square, a 16:9 wallpaper, or <strong>Custom size</strong> in mm, cm or inches), resolution (300 dpi for print shops) and contour spacing. <strong>Relief exaggeration</strong> deepens the shading for gentle landscapes. A live preview in the panel updates as you change the options, so you only need to export once you're happy. <strong>Include unrealheightmap credit</strong> adds a small "Generated with unrealheightmap" line and QR code in the bottom margin; untick it to leave it off.</p>
       </article>
 
       <article class="container content">
