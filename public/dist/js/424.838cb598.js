@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkpng_16_browser=self.webpackChunkpng_16_browser||[]).push([[424],{424(e,r,s){s.d(r,{default:()=>a});var n=s(75),u=s(132);class a extends u.A{decodeBlock(e){return(0,n.UD)(new Uint8Array(e)).buffer}}}}]);

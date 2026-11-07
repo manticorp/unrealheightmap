@@ -29,6 +29,7 @@ $custom-colors: (
 
 @import "~bulma/bulma";
 @import "overrides";
+@import "app";
 
 .flag {
   font-family: "Twemoji Country Flags", Lato, "Helvetica Neue", Helvetica, Arial, sans-serif;

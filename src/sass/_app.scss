@@ -1,0 +1,754 @@
+// App shell: full-height map (and 3D view) beside a tabbed settings sidebar.
+
+$sidebar-width: 420px;
+$navbar-h: 3.25rem;
+$panel-bg: $grey-dark;
+$panel-line: lighten($grey-dark, 6%);
+$section-bg: darken($grey-dark, 2%);
+
+body.is-app {
+  header {
+    margin-bottom: 0;
+  }
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) $sidebar-width;
+  height: calc(100vh - #{$navbar-h});
+  height: calc(100dvh - #{$navbar-h});
+  min-height: 560px;
+  background: $grey-darker;
+}
+
+.app-main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.map-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+
+  #map {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+  }
+}
+
+.leaflet-container.is-picking {
+  cursor: crosshair;
+}
+
+.map-drawer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 900;
+  max-height: 48%;
+  overflow: auto;
+
+  .profile-panel {
+    margin: 0;
+    border-width: 1px 0 0;
+    box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.35);
+  }
+}
+
+.map-overlay {
+  image-rendering: pixelated;
+}
+
+.viewshed-marker {
+  font-size: 20px;
+  line-height: 28px;
+  text-align: center;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
+}
+
+// Map / Split / 3D
+.view-switch {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  z-index: 1002;
+  margin: 0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+
+  .button {
+    margin-bottom: 0 !important;
+    background: $grey-dark;
+    border-color: $grey;
+    color: $grey-lighter;
+
+    &.is-selected {
+      background: $primary;
+      border-color: $primary;
+      color: #fff;
+    }
+  }
+}
+
+// 3D only: the preview covers the map rather than collapsing it, so Leaflet keeps
+// its size and the export area doesn't drift
+.app-main[data-view='3d'] .preview3d {
+  position: absolute;
+  inset: 0;
+  z-index: 1001; // above Leaflet's controls (1000)
+}
+.app-main[data-view='split'] {
+  .map-wrap,
+  .preview3d {
+    flex: 1 1 50%;
+  }
+}
+
+
+.app-main .preview3d {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0;
+  border-width: 1px 0 0;
+
+  .preview3d__toolbar {
+    flex-wrap: wrap;
+    padding-right: 11rem; // keep clear of the view switch in 3D-only view
+  }
+  .preview3d__canvas {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+  }
+}
+.app-main[data-view='split'] .preview3d .preview3d__toolbar {
+  padding-right: 0.6rem;
+}
+
+// Sidebar
+.app-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: $panel-bg;
+  border-left: 1px solid $grey;
+  color: $grey-lighter;
+}
+
+.sidebar-head {
+  padding: 0.6rem 0.75rem 0.5rem;
+  border-bottom: 1px solid $panel-line;
+
+  .search-row {
+    display: flex;
+    margin: 0;
+    gap: 0.5rem;
+    align-items: flex-start;
+
+    > .column.is-narrow .label {
+      visibility: hidden;
+    }
+    > .column.is-narrow .button {
+      height: 2.1em;
+      margin-top: 0.1rem;
+    }
+
+    > .column {
+      padding: 0;
+    }
+    .label {
+      font-size: 0.78rem;
+    }
+  }
+}
+
+.sidebar-tabs {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  background: darken($panel-bg, 3%);
+  border-bottom: 1px solid $grey;
+}
+
+.sidebar-tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.5rem 0.1rem 0.4rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: $grey-light;
+  font: inherit;
+  font-size: 0.68rem;
+  line-height: 1.1;
+  cursor: pointer;
+
+  &:hover {
+    color: $grey-lighter;
+    background: rgba(255, 255, 255, 0.03);
+  }
+  &:focus-visible {
+    outline: 2px solid $primary;
+    outline-offset: -2px;
+  }
+  &.is-active {
+    color: #fff;
+    border-bottom-color: $primary;
+    background: $panel-bg;
+  }
+
+  &__icon {
+    font-size: 1.05rem;
+    line-height: 1;
+  }
+  &__label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+  &__badge {
+    position: absolute;
+    top: 0.2rem;
+    right: 0.15rem;
+    padding: 0 0.3rem;
+    border-radius: 999px;
+    background: $primary;
+    color: #fff;
+    font-size: 0.55rem;
+    line-height: 1.4;
+  }
+}
+
+.sidebar-panels {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.6rem 0.6rem 1rem;
+  scrollbar-gutter: stable;
+}
+
+.sidebar-panel {
+  display: none;
+
+  &.is-active {
+    display: block;
+  }
+}
+
+.ui-section {
+  margin-bottom: 0.5rem;
+  background: $section-bg;
+  border: 1px solid $panel-line;
+
+  &.is-disabled {
+    opacity: 0.55;
+  }
+
+  &__title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.7rem;
+    list-style: none;
+    font-weight: 700;
+    font-size: 0.88rem;
+    color: $grey-lighter;
+    cursor: pointer;
+    user-select: none;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+    &::before {
+      content: '▸';
+      color: $grey-light;
+      font-size: 0.8rem;
+      transition: transform 0.15s;
+    }
+    &:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+  }
+  &[open] > &__title::before {
+    transform: rotate(90deg);
+  }
+
+  &__status {
+    margin-left: auto;
+    font-weight: 400;
+    font-size: 0.72rem;
+    color: $grey-light;
+    max-width: 55%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    &.is-on {
+      padding: 0.05rem 0.5rem;
+      background: rgba($primary, 0.18);
+      color: lighten($primary, 15%);
+    }
+  }
+
+  &__body {
+    padding: 0.15rem 0.7rem 0.75rem;
+  }
+}
+
+.ui-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.5rem 0.7rem;
+  margin-bottom: 0.5rem;
+
+  > .column,
+  > .field {
+    padding: 0;
+    margin: 0 !important;
+    min-width: 0;
+  }
+  > .is-full {
+    grid-column: 1 / -1;
+  }
+}
+
+.app-sidebar {
+  .field:not(:last-child) {
+    margin-bottom: 0.5rem;
+  }
+  .label {
+    margin-bottom: 0.2rem !important;
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: $grey-lighter;
+  }
+  .input,
+  .select select {
+    height: 2.1em;
+    font-size: 0.85rem;
+  }
+  .select:not(.is-multiple) {
+    height: 2.1em;
+  }
+  .select select {
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  .help {
+    font-size: 0.72rem;
+    color: $grey-light;
+  }
+  .checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.15rem 0;
+    font-size: 0.84rem;
+    color: $grey-lighter;
+
+    &:hover {
+      color: #fff;
+    }
+  }
+  .checkbox-list {
+    gap: 0 0.9rem;
+    margin: 0.25rem 0 0.5rem;
+  }
+  .elevation-note,
+  .extra-maps-note,
+  .mesh-estimate,
+  .tile-zip-note {
+    font-size: 0.75rem;
+  }
+  .buttons {
+    margin-bottom: 0.25rem;
+  }
+  .columns-output {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 0.5rem 0.7rem;
+    margin: 0;
+
+    > .column {
+      padding: 0;
+    }
+  }
+}
+
+.info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  margin-left: 0.2rem;
+  padding: 0;
+  border: 1px solid $grey-light;
+  border-radius: 50%;
+  background: none;
+  color: $grey-light;
+  font: italic 700 0.62rem/1 Georgia, serif;
+  vertical-align: middle;
+  cursor: help;
+
+  &:hover,
+  &:focus-visible {
+    border-color: $primary;
+    color: $primary;
+  }
+}
+span.info-icon {
+  // Older text icons (an emoji in a span) keep their look
+  width: auto;
+  height: auto;
+  border: 0;
+  font: inherit;
+}
+
+.ui-note {
+  margin: 0.2rem 0 0.55rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: $grey-light;
+
+  b,
+  strong {
+    color: $grey-lighter;
+  }
+  code {
+    background: $grey-darker;
+    color: $grey-lighter;
+    font-size: 0.72rem;
+  }
+}
+
+.ui-range {
+  width: 100%;
+  margin-top: 0.55rem;
+  accent-color: $primary;
+}
+
+.ui-rule {
+  height: 1px;
+  margin: 0.6rem 0;
+  background: $panel-line;
+}
+
+// Footer: summary and the main buttons, always in view
+.sidebar-foot {
+  padding: 0.55rem 0.75rem 0.65rem;
+  border-top: 1px solid $grey;
+  background: darken($panel-bg, 3%);
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.2);
+
+  .content {
+    margin: 0 !important;
+    padding: 0;
+    font-size: 0.78rem;
+  }
+  .generatorInfo-primary {
+    font-weight: 700;
+    color: $grey-lighter;
+  }
+  .tilingSummary,
+  .scaleInfo {
+    color: $grey-light;
+    font-size: 0.74rem !important;
+    margin-top: 0.15rem !important;
+  }
+  .boundsInfo {
+    font-size: 0.72rem;
+    color: $grey-light;
+    margin-top: 0.2rem;
+
+    summary {
+      cursor: pointer;
+    }
+    pre {
+      max-height: 10rem;
+      font-size: 0.65rem;
+    }
+  }
+  &__buttons {
+    display: flex;
+    gap: 0.5rem;
+    margin: 0.5rem 0 0 !important;
+
+    .button {
+      margin: 0 !important;
+    }
+    .button.is-primary {
+      flex: 1 1 auto;
+      font-weight: 700;
+    }
+  }
+  .processing-progress {
+    margin-top: 0.4rem;
+
+    .progress {
+      height: 0.4rem;
+      margin-bottom: 0;
+    }
+  }
+  .processing-progress__label {
+    font-size: 0.74rem;
+    color: $grey-light;
+  }
+}
+
+// Results tab
+.results-empty {
+  padding: 1rem 0.25rem;
+}
+.app-output {
+  font-size: 0.85rem;
+
+  .columns {
+    display: block;
+    margin: 0;
+  }
+  .column {
+    padding: 0.25rem 0;
+  }
+  img {
+    max-width: 100%;
+    height: auto;
+    margin: 0.4rem 0;
+  }
+  p {
+    margin-bottom: 0.5rem;
+    overflow-wrap: anywhere;
+  }
+  code {
+    background: $grey-darker;
+    color: $grey-lighter;
+  }
+}
+.poster-thumb {
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+}
+.extras-note {
+  padding-left: 0.6rem;
+  border-left: 3px solid $primary;
+}
+.band-list {
+  margin: 0.2rem 0 0.6rem;
+  list-style: none;
+  font-size: 0.8rem;
+}
+
+// Material painter and scatter editors
+.painter {
+  &__rules {
+    margin: 0.5rem 0;
+  }
+  &__rule {
+    margin-bottom: 0.5rem;
+    padding: 0.5rem;
+    border: 1px solid $panel-line;
+    background: $grey-darker;
+
+    .ui-grid {
+      margin-bottom: 0;
+      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    }
+  }
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.45rem;
+
+    .input {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+  }
+  &__num {
+    width: 1rem;
+    color: $grey-light;
+    font-size: 0.75rem;
+    text-align: center;
+  }
+  &__color {
+    flex: 0 0 auto;
+    width: 2rem;
+    height: 1.85rem;
+    padding: 0;
+    border: 1px solid $grey;
+    background: none;
+    cursor: pointer;
+  }
+  &__icon {
+    padding: 0.15rem 0.3rem;
+    border: 0;
+    background: none;
+    color: $grey-light;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      color: #fff;
+    }
+    &:disabled {
+      opacity: 0.3;
+      cursor: default;
+    }
+  }
+  &__base {
+    margin: 0.5rem 0;
+
+    &-label {
+      display: block;
+      margin-bottom: 0.25rem;
+      font-size: 0.76rem;
+      font-weight: 700;
+    }
+  }
+  &__bar {
+    display: flex;
+    height: 0.6rem;
+    margin: 0.5rem 0 0.35rem;
+    overflow: hidden;
+    background: $grey-darker;
+
+    span {
+      height: 100%;
+    }
+  }
+  &__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem 0.8rem;
+    margin: 0;
+    list-style: none;
+    font-size: 0.74rem;
+    color: $grey-light;
+  }
+  &__swatch {
+    display: inline-block;
+    width: 0.7rem;
+    height: 0.7rem;
+    vertical-align: middle;
+    border: 1px solid rgba(0, 0, 0, 0.3);
+  }
+}
+
+.band-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 0.1rem 0 0.5rem;
+}
+.band-swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  font-size: 0.68rem;
+  color: $grey-light;
+}
+
+.message-stack {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  left: auto;
+  z-index: 1100;
+}
+
+// Phones and narrow windows: map on top, settings below
+@media screen and (max-width: 900px) {
+  .app-shell {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 0;
+  }
+  .app-main {
+    height: 62vh;
+    min-height: 340px;
+  }
+  .app-sidebar {
+    border-left: 0;
+    border-top: 1px solid $grey;
+  }
+  .sidebar-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  .sidebar-panels {
+    overflow: visible;
+  }
+  .sidebar-foot {
+    position: sticky;
+    bottom: 0;
+    z-index: 1001;
+
+    .scaleInfo,
+    .boundsInfo,
+    .tilingSummary {
+      display: none;
+    }
+  }
+  .app-main .preview3d .preview3d__toolbar {
+    padding-right: 0.6rem;
+  }
+}
+@media screen and (max-width: 420px) {
+  .sidebar-tab__label {
+    font-size: 0.6rem;
+  }
+}
+
+// Live poster preview: the page fitted into a square the width of the panel
+.poster-preview {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0.75rem 0;
+  background: rgba(0, 0, 0, 0.25);
+
+  canvas {
+    max-width: 100%;
+    max-height: 100%;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  }
+
+  .poster-preview-status {
+    position: absolute;
+    left: 0.5rem;
+    bottom: 0.4rem;
+    font-size: 0.7rem;
+    color: $grey-light;
+    pointer-events: none;
+  }
+}
+
+// Tree data download progress in the Real trees section
+.tree-progress {
+  margin: 0.5rem 0;
+
+  .progress {
+    margin-bottom: 0.3rem;
+  }
+
+  .tree-progress-text {
+    font-size: 0.75rem;
+    color: $grey-light;
+  }
+}

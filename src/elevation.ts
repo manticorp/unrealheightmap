@@ -6,7 +6,7 @@
  * normalising and export code unchanged whatever the data comes from.
  */
 
-export type ElevationSourceId = 'aws' | 'mapterhorn';
+export type ElevationSourceId = 'aws' | 'mapterhorn' | 'upload' | 'etopo' | 'mars' | 'moon' | 'mercury' | 'gale' | 'landsea';
 
 export type ElevationStats = {
   /** Slippy zoom (256 px tiles) of the most and least detailed data actually used. */
@@ -20,6 +20,10 @@ export interface ElevationSource {
   /** Highest output zoom (256 px tile scheme) worth requesting. */
   maxZoom: number;
   attributionHtml: string;
+  /** Which world the data describes; Earth when left out. */
+  body?: 'earth' | 'mars' | 'moon' | 'mercury';
+  /** Sphere radius in metres for ground distances; Earth's when left out. */
+  radius?: number;
   getTile(z: number, x: number, y: number): Promise<Float32Array>;
   resetStats(): void;
   getStats(): ElevationStats;

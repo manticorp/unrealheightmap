@@ -11,7 +11,19 @@ export type PreviewMeshData = {
   indices: Uint32Array;
   topVertexCount: number;
   gridHeights: Float32Array;
+  /** Heights (metres) of each top vertex, when the top surface isn't the full grid (simplified meshes). */
+  vertexHeights?: Float32Array;
+  uvs?: Float32Array;
   units: 'm' | 'mm';
+};
+
+/** Where the light comes from. `null` keeps the fixed hillshade-style light. */
+export type PreviewSun = {
+  /** Unit vector towards the sun, +x east, +y north, +z up. */
+  direction: [number, number, number];
+  /** Degrees above the horizon; below 0 is night. */
+  altitude: number;
+  shadows: boolean;
 };
 
 export type PreviewColouring = {
@@ -48,8 +60,9 @@ export const previewColours = (data: PreviewMeshData, colouring: PreviewColourin
   const count = data.positions.length / 3;
   const colours = new Float32Array(count * 3);
   let min = Infinity, max = -Infinity;
-  for (let i = 0; i < data.gridHeights.length; i++) {
-    const h = data.gridHeights[i];
+  const heights = data.vertexHeights ?? data.gridHeights;
+  for (let i = 0; i < heights.length; i++) {
+    const h = heights[i];
     if (h < min) min = h;
     if (h > max) max = h;
   }
@@ -57,7 +70,7 @@ export const previewColours = (data: PreviewMeshData, colouring: PreviewColourin
   for (let v = 0; v < count; v++) {
     let c: [number, number, number];
     if (v < data.topVertexCount) {
-      const h = data.gridHeights[v];
+      const h = heights[v];
       c = colouring.waterLevel !== null && h <= colouring.waterLevel ? WATER : rampColour((h - min) / range);
     } else {
       c = SIDES;
@@ -80,6 +93,15 @@ export class TerrainPreview {
   resizeObserver: ResizeObserver | null = null;
   frame = 0;
   hasFramed = false;
+  sunLight: THREE_NS.DirectionalLight | null = null;
+  ambient: THREE_NS.HemisphereLight | null = null;
+  sun: PreviewSun | null = null;
+  texture: THREE_NS.Texture | null = null;
+  lastData: PreviewMeshData | null = null;
+  lastColouring: PreviewColouring | null = null;
+  /** Copies of the mesh around it, to check that a seamless heightmap repeats. */
+  tileCopies: THREE_NS.Mesh[] = [];
+  tiling = false;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -98,11 +120,18 @@ export class TerrainPreview {
     this.container.appendChild(renderer.domElement);
     this.renderer = renderer;
 
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
     const scene = new THREE.Scene();
-    scene.add(new THREE.HemisphereLight(0xdde8ff, 0x3a3020, 1.2));
+    this.ambient = new THREE.HemisphereLight(0xdde8ff, 0x3a3020, 1.2);
+    scene.add(this.ambient);
     const sun = new THREE.DirectionalLight(0xffffff, 2.2);
     sun.position.set(-1, 1, 1.2); // low-ish sun from the north-west, like a hillshade
+    sun.shadow.mapSize.set(2048, 2048);
     scene.add(sun);
+    scene.add(sun.target);
+    this.sunLight = sun;
     this.scene = scene;
 
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
@@ -137,23 +166,159 @@ export class TerrainPreview {
     if (this.mesh) {
       this.scene.remove(this.mesh);
       this.mesh.geometry.dispose();
-      (this.mesh.material as THREE_NS.Material).dispose();
+      (this.mesh.material as THREE_NS.Material[]).forEach(m => m.dispose());
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(previewColours(data, colouring), 3));
+    if (data.uvs) {
+      geometry.setAttribute('uv', new THREE.BufferAttribute(data.uvs, 2));
+    }
     geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
+    // Top-surface triangles come first; walls and base after. Separate groups let
+    // a texture cover the top while the sides stay a plain colour.
+    let topIndexCount = data.indices.length;
+    for (let i = 0; i < data.indices.length; i += 3) {
+      if (data.indices[i] >= data.topVertexCount || data.indices[i + 1] >= data.topVertexCount || data.indices[i + 2] >= data.topVertexCount) {
+        topIndexCount = i;
+        break;
+      }
+    }
+    geometry.addGroup(0, topIndexCount, 0);
+    if (topIndexCount < data.indices.length) {
+      geometry.addGroup(topIndexCount, data.indices.length - topIndexCount, 1);
+    }
     geometry.computeBoundingSphere();
-    const material = new THREE.MeshStandardMaterial({vertexColors: true, roughness: 0.95, metalness: 0, flatShading: false});
-    this.mesh = new THREE.Mesh(geometry, material);
+    const top = new THREE.MeshStandardMaterial({roughness: 0.95, metalness: 0, flatShading: false});
+    const sides = new THREE.MeshStandardMaterial({roughness: 1, metalness: 0, color: new THREE.Color().setRGB(...SIDES)});
+    this.mesh = new THREE.Mesh(geometry, [top, sides]);
+    this.mesh.castShadow = true;
+    this.mesh.receiveShadow = true;
+    this.lastData = data;
+    this.lastColouring = colouring;
+    this.applyMaterial();
     this.scene.add(this.mesh);
+    this.applyTiling();
+    this.applySun();
 
     if (reframe || !this.hasFramed) {
       this.frameMesh();
       this.hasFramed = true;
     }
     this.requestRender();
+  }
+
+  /** Show the mesh repeated 3 × 3, for checking seamless heightmaps. */
+  setTiling(on: boolean) {
+    this.tiling = on;
+    this.applyTiling();
+    this.requestRender();
+  }
+
+  applyTiling() {
+    const THREE = this.THREE;
+    if (!THREE || !this.scene) return;
+    for (const copy of this.tileCopies) this.scene.remove(copy);
+    this.tileCopies = [];
+    if (!this.tiling || !this.mesh || !this.lastData) return;
+    // The top surface spans the whole footprint; walls (if any) sit on its edge
+    const p = this.lastData.positions;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let v = 0; v < this.lastData.topVertexCount; v++) {
+      minX = Math.min(minX, p[v * 3]); maxX = Math.max(maxX, p[v * 3]);
+      minY = Math.min(minY, p[v * 3 + 1]); maxY = Math.max(maxY, p[v * 3 + 1]);
+    }
+    const sx = maxX - minX, sy = maxY - minY;
+    for (let i = -1; i <= 1; i++) {
+      for (let j = -1; j <= 1; j++) {
+        if (!i && !j) continue;
+        const copy = new THREE.Mesh(this.mesh.geometry, this.mesh.material);
+        copy.position.set(i * sx, j * sy, 0);
+        copy.castShadow = true;
+        copy.receiveShadow = true;
+        this.scene.add(copy);
+        this.tileCopies.push(copy);
+      }
+    }
+  }
+
+  /** Drape an image (e.g. satellite imagery) over the top surface, or null for height colours. */
+  setTexture(image: TexImageSource | null) {
+    const THREE = this.THREE;
+    if (!THREE) return;
+    this.texture?.dispose();
+    this.texture = null;
+    if (image) {
+      const texture = new THREE.Texture(image as any);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = this.renderer?.capabilities.getMaxAnisotropy() ?? 1;
+      texture.needsUpdate = true;
+      this.texture = texture;
+    }
+    this.applyMaterial();
+    this.requestRender();
+  }
+
+  applyMaterial() {
+    if (!this.mesh) return;
+    const material = (this.mesh.material as THREE_NS.MeshStandardMaterial[])[0];
+    const useTexture = !!this.texture && !!this.lastData?.uvs;
+    material.map = useTexture ? this.texture : null;
+    material.vertexColors = !useTexture;
+    material.needsUpdate = true;
+  }
+
+  /** Light the terrain from a real sun position, or null for the default hillshade light. */
+  setSun(sun: PreviewSun | null) {
+    this.sun = sun;
+    this.applySun();
+    this.requestRender();
+  }
+
+  applySun() {
+    const THREE = this.THREE;
+    const light = this.sunLight;
+    if (!THREE || !light || !this.renderer) return;
+    const sphere = this.mesh?.geometry.boundingSphere;
+    const r = sphere?.radius || 1;
+    const c = sphere?.center ?? new THREE.Vector3();
+    const sun = this.sun;
+    const dir = sun ? sun.direction : [-1 / 1.9, 1 / 1.9, 1.2 / 1.9];
+    light.position.set(c.x + dir[0] * r * 3, c.y + dir[1] * r * 3, c.z + dir[2] * r * 3);
+    light.target.position.copy(c);
+    light.target.updateMatrixWorld();
+
+    if (!sun) {
+      light.intensity = 2.2;
+      light.color.setRGB(1, 1, 1);
+      light.castShadow = false;
+      if (this.ambient) this.ambient.intensity = 1.2;
+      this.renderer.setClearColor(0x1f2d3b);
+      return;
+    }
+    const alt = sun.altitude;
+    // Fade the sun in around the horizon and warm it up when it's low
+    const day = Math.max(0, Math.min(1, (alt + 2) / 8));
+    const warmth = Math.max(0, Math.min(1, 1 - alt / 25));
+    light.intensity = 3 * day;
+    light.color.setRGB(1, 1 - 0.25 * warmth, 1 - 0.5 * warmth);
+    if (this.ambient) {
+      this.ambient.intensity = 0.15 + 0.85 * day;
+    }
+    const sky = new THREE.Color().setRGB(0.03 + 0.2 * day, 0.04 + 0.3 * day, 0.08 + 0.4 * day);
+    this.renderer.setClearColor(sky);
+
+    light.castShadow = sun.shadows && alt > 0;
+    const cam = light.shadow.camera;
+    cam.left = -r; cam.right = r; cam.top = r; cam.bottom = -r;
+    cam.near = r * 0.5;
+    cam.far = r * 5;
+    cam.updateProjectionMatrix();
+    // Low sun skims the surface, which needs a little more bias to avoid acne
+    light.shadow.bias = -0.0005;
+    light.shadow.normalBias = r * 0.002;
+    light.shadow.needsUpdate = true;
   }
 
   frameMesh() {
@@ -187,8 +352,9 @@ export class TerrainPreview {
     this.resizeObserver?.disconnect();
     if (this.mesh) {
       this.mesh.geometry.dispose();
-      (this.mesh.material as THREE_NS.Material).dispose();
+      (this.mesh.material as THREE_NS.Material[]).forEach(m => m.dispose());
     }
+    this.texture?.dispose();
     this.controls?.dispose();
     this.renderer?.dispose();
     this.renderer?.domElement.remove();
