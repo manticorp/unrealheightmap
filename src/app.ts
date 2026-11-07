@@ -2153,11 +2153,14 @@ export default class App {
     this.els.previewStatus.text('Loading terrain…').show();
     try {
       const key = this.getPreviewKey();
+      const areaKey = this.previewAreaKey();
       // The preview stays light: at most 384 vertices a side
       const input = await this.fetchRawHeights(Math.min(384, this.getMeshOptions().resolution),
         (msg) => this.els.previewStatus.text(msg), 'preview');
+      const reframe = !this.previewCache || this.previewAreaShown !== areaKey;
       this.previewCache = {key, input};
-      await this.rebuildPreviewMesh(true);
+      this.previewAreaShown = areaKey;
+      await this.rebuildPreviewMesh(reframe);
       this.updatePreviewTexture();
     } catch (e) {
       console.error('Preview failed', e);
@@ -2166,10 +2169,14 @@ export default class App {
       this.previewBusy = false;
       currentRequests = [];
     }
+    // Settings changed while this one loaded: catch up
+    if (this.previewCache && this.previewCache.key !== this.getPreviewKey()) this.syncPreviewSoon();
   }
+  previewAreaShown = '';
   async rebuildPreviewMesh(reframe : boolean) {
     if (!this.preview || !this.previewCache || this.previewView === 'map') return;
     const opts = this.getMeshOptions();
+    this.lastPreviewMeshKey = this.previewMeshKey();
     const previewOpts : MeshOptions = {...opts, resolution: Math.min(384, opts.resolution)};
     const cache = this.previewCache.input;
     // Send a copy: the cache is reused for later option changes
@@ -2182,7 +2189,7 @@ export default class App {
     this.preview.setTiling(this.inputs.previewTiles?.is(':checked') ?? false);
     this.updatePreviewSun();
     const stale = this.previewCache.key !== this.getPreviewKey();
-    this.els.previewInfo.text(`Preview ${data.gridWidth} × ${data.gridHeight}, ${localFormatNumber(data.triangles, 0)} triangles${stale ? ' · area changed, press Refresh' : ''}. Drag to orbit, right-drag to pan, scroll to zoom.`);
+    this.els.previewInfo.text(`Preview ${data.gridWidth} × ${data.gridHeight}, ${localFormatNumber(data.triangles, 0)} triangles${stale ? ' · updating…' : ''}. Drag to orbit, right-drag to pan, scroll to zoom.`);
     this.els.previewStatus.hide();
   }
   /* ------------------------------------------------------------------ */
@@ -2959,6 +2966,32 @@ export default class App {
   }
   rebuildPreviewSoon = debounce(300, () => {
     if (this.preview && this.previewView !== 'map') this.refreshPreview();
+  });
+  /** Settings that only change how the cached terrain is meshed and drawn. */
+  previewMeshKey() : string {
+    const s = this.readSettings();
+    return JSON.stringify([this.getMeshOptions(), this.getSimplifyPreset(), s.label, s.labeltext, s.colorbands, s.bandlevels, s.bandcolors,
+      s.lithophane, s.lithomin, s.lithomax, s.watermask, s.flattenwater, s.waterlevel, s.sealevel]);
+  }
+  /** Where the area is: changing these re-frames the camera; other terrain changes keep the view. */
+  previewAreaKey() : string {
+    const s = this.readSettings();
+    const round = (v? : string) => v === undefined ? '' : (+v).toFixed(5);
+    return [s.elevsource, round(s.latitude), round(s.longitude), s.outputzoom, s.width, s.height, s.rotation, s.shape].join('|');
+  }
+  lastPreviewMeshKey = '';
+  /**
+   * Keep an open 3D view in step with the settings: new terrain when the area or
+   * anything that shapes the heights changes, a cheap re-mesh for mesh options.
+   */
+  syncPreviewSoon = debounce(500, () => {
+    if (!this.preview || this.previewView === 'map' || !this.previewCache) return;
+    if (this.previewCache.key !== this.getPreviewKey()) {
+      this.refreshPreview();
+    } else if (this.previewMeshKey() !== this.lastPreviewMeshKey) {
+      this.rebuildPreviewMesh(false);
+    }
+    this.updatePreviewTexture();
   });
 
   /* ------------------------------------------------------------------ */
@@ -3855,6 +3888,7 @@ export default class App {
       // Storage may be full or disabled; the URL still carries the state
     }
     this.writeHashThrottled();
+    this.syncPreviewSoon();
   }
   writeHashThrottled = throttle(250, () => this.writeHash());
   saveLatLngZoomState() {
