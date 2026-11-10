@@ -1,0 +1,34 @@
+# 16/32 Bit Heightmap Generator (unrealheightmap)
+
+> A free, browser-based tool that turns real-world elevation data into 16-bit PNG and 16/32-bit EXR heightmaps, texture maps, 3D models (STL, OBJ, GLB, 3MF), contours and posters for Unreal Engine 5, Godot, Blender, Unity and 3D printing. Everything runs client-side in the user's browser. There are no accounts, no paid tier, no API keys and no server: the site is static and the MIT-licensed source is on GitHub.
+
+How an agent can use it: build a link with the settings in the URL hash (see the URL settings spec below), give it to the user, and they click "Generate Heightmap" in the page. The app cannot be called as a web API, because processing happens in the browser, and nothing is uploaded. Elevation data is fetched from third-party tile services by the user's browser.
+
+Example link (Grand Canyon, 64 km, 8129 x 8129): https://manticorp.github.io/unrealheightmap/#lat=36.18112&lng=-112.021&z=10&oz=14&w=8129&h=8129
+
+## Start here
+
+- [URL settings spec (JSON)](https://manticorp.github.io/unrealheightmap/url-params.json): every shareable setting with type, default, allowed values and meaning
+- [Full documentation in one file](https://manticorp.github.io/unrealheightmap/llms-full.txt): all pages below as Markdown
+- [Documentation (Markdown)](https://manticorp.github.io/unrealheightmap/instructions.md): every setting and export explained
+
+## Import guides (Markdown)
+
+- [All guides](https://manticorp.github.io/unrealheightmap/guides.md)
+- [Unreal Engine 5](https://manticorp.github.io/unrealheightmap/guide-unreal.md): Z scale maths, tiled World Partition import, weightmap layers, water
+- [Blender](https://manticorp.github.io/unrealheightmap/guide-blender.md): Displace modifier, Cycles adaptive subdivision, Geometry Nodes
+- [Godot 4](https://manticorp.github.io/unrealheightmap/guide-godot.md): Terrain3D, HTerrain, collision
+- [Unity](https://manticorp.github.io/unrealheightmap/guide-unity.md): RAW conversion, Terrain sizing, splatmaps
+- [QGIS, Gaea, World Machine, Houdini and image editors](https://manticorp.github.io/unrealheightmap/guide-other.md)
+- [3D printing](https://manticorp.github.io/unrealheightmap/guide-3d-printing.md)
+
+## Other
+
+- [Examples](https://manticorp.github.io/unrealheightmap/examples.md)
+- [Data licences and attribution](https://manticorp.github.io/unrealheightmap/rights.md): check before commercial use; elevation and imagery come from third parties
+- [Source code and developer notes](https://github.com/manticorp/unrealheightmap/blob/main/AGENTS.md)
+
+## Optional
+
+- [Live app](https://manticorp.github.io/unrealheightmap/)
+- [Support the project (Ko-fi)](https://ko-fi.com/harrymustoeplayfair): the only payment option, a voluntary donation

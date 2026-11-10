@@ -1,0 +1,1789 @@
+# 16/32 Bit Heightmap Generator: full documentation
+
+> Everything on https://manticorp.github.io/unrealheightmap/ in one file. Index: https://manticorp.github.io/unrealheightmap/llms.txt
+> URL settings spec (JSON): https://manticorp.github.io/unrealheightmap/url-params.json
+
+<!-- Generated from instructions.html by scripts/build-agent-docs.js. Do not edit by hand. -->
+Source: https://manticorp.github.io/unrealheightmap/instructions.html
+Title: Documentation · 16/32 Bit Heightmap Generator
+Summary: How to export 16-bit PNG and EXR heightmaps, texture maps and 3D models of real-world terrain for Unreal Engine, Godot, Terrain3D, Blender and 3D printing.
+
+# Heightmap Generator Documentation
+
+This tool turns real-world elevation data into heightmaps for Unreal Engine, Godot, Terrain3D, Blender, Unity and 3D printing. It runs entirely in your browser, with nothing to install or sign up for.
+
+You can export:
+
+-   **Heightmaps** as 16-bit PNG, 16- or 32-bit OpenEXR or GeoTIFF, as one file or tiled, rotated, cut to a custom shape or made seamless
+-   **Texture maps** that line up with the heightmap: normal, slope, curvature, AO, water flow, aspect, sunlight, height bands, OpenStreetMap masks and rule-painted material weightmaps
+-   **Splines and scatter points** for roads, rivers, trees and rocks, with Blender and Unreal scripts
+-   **Albedo** (colour) images from satellite, topographic and other map styles
+-   **3D models** as STL, OBJ, GLB or multi-colour 3MF, with buildings, labels and lithophanes, and a 3D preview before you download
+-   **Contours, laser-cut layers and shaded-relief posters**
+
+**Contents**
+
+1.  [Quick start](https://manticorp.github.io/unrealheightmap/instructions.md#quick-start)
+2.  [Finding your way around](https://manticorp.github.io/unrealheightmap/instructions.md#layout)
+3.  [Finding a place and sharing links](https://manticorp.github.io/unrealheightmap/instructions.md#finding)
+4.  [Elevation data](https://manticorp.github.io/unrealheightmap/instructions.md#elevation-data)
+5.  [Output zoom and size](https://manticorp.github.io/unrealheightmap/instructions.md#size)
+6.  [Output formats](https://manticorp.github.io/unrealheightmap/instructions.md#formats)
+7.  [Tiled exports](https://manticorp.github.io/unrealheightmap/instructions.md#tiling)
+8.  [Rotated and custom-shaped areas](https://manticorp.github.io/unrealheightmap/instructions.md#rotation)
+9.  [Seamless tiling](https://manticorp.github.io/unrealheightmap/instructions.md#seamless)
+10.  [Normalisation](https://manticorp.github.io/unrealheightmap/instructions.md#normalisation)
+11.  [Water and extra texture maps](https://manticorp.github.io/unrealheightmap/instructions.md#extra-maps)
+12.  [Sea level](https://manticorp.github.io/unrealheightmap/instructions.md#sea-level)
+13.  [Carving roads, rivers and lakes](https://manticorp.github.io/unrealheightmap/instructions.md#carve)
+14.  [OpenStreetMap layers](https://manticorp.github.io/unrealheightmap/instructions.md#osm)
+15.  [Material painter](https://manticorp.github.io/unrealheightmap/instructions.md#painter)
+16.  [Real trees (treemap)](https://manticorp.github.io/unrealheightmap/instructions.md#trees)
+17.  [Scatter points](https://manticorp.github.io/unrealheightmap/instructions.md#scatter)
+18.  [Road and river splines](https://manticorp.github.io/unrealheightmap/instructions.md#splines)
+19.  [Albedo](https://manticorp.github.io/unrealheightmap/instructions.md#albedo)
+20.  [3D preview and 3D model export](https://manticorp.github.io/unrealheightmap/instructions.md#3d)
+21.  [3D printing extras](https://manticorp.github.io/unrealheightmap/instructions.md#printing)
+22.  [Contour lines](https://manticorp.github.io/unrealheightmap/instructions.md#contours)
+23.  [Elevation profile](https://manticorp.github.io/unrealheightmap/instructions.md#profile)
+24.  [Viewshed](https://manticorp.github.io/unrealheightmap/instructions.md#viewshed)
+25.  [Sunlight](https://manticorp.github.io/unrealheightmap/instructions.md#sunlight)
+26.  [Posters](https://manticorp.github.io/unrealheightmap/instructions.md#poster)
+27.  [Importing into Unreal Engine](https://manticorp.github.io/unrealheightmap/instructions.md#unreal)
+28.  [Godot, Terrain3D, Blender and Unity](https://manticorp.github.io/unrealheightmap/instructions.md#other-software)
+29.  [Georeferencing (QGIS and GIS)](https://manticorp.github.io/unrealheightmap/instructions.md#gis)
+30.  [FAQs and troubleshooting](https://manticorp.github.io/unrealheightmap/instructions.md#faq)
+
+## Quick start
+
+1.  **Find your area.** Type a place name in the search box, drag the map, or paste coordinates.
+2.  **Choose the elevation data.** Mapterhorn is the most detailed in most places. See [Elevation data](https://manticorp.github.io/unrealheightmap/instructions.md#elevation-data).
+3.  **Set the output zoom and size.** The orange rectangle on the map shows exactly what will be exported.
+4.  **Choose a format.** For Unreal, use PNG 16-bit with Smart normalisation (the defaults).
+5.  **Click Generate Heightmap.** Your file downloads when it's ready. Any extra maps you ticked download with it, and the **Results** tab shows the Unreal scale values and links to the import helpers.
+
+![The map with an orange rectangle marking the export area](https://manticorp.github.io/unrealheightmap/public/im/mapview.png)
+
+The orange rectangle shows the area that will be exported.
+
+## Finding your way around
+
+The map fills the left of the page. The settings are in a sidebar on the right (below the map on phones), grouped into tabs:
+
+Area
+
+Where and how big: latitude, longitude, output zoom, size, map style, rotation, custom shapes and seamless tiling.
+
+Terrain
+
+Where the heights come from and what happens to them: elevation data, sea level, water, and carving roads, rivers and lakes.
+
+Layers
+
+Maps that go with the heightmap: OpenStreetMap masks, the material painter, scatter points and texture maps.
+
+Analysis
+
+Looking at the terrain: elevation profiles, viewsheds, sunlight and contour lines.
+
+3D & Print
+
+3D models, buildings and 3D printing extras (colour bands, labels, lithophanes).
+
+Export
+
+The heightmap file format, tiles, splines, import helpers and posters.
+
+Results
+
+What your last export made: height range, Unreal scale values, download links and notes.
+
+Each tab is made of sections you can fold away; a small label on a folded section shows when it's switched on. The size, resolution and height range of the area, and the **Generate Heightmap** and **Albedo** buttons, stay at the bottom of the sidebar.
+
+The **Map / Split / 3D** switch at the top right of the map shows the map, the 3D preview, or both.
+
+## Finding a place and sharing links
+
+### Search
+
+Type a mountain, valley, lake or town into **Search for a place** and pick a result with the mouse or the arrow keys and Enter. The map moves there. You can also type coordinates into the search box.
+
+### Coordinates
+
+![Latitude and longitude inputs](https://manticorp.github.io/unrealheightmap/public/im/latlng_inputs.png)
+
+Latitude and longitude inputs
+
+Latitude and longitude set the centre of the export. You can type them in, or paste a coordinate string onto the page and the map jumps there. These formats all work:
+
+-   `03°04′33″S 37°21′12″E`
+-   `3.0674° S, 37.3556° E`
+-   `-3.0674, 37.3556`
+
+### Shareable links
+
+The page address always holds your current location and settings, for example:
+
+`…/unrealheightmap/#lat=27.98791&lng=86.92529&z=13&oz=12&w=1009&h=1009`
+
+Bookmark it to come back to the exact same export, or use **Copy share link** to send it to someone. Settings left at their defaults are left out of the link to keep it short. Old links in the `#latitude/…/longitude/…` format still work.
+
+## Elevation data
+
+Use the **Elevation Data** setting to choose where the heights come from.
+
+Source
+
+Coverage and detail
+
+Max output zoom
+
+AWS Terrain Tiles (Mapzen)
+
+Worldwide. Mostly 30 to 90 m, with 3 to 10 m in the USA. This was the original data source for the tool. It has some known errors, see [FAQs](https://manticorp.github.io/unrealheightmap/instructions.md#faq).
+
+15
+
+Mapterhorn
+
+Copernicus GLO-30 (30 m) worldwide, plus 0.25 to 10 m lidar for the USA (USGS 3DEP), the UK, most of Europe, Japan, New Zealand and more. See [mapterhorn.com](https://mapterhorn.com) for coverage.
+
+18
+
+NOAA ETOPO 2022
+
+Land and sea floor worldwide at about 450 m (15 arc-seconds), with detailed ocean bathymetry. Best for coastlines, islands, sea mounts and ocean trenches.
+
+12
+
+Mapterhorn land + ETOPO sea floor
+
+Mapterhorn's detailed land, with ETOPO's bathymetry wherever Mapterhorn shows flat sea, blended along the coast. The best choice for harbours, coasts and islands. Land below sea level away from the coast (the Dead Sea, polders) keeps its real height.
+
+18
+
+Mars: MOLA
+
+The whole of Mars at 463 m, from NASA's Mars Global Surveyor laser altimeter. Heights are relative to the Mars "sea level" (areoid). The map switches to a Mars base map, and all sizes and scales use Mars's radius.
+
+11
+
+Mars: Gale crater
+
+A 1 m model of Gale crater and Mount Sharp, where NASA's Curiosity rover is exploring, made from HiRISE stereo images. Outside it, MOLA fills in. The map draws its own shaded relief from the heights.
+
+17
+
+Moon: LRO LOLA
+
+The whole Moon at 118 m, from NASA's Lunar Reconnaissance Orbiter laser altimeter. Heights are relative to a 1,737.4 km sphere.
+
+12
+
+Mercury: MESSENGER
+
+The whole of Mercury at 665 m, from NASA's MESSENGER mission. Heights are relative to a 2,439.4 km sphere. The map draws its own shaded relief from the heights, since there's no Mercury tile server.
+
+10
+
+Your own file
+
+A GeoTIFF in EPSG:4326 (lat/long) or EPSG:3857, or an SRTM `.hgt` tile, for example lidar from your national mapping agency. The file is read in your browser and never uploaded. Other projections such as UTM need reprojecting first (QGIS: _Raster → Projections → Warp_ to EPSG:4326). Outside the file's outline, shown in green on the map, the terrain is flat at its lowest height.
+
+Depends on the file
+
+On Mars, the Moon and Mercury, OpenStreetMap layers (and everything built on them: carving, splines, buildings), georeferencing files, the sunlight map and the real-sun preview are switched off, since they only describe Earth. Switching world picks a sensible output zoom for it.
+
+-   **Upscaling.** Where Mapterhorn only has 30 m data, higher output zooms are smoothly upscaled from it. After each export, a line under the result tells you how detailed the source data really was (in metres per pixel), and whether any of it was upscaled.
+-   **Surface model.** Copernicus measures the top of whatever is there, so dense forests and large buildings can show up as bumps. The lidar areas show bare ground.
+
+Data credits and licences are on the [License Info](https://manticorp.github.io/unrealheightmap/rights.md) page.
+
+## Output zoom and size
+
+Two settings decide how much ground the export covers:
+
+-   **Output Zoom** sets how much ground each pixel covers. Each step up halves the metres per pixel and doubles the detail.
+-   **Output Width / Height (px)** set how many pixels there are.
+
+Area covered = pixels × metres per pixel. The orange rectangle on the map updates as you change either setting.
+
+Output zoom
+
+Metres per pixel at the equator
+
+A 2017 px export covers
+
+10
+
+153 m
+
+308 km
+
+12
+
+38 m
+
+77 km
+
+13
+
+19 m
+
+39 km
+
+14
+
+9.6 m
+
+19 km
+
+15
+
+4.8 m
+
+9.6 km
+
+16
+
+2.4 m
+
+4.8 km
+
+17
+
+1.2 m
+
+2.4 km
+
+18
+
+0.6 m
+
+1.2 km
+
+Away from the equator, multiply by cos(latitude). For example, at 46° (the Alps) each pixel covers about 70% of the ground shown in the table.
+
+**Default Sizes** lists Unreal Engine's recommended landscape sizes (such as 1009, 2017, 4033 and 8129) and powers of two (such as 1024 and 4096) for Godot, Terrain3D and others. A single export can be up to 8129 × 8129. For anything bigger, use [tiled exports](https://manticorp.github.io/unrealheightmap/instructions.md#tiling).
+
+**Choosing a zoom.** There's no benefit to an output zoom much higher than the source data supports. Do a small test export first and read the source-detail line under the result. For 30 m data, zoom 12 to 13 is about the limit. For 1 m lidar, zoom 16 to 17 is worthwhile.
+
+## Output formats
+
+Format
+
+Levels of detail
+
+Best for
+
+PNG 16-bit
+
+65,536
+
+Unreal Engine landscapes, and most other software
+
+OpenEXR 16-bit
+
+Half-float, about 2,000 steps near the top of the range
+
+Previews only. It's coarser than the PNG.
+
+OpenEXR 32-bit
+
+Full float
+
+Blender, Godot (Terrain3D, HTerrain), Houdini and Gaea. With normalisation Off it stores true metres, including below sea level. Otherwise it stores 0.0 to 1.0.
+
+GeoTIFF 32-bit
+
+Full float, always true metres
+
+QGIS, ArcGIS, GDAL and other GIS tools. The projection (EPSG:3857) and position are stored inside the file. Normalisation doesn't apply.
+
+16 bits gives 65,536 height levels. That's enough to cover sea level to the top of Everest (8,849 m) in steps of about 13 cm, and with normalisation (see below) a 1,000 m mountain gets 1.5 cm steps. An 8-bit image only has 256 levels, which gives visible terracing.
+
+## Tiled exports
+
+Use **Export → Tiles** to split one big area into several files, for example for Unreal World Partition, or to get past the single-image size limit.
+
+-   **Tile by size**: set the width and height of each tile in pixels.
+-   **Tile by count**: set how many tiles across and down.
+-   **Zip Exports?** bundles all the tiles (and their extra maps and georeferencing files) into one zip, instead of many separate downloads.
+-   **Pad tile exports** makes the edge tiles the same size as the others, filling the extra space with blank pixels. Without it, edge tiles are cropped to whatever is left over.
+-   **Unreal 5.7+ naming** names tiles `_x00_y00`, `_x01_y00`, and so on, which Unreal's tiled landscape import picks up automatically. Otherwise tiles are named `_tile_ROW_COL`.
+
+All tiles share one height scale, so heights match across the seams.
+
+**Very large areas.** With Regular or Smart normalisation, the whole area is generated in memory first and then cut into tiles. If you set normalisation to Off, or enter your own Norm From and Norm To, tiles are generated one at a time instead. That uses far less memory and is the way to go for huge exports.
+
+## Rotated and custom-shaped areas
+
+Under **Area → Rotation & custom shape**:
+
+-   **Rotation** turns the export area about its centre (degrees clockwise; 90° makes the top of the image point east), so a valley, coastline or ridge can run along the heightmap. The heights, texture maps, OpenStreetMap masks, splines, scatter points, albedo and 3D models all follow the rotation. World files (`.pgw`) include the rotation for GIS; GeoTIFFs are written without it.
+-   **Draw a custom shape** to export just an island, a national park or a county: click points around it, then double-click, press Enter or click the first point. The area moves and resizes to fit the shape (using Unreal sizes). Outside the shape the ground drops to the lowest point inside it, and an `area_mask` map is exported with the texture maps. Press Escape to cancel.
+
+## Seamless tiling
+
+Real terrain doesn't repeat, so the left edge never matches the right. **Area → Seamless tiling** changes the heights so the heightmap repeats without a visible join, for tiling backgrounds, distant terrain or endless levels.
+
+Seam cutting (recommended)
+
+Fetches a strip of extra terrain past the right and bottom edges. Fine detail near each join comes from that strip, switching to the other side along the path where the two differ least (usually a valley floor), as in texture quilting. Then the remaining broad mismatch is spread out smoothly (below). **Overlap strip** sets the strip's width; wider strips find better joins.
+
+Smooth only
+
+Splits the heights into a part that repeats, which keeps every crag and gully, and a smooth part that only exists because the edges don't match (Moisan's "periodic plus smooth" method), and drops the smooth part. The broad tilt of the area is spread out across it.
+
+Mirror
+
+Repeats a mirrored copy of the middle of the area as a 2 × 2 block. Always seamless, but every feature gets a mirror twin.
+
+-   **Repeat**: textures and most engines repeat every N pixels. Unreal landscape sections placed side by side share their edge vertices, so choose _last row = first row_ for those.
+-   Absolute heights change, by up to the amount shown in Results, so "sea level at Z = 0" no longer holds.
+-   The **seam score** shows how well the area tiles as it is: move the box so similar ground sits at opposite edges for the best results.
+-   Tick **3 × 3 tiles** in the 3D preview to see the joins.
+-   Seamless tiling works up to about 4,100 × 4,100 px.
+
+## Normalisation
+
+Normalisation stretches the heights in your area to fill the full range of the file, so you get the most detail out of 16 bits.
+
+Off
+
+No normalisation. The pixel value is the height in metres, and anything below 0 becomes 0. In a 16-bit PNG, heights are stored in whole metres (1 m steps), and anything below 0 becomes 0. In a 32-bit EXR they're stored as exact metres, including below sea level, which is the easiest way to get true heights into Blender, Godot or Houdini.
+
+Regular
+
+The lowest point becomes black and the highest becomes white, using the full range.
+
+Smart (default)
+
+Like Regular, but ignores the extreme 0.1% of values, so one bad pixel in the source data can't flatten everything else. If the true minimum and maximum are close to the trimmed ones (within one standard deviation), the true values are kept.
+
+**Norm From / Norm To** set the black and white heights yourself, in metres. This is useful at the coast, where you can set Norm From to 0 so the sea floor doesn't use up the range, or when several separate exports need to share one height scale.
+
+After you generate, the height range is shown under the map, along with the Unreal scale values that reproduce real-world heights (see [Importing into Unreal Engine](https://manticorp.github.io/unrealheightmap/instructions.md#unreal)).
+
+### Examples
+
+Normalisation Mode
+
+Off
+
+Regular
+
+Smart
+
+Aizuwakamatsu  
+Without source error
+
+![Aizuwakamatsu, no normalisation](https://manticorp.github.io/unrealheightmap/public/im/aizuwakamatsu_none.png)
+
+![Aizuwakamatsu, regular normalisation](https://manticorp.github.io/unrealheightmap/public/im/aizuwakamatsu_regular.png)
+
+![Aizuwakamatsu, smart normalisation](https://manticorp.github.io/unrealheightmap/public/im/aizuwakamatsu_smart.png)
+
+Mt Fuji  
+With source error
+
+![Mt Fuji, no normalisation](https://manticorp.github.io/unrealheightmap/public/im/mt_fuji_none.png)
+
+![Mt Fuji, regular normalisation](https://manticorp.github.io/unrealheightmap/public/im/mt_fuji_regular.png)
+
+![Mt Fuji, smart normalisation](https://manticorp.github.io/unrealheightmap/public/im/mt_fuji_smart.png)
+
+## Water and extra texture maps
+
+The settings under **Terrain → Water** and **Layers → Texture maps** add 8-bit PNGs that download alongside the heightmap (in a zip when there are several). They're the same size as the heightmap, and they're split into matching tiles for tiled exports. The summary under Texture maps lists what will be included.
+
+### Water
+
+-   **Water Level (m)** is the height treated as the water surface. 0 is sea level. To pick out a mountain lake, set it to the lake's surface height.
+-   **Flatten below water level** raises everything below the water level up to it. Otherwise the sea bed takes up a big share of the height range and leaves less detail for the land. This happens before normalisation.
+-   **Water mask** is white wherever the terrain is at or below the water level. Use it to place a water plane or paint a shoreline layer.
+
+### Texture maps
+
+-   **Normal Map**: choose _DirectX_ for Unreal, or _OpenGL_ for Godot, Blender and Unity (the green channel is flipped between the two).
+-   **Slope**: black is flat and white is vertical. Use it for rock on cliffs and grass on flat ground.
+-   **Curvature**: mid-grey is flat, lighter is ridges and peaks, and darker is valleys and gullies. Good for erosion, snow and moss masks.
+-   **Ambient occlusion**: how much open sky each point sees. White is open ground; valleys, gullies and the foot of cliffs are darker. Multiply it into your material for depth, or use it for moss and dirt.
+-   **Water flow**: where rain collects as it runs downhill. Streams and rivers are bright lines, hillsides and ridges are black. The scale is fixed in real area (under 0.1 hectare upstream is black, 100 km² or more is white), so tiles match. It only counts water from inside the exported area.
+-   **Aspect + northness**: _aspect_ is the compass direction each slope faces (1 to 255 = 0 to 360° clockwise from north, 0 = flat). _northness_ is white on steep north-facing slopes, mid-grey on flat or east/west ground and black on steep south-facing slopes, which is handy for snow.
+-   **Height Bands (m)**: comma-separated heights, for example `500, 1500`, give three masks: below 500 m, 500 to 1500 m, and above 1500 m. The edges blend smoothly and the masks always add up to white, so they work directly as Unreal landscape layer weightmaps.
+
+## Sea level
+
+**Terrain → Sea level** moves the sea up or down. Heights are shifted so the new sea level is 0 m, so the water mask, "flatten below water level", the 3D preview's water and the Unreal script's Z = 0 all follow it. Presets include the last glacial maximum (−120 m), when land bridges joined Britain to Europe and Asia to America, and all the ice melting (+70 m). Tick **Show the new coastline on the map** to see what floods. The flooding is by height only, so low ground behind hills floods too.
+
+## Carving roads, rivers and lakes
+
+**Terrain → Carve roads, rivers & lakes** shapes the terrain around OpenStreetMap features, so they sit right in a game level:
+
+-   **Roads** get a flat bed that follows a smoothed profile along the road (ignoring bumps and trees in the data), blending back into the hillside over the **shoulder** width. Railways and paths can be included. Bridges are left alone.
+-   **Rivers and streams** get a channel that always runs downhill, since OpenStreetMap draws them in the direction of flow. Channels are about 15% as deep as the river is wide (0.5 to 6 m), times **River depth**.
+-   **Lakes** are levelled to one surface height.
+
+Carving applies to the heightmap, 3D models, contours and posters. The OpenStreetMap features are downloaded once per area and reused.
+
+## OpenStreetMap layers
+
+Tick any of the **OpenStreetMap Layers** (roads, paths, railways, rivers and streams, lakes, forest, grass, farmland, scrub, rock, glacier, sand, wetland, urban areas and buildings) and the export includes a mask for each: white where the feature is, the same size as the heightmap and split into matching tiles. Roads and rivers are drawn at a realistic width for their type.
+
+-   **Export as weightmaps** makes the layers add up to full white at every pixel, with a _base_ layer for whatever is left. Where layers overlap, the more specific one wins (roads over buildings over water over forest over grass, and so on). That's what Unreal landscape layers expect.
+-   The data comes from the public Overpass API, for areas up to 2,500 km². Busy cities with buildings selected can take a minute, and the servers are sometimes slow; if no answer comes within two minutes the export carries on without them.
+-   OpenStreetMap has no sea areas, so use the height-based **Water mask** for the sea.
+-   Map data © OpenStreetMap contributors, available under the [Open Database License](https://opendatacommons.org/licenses/odbl/). Credit it if you publish something made with these masks.
+
+### Import scripts
+
+With **Blender & Unreal import scripts** ticked, links appear under each heightmap export: a Python script for Blender that builds the terrain at real size (with the albedo, if it's in the same folder), a script for Unreal that sets the landscape's scale and height after you import it, so sea level ends up at Z = 0, and a README with all the numbers.
+
+## Material painter
+
+**Layers → Material painter** builds landscape layer weightmaps from rules, such as "rock above 35°", "snow above 2,800 m on north faces" or "forest where OpenStreetMap says forest". Start from a preset (Alpine, Temperate lowland, Desert, Tropical island, Moon / Mars / Mercury) and change it to suit.
+
+-   Each layer has a height range, a slope range, which way it faces, an optional OpenStreetMap layer it's limited to, a **strength** and some **noise** to break up the edges into natural patches.
+-   Layers apply top to bottom. Each takes its share of whatever the layers above it left; the **base layer** gets the rest. Use ▲ ▼ to change the order.
+-   The weightmaps always add up to 100%, which is what Unreal landscape layers expect. They're exported as `paint_01_snow.png` and so on, with a `paint_preview.png` in the layer colours.
+-   **Preview on map** paints the area on the map and shows how much each layer covers.
+
+## Real trees (treemap)
+
+**Layers → Real trees** maps the real trees in the area from measured data, rather than from rules. Tick **Export a real treemap with the heightmap**, or press **Preview on map** to see the tree cover first (dark green is conifer, light green broadleaf). A progress bar shows each download. The preview appears as soon as the tree data is in; conifer / broadleaf from OpenStreetMap is added when that server answers, which can take half a minute.
+
+-   **Switzerland**: the Swiss National Forest Inventory's 1 m vegetation height model, from swisstopo's yearly aerial surveys (the newest survey of each spot is used). Every tree is picked out one by one as a crown top, at its real height. Areas up to about 4 × 4 km get the full 1 m detail; bigger ones are read more coarsely and the trees are scattered instead.
+-   **Everywhere else**: the tree cover class of ESA WorldCover 2021 (10 m). Trees are scattered through the forest at **Trees per hectare**, never closer than **Min spacing**. Mature forests have roughly 200 to 600 trees per hectare.
+-   **Conifer or broadleaf** comes from OpenStreetMap forests tagged `leaf_type`; elsewhere trees get the **Leaf type if unmapped**.
+-   **Smallest tree** sets how tall canopy must be to count as a tree (Swiss data).
+
+The export adds, on the same grid as the heightmap:
+
+-   `trees_density.png`: share of each pixel under trees (white = full forest). This is the map most game editors and tools like Gaea, World Machine, Unity terrain and Unreal's foliage or PCG want as a tree mask.
+-   `trees_conifer.png` and `trees_broadleaf.png`: the same split by leaf type, one mask per kind of tree.
+-   `trees_canopy_height_0-51m.png` (Swiss data): canopy height, where pixel value ÷ 5 = metres.
+-   `_trees.csv`: every tree with its type, position (pixels, Blender metres, Unreal coordinates), ground height, tree height and crown radius.
+-   `_trees_blender.py` and `_trees_unreal.py`: point clouds and instanced meshes like the scatter scripts, one set per leaf type. "Scale" is the tree's height ÷ 10 m, so tree models about 10 m tall come out at each tree's real height.
+
+## Scatter points
+
+**Layers → Scatter** places trees, rocks, bushes or anything else: positions with a random scale and rotation, at a density (per hectare) wherever a painted layer or OpenStreetMap layer says, never closer than a minimum spacing, and only on slopes gentler than the limit. They're exported with the heightmap in a zip:
+
+-   `_scatter.csv`: every point, in pixels, Blender metres and Unreal coordinates.
+-   `_scatter_blender.py`: one point-cloud object per set, with _scale_ and _yaw_ attributes. Add Geometry Nodes → Instance on Points to place your models.
+-   `_scatter_unreal.py`: run it with the landscape selected (after `unreal_set_scale.py`). It adds one actor per set with an instanced static mesh component, using the mesh path you set (or a basic shape).
+
+## Road and river splines
+
+**Export → Road & river splines** exports roads, railways, paths and rivers from OpenStreetMap as 3D splines, with heights from the (carved) heightmap, clipped to the area. Bridges get a straight deck between their ends.
+
+-   `_splines.csv` and `_splines.geojson` for Houdini, GIS or your own tools.
+-   `_splines_blender.py` makes a curve for each one, with a bevel as wide as the road or river.
+-   `_splines_unreal.py` (run with the landscape selected, after `unreal_set_scale.py`) adds an actor with a Spline component for each one, in an _OSM Splines_ folder, tagged with its type and width. Use them with PCG, spline meshes or a Blueprint to place roads, fences or water. It needs Unreal 5.1 or later.
+
+## Albedo
+
+**Generate Albedo** exports a colour image of the same area, using whichever **Map Preview Type** is selected: satellite imagery, a topographic map, shaded relief, and so on. It lines up pixel for pixel with the heightmap. Check each map provider's licence before using it commercially (see [License Info](https://manticorp.github.io/unrealheightmap/rights.md)).
+
+## 3D preview and 3D model export
+
+**3D Preview** shows the export area as a 3D model in the page. Drag to orbit, right-drag to pan, and scroll to zoom. If you move the area or change settings, press **Refresh**.
+
+**Export 3D Model** downloads a mesh of the same area:
+
+3D Model Format
+
+**STL** for slicers and 3D printing. **OBJ** for Blender and most 3D apps. **GLB** (binary glTF) for game engines and the web. OBJ and GLB are Y-up with UVs over the top surface, so an albedo or normal map from the same area lines up directly.
+
+Mesh Resolution
+
+Number of vertices along the longer side. 512 is plenty for most prints. Higher values are more detailed, but the file is bigger and slower to make. The estimate under the buttons shows the triangle count and file size.
+
+Shape
+
+**Solid with base** closes the model with walls and a flat bottom, so it's watertight and printable. **Top surface only** is just the terrain skin, which is usually what you want in Blender or an engine.
+
+Base Thickness (mm)
+
+Extra material under the lowest point, so low areas still print solidly.
+
+Scale
+
+**Print size (mm)** scales the longer side to **Print Width**, with heights scaled to match. **Real world (metres)** keeps the model 1:1.
+
+Height Exaggeration
+
+Multiplies heights only. 1 is true to life. 1.5 to 3 often looks better on small prints of gentle terrain.
+
+Simplify
+
+Uses big triangles where the ground is flat or evenly sloped and small ones where it's rough, so files are often 5 to 20 times smaller with no visible difference. **Medium** is the default. **Off** keeps every grid vertex, which makes very large files.
+
+Texture
+
+**Map imagery** drapes the selected Map Preview Type (for example Esri World Imagery) over the model. GLB embeds the image in the file; OBJ downloads as a zip with an `.mtl` and a JPEG. STL can't hold colour. **Texture Size** sets the image's longer side.
+
+In the 3D preview, tick **Real sun** to light the terrain from where the sun really is over that place, for the chosen date and time of day, with shadows. Press ▶ to play through a day. Times are local solar time, so the sun is highest at 12:00.
+
+3D models are built from the real heights in metres, not the normalised heightmap, so their proportions are true whatever normalisation you chose.
+
+**3D buildings from OpenStreetMap** extrudes building footprints to their tagged height (or levels × 3 m, or the default height) and stands them on the terrain. Textured models get real roof colours from the satellite image. They're included in the 3D preview and every 3D format.
+
+## 3D printing extras
+
+-   **3MF** is a modern 3D printing format that keeps colours and parts. PrusaSlicer, Bambu Studio, OrcaSlicer and Cura all open it.
+-   **Colour bands** split the model by height into 2 to 6 stacked parts in one 3MF, so a multi-colour printer can print lowlands, slopes and peaks in different filaments: assign a filament to each part in your slicer. Leave **Band heights** empty for equal bands. With one extruder, Results lists the heights (in mm) at which to change filament.
+-   **Raised label** adds a plinth along the front (south) edge with the place name and coordinates in raised letters. It needs a solid, print-size STL or 3MF.
+-   **Lithophane** makes a thin flat plate whose thickness follows the hillshade: hold it up to a light or a window and the terrain appears. Print it upright with 100% infill. **Thinnest** and **Thickest** set the range; Print Width sets the size.
+
+## Contour lines
+
+**Export Contours** traces contour lines for the export area. **Preview on map** draws them over the map first (laser-cut layers as stacked, shaded sheets) and updates as you change the interval, smoothing or style; **Hide preview** removes them.
+
+-   **Contour Interval** is the height between lines. Leave it empty to pick a round number giving about 20 levels. Every 5th line is drawn thicker.
+-   **Topo map lines** are ordinary contour lines for maps and prints.
+-   **Laser-cut layers** close each level along the edges of the area, so every level is the outline of all ground at or above it, ready to cut from card, wood or acrylic and stack. Choose _one SVG per sheet_ to get a zip with a file per layer, alignment marks and the next layer engraved as a gluing guide.
+-   **SVG** is sized in millimetres (set by **SVG Width**). **DXF** is in real-world metres with each line at its height and one CAD layer per level.
+
+## Elevation profile
+
+Click the mountain button under the zoom controls on the map (or **Analysis → Draw a profile on the map**), then click to draw a line (as many points as you like). Double-click or press Enter to finish. A panel along the bottom of the map shows the heights along the line, with length, highest and lowest point, total climb and descent, and the steepest gradient. Hover the chart to see the spot on the map, or download it as CSV.
+
+## Viewshed
+
+**Analysis → Viewshed** shows everything visible from one spot inside the export area. Click **Pick a viewpoint on the map**, then click the map: green is visible and red is hidden. It allows for the curvature of the planet and standard atmospheric refraction. **Eye height** is how far above the ground you are; **Target height** asks "could I see something this tall there?" (0 is the ground itself). **Download visibility mask** saves a white-is-visible PNG the same size as the heightmap.
+
+## Sunlight
+
+**Analysis → Sunlight over a year** works out how much sun each spot gets over a year: one day each month, sampled every hour, with shadows from the surrounding terrain and the angle of each slope to the sun. Tick **Export a yearly sunlight map** to get a `sunlight.png` with the heightmap (white is sunniest), or press **Preview on map** (and **Hide preview** to remove it). It assumes clear skies, so read it as relative brightness. Use it for snow, moss, vegetation, or where people would build.
+
+## Posters
+
+**Export → Poster print** makes a print-ready shaded-relief map of the area as a PNG, with a title (from the search box unless you type one), coordinates, height range, a scale bar and a north arrow. Choose a style (classic relief, Swiss, night, blueprint, vintage, red planet), paper size (A4 to A1, square, a 16:9 wallpaper, or **Custom size** in mm, cm or inches), resolution (300 dpi for print shops) and contour spacing. **Relief exaggeration** deepens the shading for gentle landscapes. A live preview in the panel updates as you change the options, so you only need to export once you're happy. **Include unrealheightmap credit** adds a small "Generated with unrealheightmap" line in the bottom margin, and **Include QR code link** adds a QR code in the poster's colours that reopens unrealheightmap with the same area and settings. Untick either to leave it off.
+
+**Step-by-step guides:** the [Import Guides](https://manticorp.github.io/unrealheightmap/guides.md) cover [Unreal Engine](https://manticorp.github.io/unrealheightmap/guide-unreal.md), [Blender](https://manticorp.github.io/unrealheightmap/guide-blender.md), [Godot](https://manticorp.github.io/unrealheightmap/guide-godot.md), [Unity](https://manticorp.github.io/unrealheightmap/guide-unity.md), [QGIS, Gaea, World Machine and Houdini](https://manticorp.github.io/unrealheightmap/guide-other.md) and [3D printing](https://manticorp.github.io/unrealheightmap/guide-3d-printing.md) in depth. The sections below are short summaries.
+
+## Importing into Unreal Engine
+
+1.  Export a 16-bit PNG at one of the Unreal sizes, for example 2017 × 2017.
+2.  In Unreal, open **Landscape mode → Manage → New → Import from File** and choose the PNG.
+3.  To get real-world proportions, set the landscape **Scale** to the values shown under the map after you generate. That's `XY` for X and Y, and `Z` for Z. They're in centimetres per pixel, Unreal's units.
+4.  For tiled exports, tick **Unreal 5.7+ naming** and import the folder of tiles.
+5.  Use the DirectX normal map and the height-band weightmaps in your landscape material and layers.
+
+Epic's guide: [Creating and using custom heightmaps and layers](https://dev.epicgames.com/documentation/en-us/unreal-engine/creating-and-using-custom-heightmaps-and-layers-in-unreal-engine).
+
+## Godot, Terrain3D, Blender and Unity
+
+-   **Godot:** export a 32-bit EXR with normalisation Off, which Terrain3D and HTerrain import as true metres. Don't import the PNG directly: Godot reads PNGs as 8-bit only.
+-   **Blender:** the easiest route is _Export 3D Model_ as OBJ or GLB, top surface only, real-world scale. Alternatively, put the 16-bit PNG on a subdivided plane with a Displace modifier, with its strength set to the height range. Use the OpenGL normal map, and the albedo as the base colour.
+-   **Unity:** the Terrain tool imports RAW files, so convert the 16-bit PNG to RAW first (for example with GIMP or Photoshop), or import the GLB as a mesh. Use the OpenGL normal map.
+-   **3D printing:** STL, solid with base, print size. Start with 150 mm wide, a 2 mm base and 1.5× exaggeration.
+
+## Georeferencing (QGIS and GIS)
+
+All exports (heightmaps, extra maps and albedo) are in **EPSG:3857** (WGS 84 / Pseudo-Mercator, "Web Mercator"), the same projection as web map tiles.
+
+For GIS work, the easiest option is the **GeoTIFF** output format: it holds true heights in metres and its position is built in.
+
+Each PNG/EXR heightmap and albedo export comes with a world file (`.pgw`, or `.wld` for EXR) and a `.prj` file, linked under the output. Keep them in the same folder as the image with the same name, and QGIS will place it correctly. The exact extent is also shown under **Bounds & projection** on the generator page.
+
+EPSG:3857 units aren't true ground metres: distances are stretched by about 1/cos(latitude). Reproject, for example to your local UTM zone, before measuring distances.
+
+## FAQs and troubleshooting
+
+There's a strange spike, pit or stripe in my heightmap. Why?
+
+Some source tiles have errors, mostly in the AWS / Mapzen data. Try switching **Elevation Data** to Mapterhorn. You can also set the map preview to "Terrarium" at the same zoom to see whether the artefact is in the source. Smart normalisation stops a single bad value from ruining the height range.
+
+![Example error from Mapzen source data in grayscale](https://manticorp.github.io/unrealheightmap/public/im/actual_error_grayscale.png)
+
+![Example error from Mapzen source data in Terrarium format](https://manticorp.github.io/unrealheightmap/public/im/actual_error_terrarium.png)
+
+My terrain looks blurry or terraced at high zoom.
+
+The output zoom is higher than the source data supports at that location, so it's being upscaled. The source-detail line under the export result confirms this. Either lower the output zoom or use Mapterhorn where lidar is available. If the terrain looks terraced, use the 16-bit PNG (not an 8-bit conversion) and make sure normalisation isn't Off.
+
+My older EXR exports look wrong: valleys too low, or odd specks
+
+Before November 2026, EXR exports stored heights on a curve, so mid-heights came out too low, and some pixels in 16-bit EXRs were saved at half their height. Both are fixed. Re-export the area, and use 32-bit EXR for exact heights.
+
+The Generate button says "Output Zoom too high".
+
+The selected elevation source doesn't go that high: AWS goes up to 15 and Mapterhorn up to 18. Lower the output zoom or switch source.
+
+Generating fails, or the page runs out of memory.
+
+Very large exports are processed in your browser's memory. Try a smaller size or fewer extra maps at once. For big areas, use a tiled export with normalisation Off, or with your own Norm From and Norm To, so tiles are generated one at a time. Desktop Chrome, Edge and Firefox handle large exports best. If map tiles fail to load, the service may be busy or rate-limited, so wait a minute and try again.
+
+The 3D preview doesn't appear.
+
+The preview needs WebGL. Check that hardware acceleration is turned on in your browser. Model export still works without the preview.
+
+Why not use the Tangrams heightmapper?
+
+The output from [heightmapper](http://tangrams.github.io/heightmapper) is 8-bit and noisy. In 8-bit, a 1,000 m mountain has a visible step every 4 m.
+
+Can I use the exports commercially?
+
+The elevation data is openly licensed, but you need to credit the sources. Map imagery used for albedo depends on the provider. See [License Info](https://manticorp.github.io/unrealheightmap/rights.md).
+
+How can I support the project?
+
+Map tile services cost money at this tool's scale. If it's useful to you, [buying me a coffee on Ko-fi](https://ko-fi.com/harrymustoeplayfair) helps keep it running. Bug reports and ideas are welcome on [GitHub](https://github.com/manticorp/unrealheightmap/issues).
+
+
+---
+
+<!-- Generated from guides.html by scripts/build-agent-docs.js. Do not edit by hand. -->
+Source: https://manticorp.github.io/unrealheightmap/guides.html
+Title: Import Guides · 16/32 Bit Heightmap Generator
+Summary: Step-by-step guides for importing real-world heightmaps, texture maps and 3D models into Unreal Engine, Blender, Godot, Unity, QGIS, Gaea, Houdini and 3D printing slicers.
+
+# Import Guides
+
+These guides go further than the [main documentation](https://manticorp.github.io/unrealheightmap/instructions.md). Each one covers which export settings to choose, how to get true real-world scale, and how to use the extra texture maps in that program.
+
+[
+
+## Unreal Engine 5
+
+Landscape import with exact Z scale, tiled World Partition imports, weightmap layers, a landscape material and water.
+
+](https://manticorp.github.io/unrealheightmap/guide-unreal.md)
+
+[
+
+## Blender
+
+Displacement in metres, Cycles adaptive subdivision, Geometry Nodes, importing meshes, and draping albedo and normal maps.
+
+](https://manticorp.github.io/unrealheightmap/guide-blender.md)
+
+[
+
+## Godot 4
+
+Terrain3D and HTerrain imports, height scale maths, texture layers, and plugin-free meshes and collision.
+
+](https://manticorp.github.io/unrealheightmap/guide-godot.md)
+
+[
+
+## Unity
+
+Converting to RAW, Terrain sizing in metres, terrain layers from the masks, and importing GLB meshes.
+
+](https://manticorp.github.io/unrealheightmap/guide-unity.md)
+
+[
+
+## QGIS, Gaea, World Machine, Houdini and more
+
+Georeferenced imports for GIS, terrain tools for erosion and detailing, and editing 16-bit files without banding.
+
+](https://manticorp.github.io/unrealheightmap/guide-other.md)
+
+[
+
+## 3D printing
+
+Sizing, height exaggeration and base thickness, plus slicer settings for crisp terrain prints.
+
+](https://manticorp.github.io/unrealheightmap/guide-3d-printing.md)
+
+## Before you start: which export?
+
+Target
+
+Heightmap format
+
+Size
+
+Normalisation
+
+Normal map
+
+Unreal Engine
+
+PNG 16-bit
+
+Unreal sizes (1009, 2017, 4033, 8129)
+
+Smart
+
+DirectX
+
+Blender
+
+EXR 32-bit or PNG 16-bit, or a mesh (OBJ/GLB)
+
+Any
+
+Off (EXR) or Smart (PNG)
+
+OpenGL
+
+Godot (Terrain3D)
+
+EXR 32-bit
+
+Any (power of two is tidiest)
+
+Off
+
+OpenGL
+
+Godot (HTerrain)
+
+EXR 32-bit
+
+Power of two plus one (1025, 2049, 4097)
+
+Off
+
+OpenGL
+
+Unity
+
+PNG 16-bit, converted to RAW
+
+Power of two plus one (1025, 2049, 4097)
+
+Smart
+
+OpenGL
+
+QGIS / GIS
+
+PNG 16-bit (with world file)
+
+Any
+
+Smart, then rescale
+
+Not needed
+
+3D printing
+
+STL (Export 3D Model)
+
+Mesh resolution 512 to 1024
+
+Doesn't matter
+
+Not needed
+
+**PNG or EXR?** The 16-bit PNG works everywhere. A 32-bit EXR works without conversion in Blender, Godot, Houdini and Gaea: with normalisation **Off** it stores true heights in metres, including below sea level, and with Smart or Regular it stores 0.0 (lowest) to 1.0 (highest). Avoid the 16-bit (half-float) EXR for heights. It only has about 2,000 steps near the top of the range, which is coarser than the PNG.
+
+Any width and height can be typed into **Output Width / Height**, so sizes such as 1025 or 2049 that aren't in the presets work too.
+
+### Two numbers to note down
+
+After you click Generate, the tool shows the **height range** (lowest and highest point in metres) and the size of the area. Every guide uses them:
+
+-   **Metres per pixel** = area width in metres ÷ image width in pixels.
+-   **Height range** = highest − lowest point, in metres. With Regular or Smart normalisation, black is the lowest point and white is the highest. With normalisation Off, pixel values are heights in metres.
+
+
+---
+
+<!-- Generated from guide-unreal.html by scripts/build-agent-docs.js. Do not edit by hand. -->
+Source: https://manticorp.github.io/unrealheightmap/guide-unreal.html
+Title: Unreal Engine Guide · 16/32 Bit Heightmap Generator
+Summary: Import real-world heightmaps into Unreal Engine 5 landscapes at true scale: Z scale maths, tiled World Partition imports, weightmap layers, landscape materials, water and Nanite.
+
+# Unreal Engine 5: advanced landscape import
+
+This guide covers Unreal Engine 5.4 to 5.7. You'll get a landscape at true real-world scale and absolute height, with material layers driven by the exported masks. Where Epic's documentation doesn't cover a detail, the guide says so.
+
+1.  [Export settings](https://manticorp.github.io/unrealheightmap/guide-unreal.md#export)
+2.  [Creating the landscape](https://manticorp.github.io/unrealheightmap/guide-unreal.md#import)
+3.  [Getting the scale exactly right](https://manticorp.github.io/unrealheightmap/guide-unreal.md#scale)
+4.  [Big worlds: tiled import and World Partition](https://manticorp.github.io/unrealheightmap/guide-unreal.md#tiled)
+5.  [Material layers from the masks](https://manticorp.github.io/unrealheightmap/guide-unreal.md#layers)
+6.  [A starter landscape material](https://manticorp.github.io/unrealheightmap/guide-unreal.md#material)
+7.  [Water](https://manticorp.github.io/unrealheightmap/guide-unreal.md#water)
+8.  [Nanite, virtual textures and large worlds](https://manticorp.github.io/unrealheightmap/guide-unreal.md#performance)
+9.  [Importing GLB/OBJ meshes instead](https://manticorp.github.io/unrealheightmap/guide-unreal.md#meshes)
+10.  [Troubleshooting](https://manticorp.github.io/unrealheightmap/guide-unreal.md#troubleshooting)
+
+## 1\. Export settings
+
+Output Format
+
+**PNG 16-bit**. Unreal's landscape importer accepts 16-bit grayscale PNG, `.r16` and `.raw`. EXR isn't supported for landscapes.
+
+Size
+
+One of Unreal's recommended sizes, so the landscape fits whole components: **505, 1009, 2017, 4033 or 8129**. They're under Default Sizes → Unreal Engine.
+
+Normalisation
+
+**Smart**. This uses the full 16-bit range for your area, and the Z scale the tool shows makes the heights true again.
+
+Extra Outputs
+
+Normal map **DirectX**. Add slope, curvature and height bands if you want material layers.
+
+After generating, note the values under the map: **Height range**, and the scales `XY` and `Z`.
+
+## 2\. Creating the landscape
+
+1.  Switch to **Landscape Mode** (Shift+2, or the Modes dropdown).
+2.  Under **Manage → New**, choose **Import from File**.
+3.  Next to **Heightmap File**, choose your PNG. **Heightmap Resolution** fills in from the file.
+4.  Set **Scale** X and Y to the tool's `XY` value, and Z to its `Z` value. See the next section for the location.
+5.  Check the component layout. **Fit To Data** picks one automatically, but in some versions it picks very large component counts. Entering the values from the table below is more reliable.
+6.  Keep **Enable Edit Layers** ticked. It's needed for non-destructive sculpting and for the Water plugin.
+7.  Click **Import**.
+
+### Recommended component layouts
+
+From Epic's [Landscape Technical Guide](https://dev.epicgames.com/documentation/en-us/unreal-engine/landscape-technical-guide-in-unreal-engine):
+
+Heightmap size
+
+Section Size (quads)
+
+Sections per Component
+
+Number of Components
+
+8129
+
+127 × 127
+
+2 × 2
+
+32 × 32
+
+4033
+
+63 × 63
+
+2 × 2
+
+32 × 32
+
+2017
+
+63 × 63
+
+2 × 2
+
+16 × 16
+
+1009
+
+63 × 63
+
+2 × 2
+
+8 × 8
+
+505
+
+63 × 63
+
+2 × 2
+
+4 × 4
+
+Resolution = components × quads per component + 1. That's why Unreal's sizes are odd numbers like 2017 rather than 2048.
+
+## 3\. Getting the scale exactly right
+
+### XY: centimetres per pixel
+
+Landscape Scale X/Y is the distance between vertices in centimetres. The tool's `XY` value is the area width in metres × 100 ÷ pixel width. At 46° latitude and output zoom 14, for example, each pixel covers about 6.6 m, so XY ≈ 660.
+
+The export is in Web Mercator, which stretches distances by 1/cos(latitude). The tool's XY value is worked out from the real ground distance at your latitude, so use it rather than a value from the zoom table.
+
+### Z: fitting the height range
+
+At Z scale 100, Unreal maps the 16-bit range to 512 m: −256 m at black, +256 m at white, and 0 at mid-grey (32768). For a normalised heightmap:
+
+```
+Z scale = height range (m) × 100 ÷ 512
+        = height range (m) × 0.1953125
+```
+
+This is the `Z` value the tool shows. Epic's own example: Mauna Kea's 4,207 m gives 4207 × 100 × 0.001953125 = 821.68.
+
+### Location Z: absolute heights
+
+The landscape's mid-grey sits at its Location Z. To put sea level at world Z = 0, raise the landscape to the middle of its height range:
+
+```
+Location Z (cm) = (lowest + highest) ÷ 2 × 100
+```
+
+**Worked example:** the tool reports a height range of 120 m to 1,620 m from a 2017 px export covering 13.3 km.
+
+-   Range = 1,500 m, so Z = 1500 × 100 ÷ 512 = `292.97`
+-   Location Z = (120 + 1620) ÷ 2 × 100 = `87000`
+-   XY = 13,300 m × 100 ÷ 2017 = `659.4`
+
+Black pixels now sit at 120 m (12,000 cm) and white at 1,620 m, matching the real terrain.
+
+Keeping absolute height matters when you combine several exports, place real-world data (GPS tracks, buildings), or use the water level. If you only need the shape, leave Location Z at 0.
+
+### Several exports with one shared scale
+
+If separate exports must line up, for example neighbouring areas or the same area at different detail, give them all the same **Norm From** and **Norm To**. They then share one Z scale and one Location Z.
+
+## 4\. Big worlds: tiled import and World Partition
+
+A single 8129 heightmap already gives about 53 km at 6.6 m per pixel. For bigger or more detailed worlds, use a tiled export.
+
+1.  In the tool, set **Tiled Export** → Tile by size (for example 2017 × 2017) or Tile by count. Tick **Unreal 5.7+ naming** (files end in `_x00_y00`) and **Zip Exports?**.
+2.  Set normalisation to Smart, or enter your own Norm From and Norm To. Every tile shares one height scale, so one Z scale and Location Z work for all of them.
+3.  In a World Partition level, under New → Import from File, set the **World Partition Grid Size** and **Region Size**, then pick _one_ of the tiles. Unreal asks whether to use the tiled image path. Answer **Yes**.
+4.  Set Scale and Location exactly as for a single file, then Import.
+
+**Known 5.7 issue:** several users report that tiled imports into a World Partition level in 5.7.x show one tile repeated across the whole landscape. The same files work in 5.5 and 5.6, and Epic hasn't acknowledged it yet. If it happens to you:
+
+-   import into a non-World Partition (Basic) level first, then use **Tools → Convert Level**
+-   or create a flat landscape of the same size and use **Manage → Import** with Import Type **Subregion** to bring the heights in
+
+Reports: [1](https://forums.unrealengine.com/t/landscape-heightmap-import-duplicates-single-tile-in-world-partition-ue-5-7/2745963), [2](https://forums.unrealengine.com/t/major-problem-importing-tiled-heightmap-from-gaea/2706407).
+
+-   **Tile naming.** Epic doesn't document the exact file naming it expects. The community convention, which is what the tool writes, is lower-case `_x` before `_y` with the column number first. If Unreal doesn't recognise the set, try renaming to unpadded numbers (`_x0_y0`).
+-   **Gaps between tiles.** The tool's tiles sit edge to edge without sharing a row of pixels. If you see a one-quad gap or step between tiles, import one large file instead (up to 8129) and let World Partition split it into streaming proxies. That always gives a seamless result.
+-   **Tiles in the wrong order** (rows swapped): re-import with **Flip Y Axis** ticked.
+
+## 5\. Material layers from the masks
+
+The height bands are made to be landscape weightmaps. They blend smoothly at each boundary, and at every pixel they add up to full white, which is what weight-blended layers need. Slope and curvature work best as non-weight-blended overlays.
+
+1.  Create a landscape material with one layer per mask (see the next section) and assign it to the landscape.
+2.  In **Paint** mode, click **+** next to each Target Layer and choose **Weight-Blended Layer (normal)** for the height bands, or **Non Weight-Blended Layer** for overlays such as a snow or cliff mask. Save the Layer Info assets.
+3.  Import each mask: right-click the target layer and choose **Import from file**, or use **Manage → Import**, which has a file slot per layer. Pick the matching PNG, for example `…_band_01_500m-1500m.png`.
+
+-   **Size must match exactly.** Weightmaps must be the same resolution as the heightmap. They are when they come from the same export.
+-   **Format.** Weightmaps must be 8-bit grayscale, which the tool's masks are.
+-   **Import button greyed out?** Some versions report a mismatch even for the right size (Epic bug UE-241268). Re-select the heightmap resolution, or import the weightmaps right after creating the landscape.
+
+Painting on top still works: imported weights are just a starting point.
+
+## 6\. A starter landscape material
+
+A simple material that uses the exports:
+
+-   **Layer blend:** a **Landscape Layer Blend** node with one entry per height band (for example Grass, Rock, Snow), each set to **LB Weight Blend**. Plug each layer's tiling textures into its input.
+-   **Tiling detail:** drive the texture UVs with a **LandscapeLayerCoords** node (Mapping Type `TCMT Auto`). A Mapping Scale of 1 to 4 gives 1 to 4 vertices per texture repeat. For steep cliffs, use the **WorldAlignedTexture** function (triplanar) on the rock layer to avoid stretching.
+-   **Whole-landscape albedo or normal map:** to stretch one image across the entire landscape, use a LandscapeLayerCoords node with **Mapping Scale** equal to the landscape's resolution in quads (heightmap size − 1, for example 2016). Different engine versions sample slightly differently, so check alignment against a known feature and adjust by ±1 if needed.
+-   **Normal map texture:** import the DirectX normal PNG, set its texture **Compression Settings** to _Normalmap_, and blend it with the detail normals (BlendAngleCorrectedNormals). This brings back fine detail that a coarse landscape can't hold.
+-   **Procedural slope:** instead of the slope texture, you can compute slope live from the landscape's world normal (VertexNormalWS → Z), so it stays correct after sculpting. The exported slope mask is still useful as a starting weightmap.
+
+## 7\. Water
+
+1.  Enable the **Water** plugin (Edit → Plugins) and restart.
+2.  From the **Place Actors** panel, drag a **Water Body Ocean**, **Lake** or **River** into the level. Oceans and lakes are closed splines, and a lake sits at one height.
+3.  Set the water height to match the tool's **Water Level**. With absolute Location Z, sea level is Z = 0. For a lake, use its surface height × 100 in centimetres.
+4.  To trace the spline, import the exported **water mask** as a non-weight-blended layer. It shows the shoreline on the landscape, so you can follow it.
+
+Water bodies can carve the landscape (**Affects Landscape**), but only on landscapes with Edit Layers enabled. If you exported with **Flatten below water level**, the sea floor is already flat at the water level, so you can turn carving off or give it a gentle depth curve.
+
+For a simple still lake, a flat plane with a water material at the right height also works.
+
+## 8\. Nanite, virtual textures and large worlds
+
+-   **Nanite landscape** (5.3+): select the landscape, tick **Enable Nanite** in Details, then **Build Data**. It keeps silhouettes crisp at a distance and makes high-resolution imports far cheaper to render. Turn on **Nanite Skirt** if you see cracks between streaming proxies far away.
+-   **Runtime Virtual Texturing:** add a Runtime Virtual Texture Volume around the landscape (**Set Bounds**) and write the material output to it. Complex multi-layer materials are then cached instead of re-shaded every frame, which makes a big difference on large, layered terrains.
+-   **Large World Coordinates** are on by default in UE5. A 50 to 100 km real-world landscape works without the jitter UE4 had beyond about 20 km.
+
+## 9\. Importing GLB/OBJ meshes instead
+
+A landscape is best for anything you'll walk on or sculpt. For backdrops, distant mountains or a table-top model, a static mesh from **Export 3D Model** can be simpler:
+
+-   Export **GLB**, Shape **Top surface only**, Scale **Real world (metres)**.
+-   Import through the Content Browser (Interchange). glTF is in metres and Unreal converts it to centimetres on import. For OBJ, which has no units, set **Offset Uniform Scale** to 100.
+-   Tick **Build Nanite** for high-resolution meshes.
+-   The mesh UVs cover the top surface 0 to 1, so an albedo or normal map from the same export lines up without any setup.
+
+## 10\. Troubleshooting
+
+The landscape has stair steps or terracing
+
+The heightmap went through an 8-bit step somewhere: an image editor, a conversion, or `.r8`. Import the tool's PNG directly, or keep it 16-bit in every program. Very flat areas at a huge Z scale can also step. Use Smart normalisation so the full 65,536 levels cover your actual range.
+
+Mountains are far too tall or too flat
+
+The Z scale doesn't match the export. Use the tool's `Z` value, which depends on that export's height range. Don't reuse it from another export unless both used the same Norm From and Norm To.
+
+Everything is the right shape but at the wrong height
+
+Set Location Z to the midpoint of the height range × 100 (see [Getting the scale exactly right](https://manticorp.github.io/unrealheightmap/guide-unreal.md#scale)).
+
+The landscape is mirrored or north is in the wrong place
+
+Image rows run along Unreal's +Y axis, so looking down in the Top view, north is towards −Y. If tiles or features come out mirrored, re-import with **Flip Y Axis**.
+
+The import is huge or slow
+
+Check the component count. Fit To Data sometimes picks far more components than needed. Use the table in [Creating the landscape](https://manticorp.github.io/unrealheightmap/guide-unreal.md#import). The maximum is 32 × 32 components.
+
+## References
+
+-   [Importing and exporting landscape heightmaps](https://dev.epicgames.com/documentation/en-us/unreal-engine/importing-and-exporting-landscape-heightmaps-in-unreal-engine)
+-   [Landscape Technical Guide](https://dev.epicgames.com/documentation/en-us/unreal-engine/landscape-technical-guide-in-unreal-engine) (sizes and Z scale)
+-   [Custom heightmaps and layers](https://dev.epicgames.com/documentation/en-us/unreal-engine/creating-and-using-custom-heightmaps-and-layers-in-unreal-engine)
+-   [Landscape material expressions](https://dev.epicgames.com/documentation/en-us/unreal-engine/landscape-material-expressions-in-unreal-engine)
+-   [Water system](https://dev.epicgames.com/documentation/en-us/unreal-engine/water-system-in-unreal-engine)
+-   [Nanite landscapes](https://dev.epicgames.com/documentation/en-us/unreal-engine/using-nanite-with-landscapes-in-unreal-engine)
+
+
+---
+
+<!-- Generated from guide-blender.html by scripts/build-agent-docs.js. Do not edit by hand. -->
+Source: https://manticorp.github.io/unrealheightmap/guide-blender.html
+Title: Blender Guide · 16/32 Bit Heightmap Generator
+Summary: Use real-world heightmaps in Blender at true scale: Displace modifier maths, Cycles adaptive subdivision, Geometry Nodes, mesh import, albedo and normal maps, BlenderGIS.
+
+# Blender: advanced terrain workflows
+
+This guide is written for Blender 4.2 LTS to 5.x, and notes where the versions differ. There are four ways to get terrain in, from simplest to most flexible:
+
+1.  [Import a ready-made mesh](https://manticorp.github.io/unrealheightmap/guide-blender.md#mesh) (OBJ/GLB). Quickest, with true scale automatically.
+2.  [Displace modifier](https://manticorp.github.io/unrealheightmap/guide-blender.md#displace) on a plane. Editable, and works in EEVEE and Cycles.
+3.  [Cycles shader displacement with adaptive subdivision](https://manticorp.github.io/unrealheightmap/guide-blender.md#adaptive). The most detail for the least memory, for final renders.
+4.  [Geometry Nodes](https://manticorp.github.io/unrealheightmap/guide-blender.md#geonodes). Procedural, one vertex per pixel, easy to scatter on.
+
+Then: [materials from the albedo and maps](https://manticorp.github.io/unrealheightmap/guide-blender.md#materials), [BlenderGIS](https://manticorp.github.io/unrealheightmap/guide-blender.md#blendergis), [performance](https://manticorp.github.io/unrealheightmap/guide-blender.md#performance) and [troubleshooting](https://manticorp.github.io/unrealheightmap/guide-blender.md#troubleshooting).
+
+## The numbers you'll need
+
+Export a **16-bit PNG** with **Smart** normalisation, then note from the generator page:
+
+-   **Area width × height in metres.** This is shown in Bounds & projection, or work it out as XY scale ÷ 100 × pixels.
+-   **Height range:** the lowest and highest heights in metres. _Range = highest − lowest._
+
+Black in the PNG is the lowest point and white is the highest. Blender reads a 16-bit PNG as 0.0 to 1.0, so multiplying by the range gives true heights.
+
+**Even simpler: 32-bit EXR in metres.** Export **OpenEXR 32-bit** with normalisation **Off**. Each pixel is then the true height in metres, including below sea level. In the steps below, use **Strength / Scale 1** and leave the object at Z = 0. For the Displace modifier, also untick **Clamp** in the texture's Colors panel, so heights below 0 aren't cut off. Avoid the 16-bit EXR, which is coarser than the PNG.
+
+## 1\. Import a ready-made mesh
+
+1.  In the tool, click **Export 3D Model** with Format **GLB** (or OBJ), Shape **Top surface only** and Scale **Real world (metres)**. A mesh resolution of 1024 to 2048 is good for close-ups.
+2.  In Blender, use **File → Import → glTF 2.0 (.glb/.gltf)** or **Wavefront (.obj)**. Both convert the Y-up file to Blender's Z-up automatically with the default axis settings.
+3.  The mesh is centred on the origin, in metres, at true proportions. Its UVs cover the top 0 to 1, so the albedo and normal map line up directly (see [materials](https://manticorp.github.io/unrealheightmap/guide-blender.md#materials)).
+
+For an STL made for printing (in millimetres), set the importer's **Scale** to 0.001 to see it at real print size in Blender's metre units.
+
+## 2\. Displace modifier on a plane
+
+1.  **Add → Mesh → Plane.** In the N panel, set **Dimensions** X and Y to the area's width and height in metres, then apply the scale (**Ctrl+A → Scale**).
+2.  Add a **Subdivision Surface** modifier set to **Simple**. Each level quadruples the faces: level 10 gives 1024 × 1024. For one vertex per pixel on big maps, subdivide in Edit Mode instead (Subdivide with Number of Cuts), or use [Geometry Nodes](https://manticorp.github.io/unrealheightmap/guide-blender.md#geonodes).
+3.  Add a **Displace** modifier below it:
+    -   **Texture**: New → Image or Movie → open the 16-bit PNG.
+    -   **Coordinates**: `UV`. The plane's UVs already cover 0 to 1.
+    -   **Direction**: `Z`.
+    -   **Midlevel**: `0`.
+    -   **Strength**: the **height range in metres**.
+4.  In the texture's image settings, set **Color Space** to **Non-Color**. Otherwise Blender applies a colour curve and bends the heights.
+5.  For absolute heights, set the object's Location Z to the **lowest height**.
+
+The modifier works as `offset = (pixel − Midlevel) × Strength`. With Midlevel 0 and Strength equal to the range, black stays at 0 and white rises by the full range.
+
+**Example:** a 2017 px export covering 13.3 km, with heights from 120 m to 1,620 m.
+
+Plane 13,300 × 13,300 m, Strength `1500`, Midlevel `0`, Location Z `120`.
+
+## 3\. Cycles: shader displacement with adaptive subdivision
+
+Adaptive subdivision adds detail only where the camera can see it, measured in screen pixels. It's the best way to render a huge heightmap at full detail.
+
+1.  Set the render engine to **Cycles**.
+    -   On **Blender 4.x**, also set **Feature Set** to **Experimental**. Adaptive subdivision was still experimental there.
+    -   On **Blender 5.0+**, it's a standard feature, so skip this step.
+2.  Make a plane at the area's size, as above, and add a **Subdivision Surface** modifier (Simple), as the last modifier.
+    -   5.x: open the modifier's **Adaptive Subdivision** panel and turn it on.
+    -   4.x: tick **Adaptive Subdivision** in Object Properties.
+3.  In the material:
+    -   Add an **Image Texture** with the PNG, Color Space **Non-Color** and Interpolation **Cubic**.
+    -   Connect it to a **Displacement** node with **Midlevel** 0 and **Scale** equal to the height range. Leave Space at Object, and keep the object's scale at 1.
+    -   Connect the Displacement node to the Material Output's **Displacement** socket.
+4.  Under Material Properties → Settings → Surface, set **Displacement** to **Displacement Only**, or **Displacement and Bump** for extra fine detail.
+5.  Under Render Properties → **Subdivision**, set **Dicing Rate Render**. 1 px is full detail and 2 to 4 px is much lighter. Raise **Offscreen Scale** so terrain behind the camera stays cheap. **Max Subdivisions** caps the depth.
+
+Displacement only appears in Rendered viewport mode or in final renders.
+
+## 4\. Geometry Nodes
+
+This gives exactly one vertex per pixel, which makes it easy to scatter trees by slope or height:
+
+1.  Add a Geometry Nodes modifier to any object and replace its input with a **Grid** node:
+    -   **Size X / Y** = the area's width and height in metres
+    -   **Vertices X / Y** = the image's pixel size (or half that for a lighter mesh)
+2.  Add an **Image Texture** node (geometry version) with the PNG. Connect the Grid's **UV Map** output to its **Vector** input. Use Linear interpolation.
+3.  Run the Color through a **Math → Multiply** by the height range, then into the Z of a **Combine XYZ**, then into a **Set Position** node's **Offset**.
+4.  To keep UVs for materials, use **Store Named Attribute** (Face Corner, Vector, name `UVMap`) on the Grid's UV Map output before Set Position.
+
+The exported slope, curvature and height-band PNGs can be sampled the same way and fed into **Distribute Points on Faces** → Density, to place forests, rocks and snow only where they belong.
+
+## Materials from the albedo and maps
+
+Every export from the same area shares the same 0 to 1 UVs, so no alignment is needed.
+
+-   **Albedo:** Image Texture (sRGB) into Principled BSDF **Base Color**.
+-   **Normal map:** export **OpenGL**. Load it as an Image Texture set to **Non-Color**, then connect it to a **Normal Map** node (Tangent Space) and on to the BSDF **Normal**. Recent versions (5.1+) also have a DirectX/OpenGL **Convention** option on the Normal Map node, if you only have the DirectX version.
+-   **Masks** (slope, curvature, height bands, water), all Non-Color:
+    -   Use them as **Mix** factors between grass, rock and snow shaders.
+    -   Run a mask through a **Color Ramp** to sharpen or move the transition.
+    -   Use the water mask to add a glossy, dark wet band along shores.
+-   **Close-up detail:** mix tiling PBR textures (for example from Poly Haven) using box-projected **Object** coordinates. The albedo alone gets blurry close to the camera, because satellite imagery is often 0.5 to 10 m per pixel.
+
+## Georeferenced import with BlenderGIS
+
+[BlenderGIS](https://github.com/domlysz/BlenderGIS) is still maintained and supports Blender 4.x and 5.x. It's useful if you combine the terrain with other GIS data, such as OpenStreetMap buildings or GPS tracks.
+
+1.  In BlenderGIS's settings, set the scene CRS to **EPSG:3857**. Add it to the predefined CRS list if it's missing.
+2.  In the 3D Viewport header, open **GIS → Import → Georeferenced raster** and choose the PNG. Its `.pgw` world file must be in the same folder with the same name. BlenderGIS ignores the `.prj`, so tick **Specify raster CRS** and choose EPSG:3857.
+3.  Pick the mode **DEM as displacement texture**.
+4.  BlenderGIS assumes the pixel values are raw elevations, so for a normalised PNG it sets an enormous Strength. Afterwards, set the Displace modifier's **Strength** to the height range and its Midlevel to 0.
+5.  Import the albedo the same way with **Basemap on mesh**.
+
+## Performance
+
+-   **Vertex counts.** An 8129² grid is 66 million vertices. Keep the viewport subdivision low and the render subdivision high, or use adaptive subdivision.
+-   **Simplify.** Render Properties → **Simplify** caps **Max Subdivision** and **Texture Limit** separately for the viewport and the render.
+-   **Decimate.** A Decimate modifier (Planar or Collapse) after the Displace modifier greatly reduces flat areas before you export to a game engine.
+-   **Halve the source.** For background mountains, export at a lower output zoom. Detail you can't see still costs memory.
+
+## Troubleshooting
+
+The terrain is terraced or stepped
+
+The image was saved as 8-bit somewhere, or the Color Space isn't Non-Color. Re-open the tool's 16-bit PNG and check the Image Editor's header shows 16-bit.
+
+The heights are slightly wrong, with peaks fine but valleys too low
+
+The image is set to sRGB instead of Non-Color. Heightmaps are data, so they must be Non-Color. EXRs exported before November 2026 also stored heights on a curve, so re-export those.
+
+Displacement does nothing (Cycles)
+
+Check that Material Settings → Displacement is not set to Bump Only, and that you're in Rendered view. For adaptive subdivision on 4.x, check that the Feature Set is Experimental.
+
+The terrain is mirrored
+
+Imported meshes are already correct. For a plane you made yourself, check you didn't rotate it. Image row 1 (north) should be at +Y, the top of the Top view.
+
+## References
+
+-   [Displace modifier](https://docs.blender.org/manual/en/latest/modeling/modifiers/deform/displace.html)
+-   [Cycles subdivision settings](https://docs.blender.org/manual/en/latest/render/cycles/render_settings/subdivision.html) and [5.0 release notes](https://developer.blender.org/docs/release_notes/5.0/cycles/)
+-   [Displacement node](https://docs.blender.org/manual/en/latest/render/shader_nodes/displacement/displacement.html)
+-   [Geometry Nodes Image Texture](https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/texture/image.html)
+-   [BlenderGIS](https://github.com/domlysz/BlenderGIS)
+
+
+---
+
+<!-- Generated from guide-godot.html by scripts/build-agent-docs.js. Do not edit by hand. -->
+Source: https://manticorp.github.io/unrealheightmap/guide-godot.html
+Title: Godot Guide · 16/32 Bit Heightmap Generator
+Summary: Import real-world heightmaps into Godot 4 with Terrain3D or HTerrain at true scale, plus plugin-free meshes and HeightMapShape3D collision.
+
+# Godot 4: Terrain3D, HTerrain and plugin-free terrain
+
+Godot has no built-in terrain system. You have three good options:
+
+-   [**Terrain3D**](https://manticorp.github.io/unrealheightmap/guide-godot.md#terrain3d): a high-performance C++ terrain with clipmap LOD, sculpting and texture painting. It handles any size and is the best choice for big worlds.
+-   [**HTerrain**](https://manticorp.github.io/unrealheightmap/guide-godot.md#hterrain): a GDScript plugin, simple to set up, up to 4097 × 4097.
+-   [**No plugin**](https://manticorp.github.io/unrealheightmap/guide-godot.md#no-plugin): a GLB mesh plus collision. Good for small areas, backdrops and prototypes.
+
+## Step 0: Choose the heightmap file
+
+**Godot loads PNGs as 8 bits per channel**, so a 16-bit PNG is cut down to 256 levels and the terrain comes out terraced. Use one of the two options below instead.
+
+### Option A: 32-bit EXR in metres (easiest)
+
+Export **OpenEXR 32-bit** with normalisation **Off**. Godot reads EXR as floating point, and every pixel is the true height in metres, including below sea level. No conversion or height maths is needed. Avoid the 16-bit EXR, which is coarser than the PNG.
+
+### Option B: 16-bit RAW from the PNG
+
+Export a **16-bit PNG** with **Smart** normalisation, and note the **height range** (lowest and highest in metres) and the metres per pixel. Then convert with [ImageMagick](https://imagemagick.org) 7:
+
+```
+magick heightmap.png -depth 16 -endian LSB gray:heightmap.r16
+```
+
+For HTerrain, which needs a 2n+1 square, pad by repeating the edge pixels. For example, from a 1024 export:
+
+```
+magick heightmap.png -virtual-pixel edge -set option:distort:viewport 1025x1025+0+0 -filter point -distort SRT 0 -depth 16 -endian LSB gray:heightmap.r16
+```
+
+On ImageMagick 6, use `convert` instead of `magick`. GIMP (Export As → Raw image data) also works if the image is in 16-bit precision.
+
+Export the extra maps with the **OpenGL** normal map. Godot uses the OpenGL (Y+) convention.
+
+## Terrain3D
+
+Written for Terrain3D 1.x. See the [official import docs](https://terrain3d.readthedocs.io/en/stable/docs/import_export.html).
+
+### Import
+
+1.  Install Terrain3D from the Asset Library or GitHub, and enable it in Project Settings → Plugins.
+2.  Open the scene `addons/terrain_3d/tools/importer.tscn` and select the **Importer** node. Its Inspector is the import tool.
+3.  Under **Import File**:
+    -   `height_file_name`: the **EXR** (Option A), with `height_scale` 1 and `height_offset` 0. The values are already metres.
+    -   Or the `.r16` file (Option B; `.raw` works too) with:
+        -   `r16_size` = the image width × height in pixels
+        -   `r16_range` = **(lowest, highest)** in metres. Terrain3D maps black to the first value and white to the second.
+        -   `height_scale` 1 and `height_offset` 0
+    -   A 32-bit EXR exported with Smart normalisation (0 to 1) also works: set `height_scale` to the height range and `height_offset` to the lowest height.
+    -   `color_file_name` (optional): the albedo PNG. It becomes the terrain's colour map.
+    -   `import_position`: where the terrain goes. It's rounded to the region size.
+4.  Click **Run Import**, check the result, then set `destination_directory` and click **Save to Disk**.
+5.  In your game scene, add a Terrain3D node and point its **Data Directory** at that folder.
+
+### Horizontal scale
+
+Terrain3D places one vertex per metre by default. Set the Terrain3D node's **vertex\_spacing** to the export's metres per pixel, for example 6.6, so the terrain spans its real width. This only scales X and Z, so heights stay correct.
+
+Very large vertex spacing makes close-up terrain blocky. To walk around in detail, export at a higher output zoom rather than stretching a coarse export.
+
+### Region size
+
+A Terrain3D world is up to 32 × 32 regions. Choose **Regions → Region Size** (64 to 2048) greater than the image width ÷ 32. For example, use 256 for an 8129 export and 128 or more for a 4096 export. Any image size works, and Terrain3D slices and pads it automatically.
+
+### Texturing
+
+-   **Albedo:** imported as the colour map. Terrain3D blends it with your texture layers.
+-   **Height bands, slope and curvature** can't be imported directly. Terrain3D's control map uses its own format. Use the masks as a visual reference while painting, or apply them with a short tool script using the Terrain3D API. Terrain3D also has slope-based auto-shading built in.
+
+## HTerrain (Zylann's heightmap plugin)
+
+See the [HTerrain docs](https://hterrain-plugin.readthedocs.io). Current versions target Godot 4.x.
+
+1.  Add an **HTerrain** node, select it, and choose **Terrain → Import** from the toolbar menu.
+2.  Set **Heightmap** to either:
+    -   a 32-bit EXR exported with normalisation Off at a 2n+1 size (type 1025, 2049 or 4097 into the tool). HTerrain uses EXR values as-is, so they're already metres, and Min/Max height are ignored.
+    -   or the padded `.r16` file, with **Raw endianess** Little Endian, **Bit depth** 16-bit, and **Min height** / **Max height** set to the lowest and highest heights in metres.
+3.  Optional: **Colormap** = the albedo PNG.
+4.  Import, then set the node's **Map Scale** X and Z to the metres per pixel. Leave Y at 1.
+
+-   **Size rule:** HTerrain terrains are square and 2n+1 (513, 1025, 2049, 4097). Other sizes are padded with height 0, which makes a cliff at the edge. That's why Step 0 pads with edge pixels. 8129 exports are too large, so tile them or use Terrain3D.
+-   **Raw files must be square:** HTerrain works out the size from the file length.
+-   **Splatmap:** HTerrain accepts a 4-layer RGBA splatmap PNG. Pack up to four height bands into one with ImageMagick:
+    
+    ```
+    magick *_band_00_*.png *_band_01_*.png *_band_02_*.png *_band_03_*.png -set colorspace sRGB -combine -define png:color-type=6 splatmap.png
+    ```
+    
+
+## Without a plugin
+
+### Visual mesh: GLB
+
+1.  In the tool, use **Export 3D Model** with Format GLB, Shape Top surface only, and Scale Real world (metres).
+2.  Drop it into the project. Godot imports glTF natively, at 1 unit = 1 metre.
+3.  Double-click it to open **Advanced Import Settings**. Select the mesh, then tick **Physics → Generate**, set Body Type to **Static** and Shape Type to **Trimesh**, and reimport.
+4.  Apply the albedo and the OpenGL normal map in a StandardMaterial3D. The UVs cover the top surface, so they line up.
+
+### Collision: HeightMapShape3D from RAW
+
+For big terrains, a heightmap collision shape is much cheaper than a trimesh. This GDScript reads the 16-bit RAW from Step 0 at full precision:
+
+```
+@export var raw_path := "res://terrain/heightmap.r16"
+@export var size := Vector2i(1025, 1025)   # pixels
+@export var min_height := 120.0            # metres
+@export var max_height := 1620.0
+@export var metres_per_pixel := 6.6
+
+func _ready() -> void:
+	var bytes := FileAccess.get_file_as_bytes(raw_path)
+	var data := PackedFloat32Array()
+	data.resize(size.x * size.y)
+	for i in data.size():
+		var h := lerpf(min_height, max_height, bytes.decode_u16(i * 2) / 65535.0)
+		data[i] = h / metres_per_pixel   # node is scaled up below
+	var shape := HeightMapShape3D.new()
+	shape.map_width = size.x
+	shape.map_depth = size.y
+	shape.map_data = data
+	var col := CollisionShape3D.new()
+	col.shape = shape
+	col.scale = Vector3.ONE * metres_per_pixel   # spacing in metres
+	add_child(col)   # attach to a StaticBody3D
+```
+
+-   **Grid spacing.** HeightMapShape3D always has a spacing of one unit, centred on the node. Scale the node uniformly by the metres per pixel and divide the heights by the same amount. The default physics engine doesn't allow non-uniform scale; Jolt does.
+-   **From the EXR instead** (Godot 4.3+): load the 32-bit EXR exported with normalisation Off, and pass 0 and 1 as the range so the values stay in metres.
+    
+    ```
+    var img := Image.load_from_file("res://terrain/heightmap.exr")
+    img.convert(Image.FORMAT_RF)
+    shape.update_map_data_from_image(img, 0.0, 1.0)  # values are already metres
+    ```
+    
+    Scale the node and divide the heights by the metres per pixel, as above.
+
+## Troubleshooting
+
+The terrain is terraced in Godot
+
+A PNG was loaded directly, so it was cut down to 8-bit. Use a 32-bit EXR or 16-bit RAW (Step 0).
+
+The terrain is far too big or small horizontally
+
+Set Terrain3D's vertex\_spacing, or HTerrain's Map Scale X/Z, to the export's metres per pixel. Both default to 1 m.
+
+There's a cliff along two edges (HTerrain)
+
+The image wasn't 2n+1, so HTerrain padded it with zeros. Pad with edge pixels using the ImageMagick command in Step 0.
+
+The terrain is mirrored north to south
+
+Image row 1 (north) maps to −Z in Godot. If your project treats +Z as north, rotate the terrain 180° or flip the image vertically before converting (add `-flip` to the ImageMagick command).
+
+
+---
+
+<!-- Generated from guide-unity.html by scripts/build-agent-docs.js. Do not edit by hand. -->
+Source: https://manticorp.github.io/unrealheightmap/guide-unity.html
+Title: Unity Guide · 16/32 Bit Heightmap Generator
+Summary: Import real-world heightmaps into Unity Terrain at true scale: converting to 16-bit RAW, terrain sizing, splatmaps from height bands, and GLB meshes with glTFast.
+
+# Unity: Terrain import at real-world scale
+
+This works the same in Unity 2022 LTS and Unity 6. Unity's Terrain imports 16-bit RAW heightmaps with sides of 2n+1 pixels, so the work is mostly choosing the right export and converting it.
+
+## 1\. Export
+
+-   **Format:** PNG 16-bit.
+-   **Size:** a square 2n+1. Type **1025**, **2049** or **4097** into Output Width and Height. The largest Unity Terrain heightmap is 4097. For more, use a tiled export with 2049 or 4097 tiles and one Terrain per tile.
+-   **Normalisation:** Smart.
+-   **Extra Outputs:** OpenGL normal map and height bands, if you want them.
+
+Note the **height range** (lowest and highest in metres) and the area width in metres.
+
+## 2\. Convert to RAW
+
+Unity's Import Raw reads headerless 16-bit grayscale, little-endian ("Windows" byte order). With [ImageMagick](https://imagemagick.org) 7:
+
+```
+magick heightmap.png -depth 16 -endian LSB gray:heightmap.raw
+```
+
+If your export isn't already 2n+1 (for example 1024 or 2048), pad it by repeating the edge pixels:
+
+```
+magick heightmap.png -virtual-pixel edge -set option:distort:viewport 1025x1025+0+0 -filter point -distort SRT 0 -depth 16 -endian LSB gray:heightmap.raw
+```
+
+On ImageMagick 6, use `convert`. In Photoshop, save as **Photoshop Raw** with **IBM PC** byte order, keeping the image in 16 Bits/Channel mode.
+
+## 3\. Import into a Terrain
+
+1.  **GameObject → 3D Object → Terrain.**
+2.  Select it, open **Terrain Settings** (gear icon) → **Texture Resolutions (On Terrain Data)** → **Import Raw…**, and pick the `.raw` file.
+3.  In the Import Heightmap window:
+    -   **Depth**: Bit 16
+    -   **Resolution**: detected from the file size. Check it reads 1025, 2049 or 4097.
+    -   **Byte Order**: Windows
+    -   **Terrain Size**: X = Z = the area width in metres, and Y = the **height range** in metres
+    -   **Flip Vertically**: Unity puts the first image row (north) at the terrain's −Z edge. Tick it if you want north at +Z.
+4.  Set the Terrain's Transform **Position Y** to the **lowest height** for absolute heights.
+
+**Example:** a 2049 px export covering 13.5 km, with heights from 120 m to 1,620 m.
+
+Terrain Size `13500, 1500, 13500`, Position Y `120`.
+
+-   **Height limit:** Terrain Height must be between 1 and 10,000 m, which fits every real-world range.
+-   **Unpadded size:** Width and Length = (pixels − 1) × metres per pixel. If you padded a 1024 export to 1025, the extra pixel adds one metres-per-pixel step of width.
+
+### Terrain Toolbox alternative
+
+The **Terrain Tools** package (`com.unity.terrain-tools`) adds **Window → Terrain → Terrain Toolbox**. Its Create New Terrain → **Import Heightmap** can build several tiled terrains from a batch of RAW files, and has **Height Remap** and **Flip Axis** options. Use RAW files there too. 16-bit PNGs imported as Unity textures may lose precision.
+
+## 4\. Terrain layers from the height bands
+
+Unity stores terrain painting in splatmaps: RGBA textures where each channel is one Terrain Layer. Layer 1 is red, layer 2 green, layer 3 blue and layer 4 alpha, and the next splatmap carries on with layer 5. The tool's height bands add up to white, so they make a valid splatmap.
+
+1.  Pack up to four band masks into one RGBA image:
+    
+    ```
+    magick *_band_00_*.png *_band_01_*.png *_band_02_*.png *_band_03_*.png -set colorspace sRGB -combine -define png:color-type=6 splat0.png
+    ```
+    
+    If you padded the heightmap, pad the bands to the terrain's **Control Texture Resolution** too (or resize them to it).
+2.  Create Terrain Layers (grass, rock, snow and so on) on the Terrain, in the same order as the bands.
+3.  Apply the image with Terrain Toolbox → **Terrain Utilities → Import Splatmaps** → add `splat0.png` → **Apply to Terrain**.
+
+The OpenGL normal map and albedo are whole-terrain textures. Unity's Terrain Layers are tiling textures, so use them in a custom terrain shader, or on a mesh exported from the tool (below).
+
+## 5\. Meshes instead of Terrain
+
+-   **GLB:** install **glTFast** (Package Manager → **+** → Install package by name → `com.unity.cloud.gltfast`). Version 6.18 is the last that supports 2022.3; newer versions need Unity 6. GLB files then import like any model, at 1 unit = 1 m.
+-   **OBJ:** imports natively. Check the **Scale Factor** and tick **Generate Colliders** on the Model tab.
+-   Export with **Top surface only** and **Real world (metres)**. The UVs cover the top, so the albedo and OpenGL normal map line up in a standard Lit material.
+
+## Troubleshooting
+
+The Import Raw resolution is wrong, or the terrain is noise
+
+The file isn't 16-bit little-endian, or isn't a square 2n+1. Re-run the ImageMagick command with `-endian LSB`, check the file is exactly width × height × 2 bytes, and set Byte Order to Windows.
+
+The terrain is terraced
+
+The heightmap went through 8 bits somewhere. Convert from the tool's 16-bit PNG directly, and choose Depth: Bit 16 in the import window.
+
+The mountains are the wrong height
+
+Terrain Size Y must equal the height range of _that_ export. Unity maps white to the full Terrain Height.
+
+Tiled terrains don't line up in height
+
+All tiles from one tiled export share one height scale, so give every Terrain the same Size Y and Position Y. For separate exports, set the same Norm From and Norm To in the tool.
+
+## References
+
+-   [Unity manual: working with heightmaps](https://docs.unity3d.com/Manual/terrain-Heightmaps.html)
+-   [Terrain Toolbox: Import Heightmap](https://docs.unity3d.com/Packages/com.unity.terrain-tools@5.3/manual/toolbox-import-heightmap.html) and [Import Splatmaps](https://docs.unity3d.com/Packages/com.unity.terrain-tools@5.3/manual/toolbox-import-splatmaps.html)
+-   [glTFast installation](https://docs.unity3d.com/Packages/com.unity.cloud.gltfast@6.20/manual/installation.html)
+
+
+---
+
+<!-- Generated from guide-3d-printing.html by scripts/build-agent-docs.js. Do not edit by hand. -->
+Source: https://manticorp.github.io/unrealheightmap/guide-3d-printing.html
+Title: 3D Printing Guide · 16/32 Bit Heightmap Generator
+Summary: Print real-world terrain: choosing area, size, height exaggeration and base thickness, then slicing in PrusaSlicer, Bambu Studio or Cura.
+
+# 3D printing real terrain
+
+The tool exports a watertight, ready-to-slice STL, so you don't need any other software.
+
+## 1\. Choose the area
+
+-   **Frame your area with some relief.** A mountain, a valley or a volcano. Flat farmland prints as a flat slab.
+-   **Output zoom.** The STL uses the area shown by the orange rectangle. Very high zooms don't add printable detail: on a 150 mm print, a 0.4 mm nozzle resolves about 375 points across. For a 20 km area, zoom 12 to 13 data is plenty, and Mapterhorn lidar areas give the crispest small prints.
+-   Check it in **3D Preview** first, with the exaggeration you plan to use.
+
+## 2\. Export settings
+
+3D Model Format
+
+**STL**
+
+Mesh Resolution
+
+**512** for prints up to about 150 mm. **1024** for larger prints or very rugged terrain. Beyond that, files grow large with no visible gain at nozzle scale.
+
+Shape
+
+**Solid with base**. This makes a closed, flat-bottomed model that needs no supports.
+
+Base Thickness
+
+**2 to 3 mm** under the lowest point. Use more for large prints to prevent warping, or if you want to engrave a label on the side.
+
+Scale
+
+**Print size (mm)**, with Print Width set to the length of the longer side.
+
+Height Exaggeration
+
+**1** for alpine terrain. **1.5 to 2** for hills. **2 to 3** for gentle landscapes, coasts and plains. Real terrain looks surprisingly flat at small scale: at 150 mm wide, a 20 km area with 1,500 m of relief is only 11 mm tall at 1×.
+
+After generating a heightmap, the output also shows the height/width ratio, and how tall the print would be at 100 mm wide with no exaggeration.
+
+## 3\. Slicing
+
+STL files have no units. The tool writes millimetres, which every slicer assumes.
+
+-   **Check the size** shown in the slicer matches your Print Width. In PrusaSlicer, decline the "convert from inches" prompt, which only applies to genuine inch files.
+-   **Orientation:** flat on the base. No supports are needed.
+-   **Layer height:** 0.08 to 0.12 mm shows contours best. Variable layer height saves time by using thin layers only near the peaks:
+    -   PrusaSlicer: select the model → **Variable layer height** → **Adaptive**.
+    -   Bambu Studio: **Variable layer height** (adaptive).
+    -   Cura: **Experimental → Use Adaptive Layers**.
+-   **Walls and infill:** 2 to 3 walls and 10 to 15% infill. Use 4 or more top layers so the terrain surface is solid.
+-   **Seam:** place it at the back or on a sharp corner, so it doesn't run down a mountainside.
+-   **Ironing:** leave it off. It flattens the contours you want to see.
+
+These are typical settings that work well for terrain. Adjust them for your printer and material.
+
+## 4\. Make it look great
+
+-   **Colour by height:** on single-nozzle printers, add colour changes at layer heights, for example green, then grey at the treeline, then white for snow. Work out the layer height for a real altitude:
+    
+    ```
+    print Z (mm) = base + (altitude − lowest) × exaggeration × print width ÷ area width (m) ÷ 1000
+    ```
+    
+    Multi-material printers (AMS, MMU) can do the same with height-range modifiers.
+-   **Water:** export with **Flatten below water level** so lakes and the sea print as perfectly flat surfaces. That's ideal for a colour change, or for pouring resin afterwards.
+-   **Tiles:** for prints larger than your bed, export neighbouring areas at the same output zoom and the same Norm From / Norm To, so the heights match. Print them at the same Print Width and exaggeration.
+-   **Resin printers:** use a thinner base (1.5 to 2 mm), hollow large models in your resin slicer, and add drain holes in the base.
+
+## Troubleshooting
+
+The print is tiny, or 25 times too big
+
+The slicer converted units. Re-import and decline any inch conversion, or check the importer's unit setting. The STL is in millimetres.
+
+Thin spikes or jagged ridges
+
+Lower the Mesh Resolution or the exaggeration. Very sharp ridges narrower than your nozzle can't print cleanly.
+
+The slicer says the mesh has errors
+
+"Solid with base" models are built watertight. If a slicer still complains, run its repair function (it should find nothing to fix) and check you didn't export "Top surface only", which is an open skin.
+
+
+---
+
+<!-- Generated from guide-other.html by scripts/build-agent-docs.js. Do not edit by hand. -->
+Source: https://manticorp.github.io/unrealheightmap/guide-other.html
+Title: QGIS, Gaea, World Machine & Houdini Guide · 16/32 Bit Heightmap Generator
+Summary: Use real-world heightmaps in QGIS (georeferenced, rescaled to metres), Gaea, World Machine, Houdini, Photoshop and Substance Designer.
+
+# GIS, terrain tools and image editors
+
+All of these start from the **16-bit PNG** export with **Smart** normalisation. Note the **height range** (lowest and highest in metres) and the **metres per pixel** shown after generating.
+
+-   [QGIS and GDAL](https://manticorp.github.io/unrealheightmap/guide-other.md#qgis)
+-   [Gaea](https://manticorp.github.io/unrealheightmap/guide-other.md#gaea)
+-   [World Machine](https://manticorp.github.io/unrealheightmap/guide-other.md#worldmachine)
+-   [Houdini](https://manticorp.github.io/unrealheightmap/guide-other.md#houdini)
+-   [Photoshop, GIMP and Substance Designer](https://manticorp.github.io/unrealheightmap/guide-other.md#editors)
+
+## QGIS and GDAL
+
+### Load it in the right place
+
+1.  Keep the PNG together with its `.pgw` world file and `.prj`, all with the same base name. The tool links them under the output, and they're included in zips.
+2.  Drag the PNG into QGIS. GDAL reads the world file automatically, so the image lands in the right place.
+3.  QGIS may not pick up the projection from the `.prj` next to a PNG. If the layer shows an unknown CRS, set it: right-click the layer → **Layer CRS → Set Layer CRS** → **EPSG:3857**.
+
+### Turn pixel values into metres
+
+The PNG holds normalised values from 0 to 65535, not metres. Convert with **Raster → Raster Calculator**, replacing 120 and 1620 with your height range:
+
+```
+120 + "heightmap@1" / 65535 * (1620 - 120)
+```
+
+Save the result as a GeoTIFF (Float32). It now holds true elevations in metres.
+
+### Reproject before measuring
+
+EPSG:3857 (Web Mercator) stretches horizontal distances by 1/cos(latitude). Slope, hillshade and distance tools then give wrong answers. Reproject first with **Raster → Projections → Warp (Reproject)**:
+
+-   Target CRS: your local UTM zone (for example EPSG:32632 for the Alps).
+-   Resampling: **Bilinear** or **Cubic**.
+
+Then **Raster → Analysis → Hillshade / Slope** work correctly with a Z factor of 1.
+
+### Command line
+
+```
+# georeference and rescale to metres in one go (heights 120–1620 m)
+gdal_translate -a_srs EPSG:3857 -ot Float32 -scale 0 65535 120 1620 heightmap.png heightmap_m.tif
+# reproject to UTM 32N at 10 m pixels
+gdalwarp -t_srs EPSG:32632 -tr 10 10 -r cubic heightmap_m.tif heightmap_utm.tif
+```
+
+## Gaea
+
+Use Gaea to add erosion, snow and detail on top of real terrain, then export maps for your engine.
+
+1.  Set the terrain's world **Scale** to the area width in metres, and its **Height** to the height range in metres.
+2.  Add a **File** node and load the 16-bit PNG. Gaea stores heights from 0 to 1 internally and multiplies them by the terrain Height, so a normalised PNG maps directly to true relative heights.
+3.  Keep the source unclamped. Gaea's docs suggest **Raw** scale for most files.
+4.  Add erosion nodes. Because the scale is real, erosion and flow features come out at plausible sizes.
+5.  Export at Unreal sizes (2017, 4033) for Unreal, and use the same Z scale maths as in the [Unreal guide](https://manticorp.github.io/unrealheightmap/guide-unreal.md#scale). The range is the Gaea terrain Height.
+
+Gaea's docs also describe a _Match / Correct Heights_ recipe for terrains that need absolute altitudes. See the [Gaea documentation](https://docs.gaea.app).
+
+## World Machine
+
+1.  Add a **File Input** device and load the 16-bit PNG.
+2.  Under elevation mapping, choose **Specify** and enter the lowest and highest heights in metres. _Full Range_ would stretch it to the whole world height instead.
+3.  Under **World Placement**, set its size to the area's width and height in metres (**Set in Layout…**), so it matches your world extents.
+4.  Build erosion and texture outputs as usual. For tiled builds into Unreal, use World Machine's own tiled output.
+
+See the [File Input documentation](https://help.world-machine.com/topic/file-input-and-output/).
+
+## Houdini
+
+1.  Add a **HeightField File** SOP and load the PNG, with **Type** set to Height.
+2.  **Size Method**: **Grid Spacing**, set to the metres per pixel.
+3.  **Height Scale**: the height range in metres.
+4.  For absolute altitudes, add a **HeightField Transform** or a Volume Wrangle (`@height += 120;`, using your lowest height).
+5.  Load the extra masks into a second HeightField File with Type **Mask** to drive erosion, scattering or layer exports.
+
+See the [HeightField File documentation](https://www.sidefx.com/docs/houdini/nodes/sop/heightfield_file.html).
+
+## Photoshop, GIMP and Substance Designer
+
+The rule for all of them: **never let the heightmap drop to 8 bits**. One 8-bit save cuts 65,536 levels to 256, and the terrain comes out terraced.
+
+-   **Photoshop:** the PNG opens in **16 Bits/Channel** mode (check **Image → Mode**). Edit in 16-bit, and save with **Save As** (PNG or TIFF). Some _Export As_ and _Save for Web_ paths write 8-bit. Avoid sharpening and levels with clipping, which flatten peaks and valleys.
+-   **GIMP:** check **Image → Precision** shows 16-bit, and choose a _linear_ precision so edits don't apply a gamma curve. Export the PNG with 16 bpc (on by default for 16-bit images).
+-   **Substance 3D Designer:** set the bitmap's colour space to raw or linear (non-colour) and graph precision to 16-bit or higher. Bitmap painting only works on 8-bit images, so do painting on separate masks.
+-   **Extra maps** (slope, curvature, bands, water) are 8-bit masks by design. They're fine to edit, paint and blur in any editor.
+
+
+---
+
+<!-- Generated from examples.html by scripts/build-agent-docs.js. Do not edit by hand. -->
+Source: https://manticorp.github.io/unrealheightmap/examples.html
+Title: Examples · 16/32 Bit Heightmap Generator
+Summary: Things people have made with heightmaps from the 16/32 Bit Heightmap Generator, including real-terrain snowmobile maps for the game Sledders.
+
+# Examples
+
+Below are some things people have made with heightmaps from this tool.
+
+## Sledders backcountry maps by DeNard420
+
+Three of the four most downloaded maps for the snowmobile game [Sledders](https://mod.io/g/sledders) (built in Unity) were made by **DeNard420**, and all of them start from terrain made with this tool. Together they have been downloaded more than 400,000 times on mod.io.
+
+The process: find a real place worth riding, export a DEM of it here, then work it up in tools like Gaea, adding rocks, trees, a labelled topo map, and props such as cabins and power lines. The tree maps come from Kris Tapio (Tapios\_BackCountry\_Builds), who traces the real tree lines from high-resolution satellite imagery, so the trees in the game sit almost exactly where they do in real life, with realistic density and tree lines.
+
+-   [Whistler, British Columbia](https://mod.io/g/sledders/m/whistler): big chutes and peaks, trails, roads and rivers cleared
+-   [Jackson Hole, Wyoming](https://mod.io/g/sledders/m/jackson-hole2): close to 1:1 on the lower peaks
+-   [Aspen, Colorado](https://mod.io/g/sledders/m/aspen-snowmass): jump lines, named chutes and ski runs
+-   [Mount Rainier, Washington](https://mod.io/g/sledders/m/mt-rainier): glaciers, crevasses and a detailed topo map
+
+### Images
+
+[
+
+![Snow-covered mountains and pine forest in the Whistler map](https://manticorp.github.io/unrealheightmap/public/examples/sledders/whistler-1.jpg)
+
+](https://manticorp.github.io/unrealheightmap/public/examples/sledders/whistler-1.jpg)
+
+Whistler
+
+[
+
+![A snowmobile carving a track across an open slope in the Jackson Hole map](https://manticorp.github.io/unrealheightmap/public/examples/sledders/jackson-hole-1.jpg)
+
+](https://manticorp.github.io/unrealheightmap/public/examples/sledders/jackson-hole-1.jpg)
+
+Jackson Hole
+
+[
+
+![A jagged snowy ridge behind a line of pines in the Aspen map](https://manticorp.github.io/unrealheightmap/public/examples/sledders/aspen-1.jpg)
+
+](https://manticorp.github.io/unrealheightmap/public/examples/sledders/aspen-1.jpg)
+
+Aspen
+
+[
+
+![Wind-sculpted bowls and ridges in the Jackson Hole map](https://manticorp.github.io/unrealheightmap/public/examples/sledders/jackson-hole-2.jpg)
+
+](https://manticorp.github.io/unrealheightmap/public/examples/sledders/jackson-hole-2.jpg)
+
+Jackson Hole
+
+[
+
+![A valley of snowy forest under distant peaks in the Whistler map](https://manticorp.github.io/unrealheightmap/public/examples/sledders/whistler-2.jpg)
+
+](https://manticorp.github.io/unrealheightmap/public/examples/sledders/whistler-2.jpg)
+
+Whistler
+
+[
+
+![A rider stopped on a summit ridge in the Aspen map](https://manticorp.github.io/unrealheightmap/public/examples/sledders/aspen-2.jpg)
+
+](https://manticorp.github.io/unrealheightmap/public/examples/sledders/aspen-2.jpg)
+
+Aspen
+
+You can see more of these maps being ridden in [DeNard420's clips on Medal](https://medal.tv/games/sledders/clips/myxaSGsvXNSPhn3iw).
+
+## Grand Canyon in Unreal Engine 5.1 (64km)
+
+[Find it yourself here](https://manticorp.github.io/unrealheightmap/index.html#lat=36.18112&lng=-112.021&z=10&oz=14&w=8129&h=8129)
+
+### Images
+
+[
+
+![](https://manticorp.github.io/unrealheightmap/public/im/grand_canyon_heightmap_sm.png)
+
+](https://manticorp.github.io/unrealheightmap/public/im/grand_canyon_heightmap_sm.png)
+
+[
+
+![](https://manticorp.github.io/unrealheightmap/public/im/grand_canyon_desserty.png)
+
+](https://manticorp.github.io/unrealheightmap/public/im/grand_canyon_desserty.png)
+
+### Video
+
+
+---
+
+<!-- Generated from rights.html by scripts/build-agent-docs.js. Do not edit by hand. -->
+Source: https://manticorp.github.io/unrealheightmap/rights.html
+Title: Data Licences · 16/32 Bit Heightmap Generator
+Summary: Licences, attribution and usage rights for the elevation data and map imagery used by the 16/32 Bit Heightmap Generator.
+
+# Map License Information
+
+## AWS Terrain Tiles (Mapzen) Elevation Data
+
+When "AWS Terrain Tiles" is chosen as the elevation data (the default), heights come from the [Terrain Tiles dataset on the Registry of Open Data on AWS](https://registry.opendata.aws/terrain-tiles/). [Mapzen](https://www.mapzen.com/blog/elevation/) originally built it, and the tiles stayed available as open data after Mapzen shut down.
+
+It is not 100% clear what the usage rights for the heightmaps are now. This was the ["rights" page that appeared on the Mapzen site.](https://www.mapzen.com/rights/#services-and-data-sources)
+
+This was their [attribution guidance](https://github.com/tilezen/joerd/blob/master/docs/attribution.md), specifically.
+
+If in doubt, the following snippet should be included on your project:
+
+© [Mapzen](https://www.mapzen.com/rights), [OpenStreetMap](https://openstreetmap.org/copyright), and [others](https://www.mapzen.com/rights/#services-and-data-sources).
+
+```
+© <a href="https://www.mapzen.com/rights">Mapzen</a>,  <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> , and <a href="https://www.mapzen.com/rights/#services-and-data-sources">others</a>.
+```
+
+## Mapterhorn Elevation Data
+
+When "Mapterhorn" is chosen as the elevation data, heights come from [Mapterhorn](https://mapterhorn.com), an open-data project that combines Copernicus GLO-30 worldwide with high-resolution national datasets, including USGS 3DEP for the USA and lidar for the UK and much of Europe.
+
+Each source has its own licence. The full list is on the [Mapterhorn attribution page](https://mapterhorn.com/attribution). If in doubt, include:
+
+© [Mapterhorn](https://mapterhorn.com/attribution) and the open-data sources listed there.
+
+## NOAA ETOPO 2022 (Land and Sea Floor)
+
+When "NOAA ETOPO 2022" is chosen, heights come from NOAA's National Centers for Environmental Information, served through their DEM mosaic service. NOAA data is in the public domain. Please credit:
+
+NOAA National Centers for Environmental Information (2022): ETOPO 2022 15 Arc-Second Global Relief Model. [doi:10.25921/fd45-gt74](https://doi.org/10.25921/fd45-gt74)
+
+## Mars, Moon and Mercury Elevation Data
+
+Mars heights come from the MGS MOLA global DEM (463 m), Moon heights from the LRO LOLA global DEM (118 m) and Mercury heights from the MESSENGER global DEM (665 m), all NASA mission data published by [USGS Astrogeology](https://astrogeology.usgs.gov) and in the public domain. The Gale crater model is the 1 m HiRISE stereo DEM mosaic made for the Mars Science Laboratory (Curiosity) mission by NASA, JPL, the University of Arizona and USGS, also in the public domain. Please credit the mission science team, NASA and USGS Astrogeology. The Mars and Moon base maps are from [OpenPlanetaryMap](https://www.openplanetary.org/opm), built from NASA, USGS and ESA data; the Mercury and Gale crater base maps are drawn in your browser from the elevation data.
+
+The treemap uses [ESA WorldCover](https://esa-worldcover.org) 2021 tree cover (© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by the ESA WorldCover consortium, CC BY 4.0), read through [Microsoft's Planetary Computer](https://planetarycomputer.microsoft.com/dataset/esa-worldcover), and in Switzerland the vegetation height model of the Swiss National Forest Inventory (© BAFU / WSL / swisstopo, [Swiss open government data](https://www.geo.admin.ch/en/general-terms-of-use-fsdi)). Leaf types come from OpenStreetMap. Please credit them when you publish work made with the treemap.
+
+## OpenStreetMap Layers
+
+The OpenStreetMap layer masks are drawn from data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the [Open Database License (ODbL)](https://opendatacommons.org/licenses/odbl/), fetched through the [Overpass API](https://overpass-api.de). If you publish something made with them, credit "© OpenStreetMap contributors".
+
+## Other Maps (Preview and Albedo)
+
+Each preview map shows a link to its copyright information at the bottom of the map display.
+
+Albedo images made with "Generate Albedo" come from the selected preview map, so they're covered by that provider's terms. Some of these don't allow commercial use, so check before shipping them in a product.
+
+Most map providers can be found [on the leaflet providers page](https://leaflet-extras.github.io/leaflet-providers/preview/).
+
+## Place Search
+
+Place search uses [Photon](https://photon.komoot.io) by Komoot, which uses data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors.

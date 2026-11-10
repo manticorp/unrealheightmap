@@ -106,6 +106,17 @@ The [documentation](https://manticorp.github.io/unrealheightmap/instructions.htm
 
 More on the [Examples page](https://manticorp.github.io/unrealheightmap/examples.html).
 
+## 🤖 For AI agents and LLMs
+
+The tool has no accounts, paid tier or API: it is a static, client-side app, and every setting lives in the URL hash. An agent can build a link, hand it to the user, and the user clicks Generate.
+
+- [`llms.txt`](llms.txt) and [`llms-full.txt`](llms-full.txt): an index and the full documentation in Markdown
+- [`url-params.json`](url-params.json): every URL setting with type, default, allowed values and meaning
+- Markdown copies of each documentation page, e.g. [`instructions.md`](instructions.md)
+- [`AGENTS.md`](AGENTS.md): architecture, commands and rules for coding agents
+
+These files are generated. After changing a URL setting or a documentation page, run `npm run docs:agents`.
+
 ## 💻 Development
 
 You'll need Node.js 18 or newer, and npm.
@@ -122,6 +133,7 @@ npm install
 | `npm run build` | One-off development build |
 | `npm run author` | Production build into `public/dist/` (commit this, because GitHub Pages serves it) |
 | `npm test` | Unit tests (Jest) |
+| `npm run docs:agents` | Regenerate `url-params.json`, Markdown page copies and `llms-full.txt` |
 
 The site is static. Serve the repository root with any web server, for example `npx http-server .`, and open `index.html`.
 

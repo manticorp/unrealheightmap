@@ -1,0 +1,5 @@
+# Everything on this site is public and free to crawl, including AI crawlers.
+User-agent: *
+Allow: /
+
+Sitemap: https://manticorp.github.io/unrealheightmap/sitemap.xml
