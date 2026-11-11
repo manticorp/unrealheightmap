@@ -4,7 +4,7 @@
  * and painting them with a palette and optional hillshading.
  */
 import {ElevationSource, LruCache, TILE_SIZE} from "./elevation";
-import {CUSTOM_ID, buildTintLut, getPalette, LUT_SIZE, Palette, TintMode} from "./palettes";
+import {CUSTOM_ID, buildTintLut, getPalette, invertPalette, LUT_SIZE, Palette, TintMode} from "./palettes";
 
 export type TintParams = {
   mode: TintMode;
@@ -13,6 +13,14 @@ export type TintParams = {
   custom?: Palette;
   min: number;
   max: number;
+  /** Run the palette's colours the other way up. */
+  invert?: boolean;
+};
+
+/** The palette the settings ask for, inverted when asked. */
+export const tintPalette = (p: TintParams): Palette => {
+  const palette = (p.palette === CUSTOM_ID ? p.custom : undefined) ?? getPalette(p.palette);
+  return p.invert ? invertPalette(palette) : palette;
 };
 
 /** Cache of the last lookup table, since every tile on screen shares it. */
@@ -20,9 +28,9 @@ let lutKey = '';
 let lutValue: Uint8ClampedArray | null = null;
 const lutFor = (p: TintParams) => {
   const custom = p.palette === CUSTOM_ID ? p.custom : undefined;
-  const key = `${p.palette}|${custom ? JSON.stringify(custom) : ''}|${p.min}|${p.max}|${p.mode}`;
+  const key = `${p.palette}|${custom ? JSON.stringify(custom) : ''}|${p.min}|${p.max}|${p.mode}|${p.invert ? 1 : 0}`;
   if (key !== lutKey || !lutValue) {
-    lutValue = buildTintLut(custom ?? getPalette(p.palette), p.min, p.max, p.mode === 'bands');
+    lutValue = buildTintLut(tintPalette(p), p.min, p.max, p.mode === 'bands');
     lutKey = key;
   }
   return lutValue;

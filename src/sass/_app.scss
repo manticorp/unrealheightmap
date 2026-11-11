@@ -809,58 +809,146 @@ span.info-icon {
 
 .tint-custom {
   margin: 0.2rem 0 0.4rem;
+}
+
+.tint-grad {
+  margin-bottom: 0.5rem;
 
   &__row {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.35rem;
-    margin-bottom: 0.4rem;
+    align-items: flex-start;
+    gap: 0.5rem;
   }
 
   &__title {
-    width: 2.6rem;
+    flex: 0 0 2.6rem;
+    padding-top: 0.15rem;
     font-size: 0.78rem;
     color: $grey-lighter;
   }
 
-  &__swatch {
+  // The bar on top, the stops in a strip under it; both take clicks
+  &__track {
     position: relative;
-    display: inline-block;
+    flex: 1;
+    height: 36px;
+    margin: 0 8px;
+    cursor: copy;
+    touch-action: none;
+    user-select: none;
+  }
 
-    input[type="color"] {
-      display: block;
-      width: 2rem;
-      height: 1.7rem;
-      padding: 0;
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      border-radius: 3px;
-      background: none;
-      cursor: pointer;
+  &__bar {
+    display: block;
+    width: 100%;
+    height: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 3px;
+    image-rendering: auto;
+  }
+
+  &__track.is-empty &__bar {
+    background: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.06) 0 6px, transparent 6px 12px);
+  }
+
+  &__hint {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 18px;
+    font-size: 0.72rem;
+    line-height: 18px;
+    text-align: center;
+    color: $grey-light;
+    pointer-events: none;
+  }
+
+  &__stops {
+    position: absolute;
+    top: 12px;
+    left: 0;
+    right: 0;
+    height: 24px;
+  }
+
+  // A dot with a pointer up to its place on the bar
+  &__stop {
+    position: absolute;
+    top: 6px;
+    width: 16px;
+    height: 16px;
+    margin-left: -8px;
+    padding: 0;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    background: var(--stop-colour, #888);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 1px 3px rgba(0, 0, 0, 0.5);
+    cursor: grab;
+    transition: opacity 0.1s, transform 0.1s;
+
+    &::before {
+      content: "";
+      position: absolute;
+      top: -8px;
+      left: 50%;
+      width: 2px;
+      height: 6px;
+      margin-left: -1px;
+      background: #fff;
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+    }
+
+    &:active { cursor: grabbing; }
+
+    &:focus-visible {
+      outline: 2px solid $info;
+      outline-offset: 2px;
+    }
+
+    &.is-selected {
+      z-index: 1;
+      transform: scale(1.2);
+      border-color: $info;
+
+      &::before { background: $info; }
+    }
+
+    &.is-removing {
+      opacity: 0.35;
+      transform: translateY(8px) scale(0.9);
     }
   }
 
-  &__remove {
-    position: absolute;
-    top: -6px;
-    right: -6px;
-    width: 14px;
-    height: 14px;
+  &__details {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.15rem 0 0 3.1rem;
+    font-size: 0.78rem;
+  }
+
+  &__label {
+    color: $grey-lighter;
+  }
+
+  &__colour {
+    width: 2rem;
+    height: 1.6rem;
     padding: 0;
-    border: 0;
-    border-radius: 50%;
-    font-size: 11px;
-    line-height: 14px;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 3px;
+    background: none;
     cursor: pointer;
+  }
 
-    &:disabled {
-      display: none;
-    }
+  &__pos.input {
+    width: 4.5rem;
+  }
 
-    &:hover {
-      background: #d33;
-    }
+  &__unit {
+    margin-right: 0.3rem;
+    color: $grey-lighter;
   }
 }

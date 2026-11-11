@@ -40,7 +40,9 @@ import {AreaPlan, ExtendedProcessOptions, MeshExtras, PipelineExtras, TerrainOps
 import {LandSeaSource, SOURCE_HOME} from "./extra-sources";
 import {HillshadeLayer} from "./hillshade-layer";
 import {TintLayer, TintParams} from "./tint-layer";
-import {PALETTES, DEFAULT_PALETTE, TINT_MODES, TintMode, CUSTOM_ID, Palette, getPalette, editablePalette, tintColour, tintKeyTicks, encodeCustomPalette, decodeCustomPalette, defaultCustomPalette} from "./palettes";
+import {tintPalette} from "./tint-render";
+import {gradientEditor} from "./gradient-editor";
+import {PALETTES, DEFAULT_PALETTE, TINT_MODES, TintMode, CUSTOM_ID, Palette, getPalette, editablePalette, toStops, fromStops, tintColour, tintKeyTicks, encodeCustomPalette, decodeCustomPalette, defaultCustomPalette} from "./palettes";
 
 import * as Comlink from 'comlink';
 import {
@@ -487,12 +489,13 @@ export default class App {
       custom: this.getCustomPalette(),
       min: lo,
       max: hi,
+      invert: this.inputs.tintInvert?.is(':checked') ?? false,
     };
   }
   /** Identifies the tint settings, so textures and caches know when to refresh. */
   tintKey() : string {
     const p = this.getTintParams();
-    return `${p.mode}|${p.palette}|${p.palette === CUSTOM_ID ? encodeCustomPalette(p.custom!) : ''}|${p.min}|${p.max}|${this.getElevationSource().id}`;
+    return `${p.mode}|${p.palette}|${p.palette === CUSTOM_ID ? encodeCustomPalette(p.custom!) : ''}|${p.min}|${p.max}|${p.invert ? 'inv' : ''}|${this.getElevationSource().id}`;
   }
   /** Redraw the live tint (after its settings or the elevation data changed). */
   refreshTint() {
@@ -516,7 +519,7 @@ export default class App {
   /** The small colour bar and height labels under the range boxes. */
   renderTintPreview() {
     const params = this.getTintParams();
-    const palette = params.palette === CUSTOM_ID ? params.custom! : getPalette(params.palette);
+    const palette = tintPalette(params);
     const canvas = this.els.tintPreview[0] as HTMLCanvasElement;
     const ctx = canvas.getContext('2d');
     if (ctx) {
@@ -534,43 +537,26 @@ export default class App {
       this.els.tintKey.append($(`<span class="tint-preview__tick${edge}">`).css('left', `${tick.fraction * 100}%`).text(tick.label));
     }
   }
-  /** One row of colour swatches per ramp, lowest colour first, each removable, plus an add button. */
+  /** A gradient bar per ramp, with stops to click, drag, add and remove. */
   renderTintEditor() {
     const editor = this.els.tintCustomEditor as JQuery<HTMLElement>;
     editor.toggle(this.inputs.tintPalette.val() === CUSTOM_ID);
     editor.empty();
     if (this.inputs.tintPalette.val() !== CUSTOM_ID) return;
     const palette = this.getCustomPalette();
-    const ramp = (title : string, help : string, colours : string[], minimum : number, update : (list : string[]) => void) => {
-      const row = $('<div class="tint-custom__row">');
-      row.append($('<span class="tint-custom__title">').text(title).attr('title', help));
-      colours.forEach((colour, i) => {
-        const swatch = $('<span class="tint-custom__swatch">');
-        const input = $('<input type="color">').val(colour).attr('aria-label', `${title} colour ${i + 1}`);
-        input.on('input change', () => {
-          const next = [...colours];
-          next[i] = input.val().toString();
-          colours = next;
-          update(next);
-        });
-        const remove = $('<button type="button" class="tint-custom__remove" title="Remove this colour">×</button>')
-          .prop('disabled', colours.length <= minimum)
-          .on('click', () => update(colours.filter((_, j) => j !== i)));
-        row.append(swatch.append(input, remove));
-      });
-      row.append($('<button type="button" class="button is-small tint-custom__add" title="Add a colour at the top of this ramp">+</button>')
-        .on('click', () => update([...colours, colours[colours.length - 1] ?? '#3b78b0'])));
-      return row;
+    let sea = toStops(palette.sea ?? [], palette.seaAt);
+    let land = toStops(palette.land, palette.landAt);
+    const commit = () => {
+      const s = fromStops(sea), l = fromStops(land);
+      const hasSea = s.colours.length > 0;
+      this.setCustomPalette({id: CUSTOM_ID, label: 'Custom', sea: hasSea ? s.colours : undefined, seaAt: hasSea ? s.at : undefined, land: l.colours, landAt: l.at}, false);
     };
-    const commit = (sea : string[], land : string[], rebuild : boolean) =>
-      this.setCustomPalette({id: CUSTOM_ID, label: 'Custom', sea: sea.length ? sea : undefined, land}, rebuild);
-    const current = () => this.getCustomPalette();
     editor.append(
-      ramp('Sea', 'Colours from the lowest height up to 0 m. Remove them all for a palette with no separate sea ramp.', palette.sea ?? [], 0,
-        list => commit(list, current().land, list.length !== (current().sea ?? []).length)),
-      ramp('Land', 'Colours from 0 m (or the lowest height, if there is no sea ramp) up to the highest.', palette.land, 1,
-        list => commit(current().sea ?? [], list, list.length !== current().land.length)),
-      $('<p class="ui-note">').text('Colours run from low to high. Sea is used below 0 m.'),
+      gradientEditor({title: 'Sea', help: 'Colours from the lowest height up to 0 m. Remove them all for a palette with no separate sea ramp.',
+        stops: sea, minimum: 0, firstColour: '#1d5aa6', onChange: list => { sea = list; commit(); }}),
+      gradientEditor({title: 'Land', help: 'Colours from 0 m (or the lowest height, if there is no sea ramp) up to the highest.',
+        stops: land, minimum: 1, firstColour: '#4f8f4a', onChange: list => { land = list; commit(); }}),
+      $('<p class="ui-note">').text('Click a bar to add a colour, and click a dot to change it. Drag dots to move them; double-click one or drag it off the bar to remove it. Two dots in the same place make a hard edge. Sea is used below 0 m.'),
     );
   }
   /** Bring the palette editor, preview and visibility in line with the settings. */
@@ -586,6 +572,7 @@ export default class App {
       ['tintpalette', this.inputs.tintPalette],
       ['tintmin', this.inputs.tintMin],
       ['tintmax', this.inputs.tintMax],
+      ['tintinvert', this.inputs.tintInvert],
     ];
     for (const [key, input] of keys) {
       input.on('change input', debounce(30, () => {
@@ -1228,6 +1215,9 @@ export default class App {
     this.inputs.tintMin = numberInput('tintmin', {step: 'any', value: '0'});
     this.inputs.tintMax = numberInput('tintmax', {step: 'any', value: '3000'});
     this.els.tintFit = button('Fit to area', 'is-small is-info is-light');
+    const invert = checkbox('Invert', 'tintinvert', 'Runs the palette the other way up: the first colour goes to the highest ground. Palettes with a sea ramp flip sea and land separately, so the sea keeps its own colours.');
+    this.inputs.tintInvert = invert.input;
+    this.els.tintInvert = invert.label;
     this.els.tintEdit = button('Edit', 'is-small is-light').attr('title', 'Copy this palette into Custom so you can change its colours');
     this.els.tintRow = $('<div class="tint-options">').hide().append(
       grid(
@@ -1238,7 +1228,7 @@ export default class App {
       ),
       $('<div class="tint-preview">').append(this.els.tintPreview, this.els.tintKey),
       this.inputs.tintCustom, this.els.tintCustomEditor,
-      $('<div class="buttons are-small">').append(this.els.tintFit, this.els.tintEdit), $('<p class="ui-note tint-note">'));
+      $('<div class="buttons are-small">').append(this.els.tintFit, this.els.tintEdit, this.els.tintInvert), $('<p class="ui-note tint-note">'));
     this.els.columnsLatLngZoom = $('<div class="columns">');
     this.els.columnLat = $('<div class="column field">');
     this.els.columnLng = $('<div class="column field">');
@@ -3908,6 +3898,7 @@ export default class App {
       tintcustom: this.inputs.tintCustom,
       tintmin: this.inputs.tintMin,
       tintmax: this.inputs.tintMax,
+      tintinvert: this.inputs.tintInvert,
       normmode: this.inputs.smartNormalisationControl,
       normfrom: this.inputs.normFrom,
       normto: this.inputs.normTo,

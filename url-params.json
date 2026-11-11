@@ -194,7 +194,7 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Only used when map=tint and tpal=custom. The custom palette as \"sea_land\": each part is hex colours without # joined by \"-\", lowest first (sea runs from the lowest height to 0 m and may be empty, land from 0 m up), e.g. 1d5aa6-6bb4dc_4f8f4a-e3d58c-ffffff."
+      "description": "Only used when map=tint and tpal=custom. The custom palette as \"sea_land\": each part is hex colours without # joined by \"-\", lowest first (sea runs from the lowest height to 0 m and may be empty, land from 0 m up), e.g. 1d5aa6-6bb4dc_4f8f4a-e3d58c-ffffff. A colour may end with @ and its position along its part as a percentage (0 to 100, rising; either every colour in a part has one or none does), e.g. _1030ff@0-2a2a2a@10-f4f4f4@100."
     },
     {
       "param": "tmin",
@@ -215,6 +215,15 @@
       "default": "3000",
       "unit": "metres",
       "description": "Only used when map=tint. Height shown with the last colour of the palette."
+    },
+    {
+      "param": "tinv",
+      "legacyName": "tintinvert",
+      "group": "location",
+      "type": "boolean",
+      "required": false,
+      "default": "0",
+      "description": "Only used when map=tint. Runs the palette the other way up; palettes with a sea ramp flip sea and land separately. Boolean written as 1 (on) or 0 (off)."
     },
     {
       "param": "norm",

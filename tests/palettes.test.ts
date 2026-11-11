@@ -47,7 +47,7 @@ describe('palettes', () => {
   });
 });
 
-import {CUSTOM_ID, decodeCustomPalette, editablePalette, defaultCustomPalette, encodeCustomPalette, tintKeyTicks} from "../src/palettes";
+import {CUSTOM_ID, decodeCustomPalette, editablePalette, invertPalette, fromStops, toStops, stopsColour, defaultCustomPalette, encodeCustomPalette, tintKeyTicks} from "../src/palettes";
 
 describe('custom palettes', () => {
   it('starts as a copy of Globe', () => {
@@ -128,14 +128,76 @@ describe('editing a built-in palette', () => {
     expect(decodeCustomPalette(encodeCustomPalette(copy))).toEqual(copy);
   });
 
-  it('resamples a hard-edged palette so it still looks the same', () => {
+  it('keeps the hard edges of a palette like Hottest, through the round trip too', () => {
     const hottest = getPalette('hottest');
     const copy = editablePalette(hottest);
-    expect(copy.landAt).toBeUndefined();
+    expect(copy.landAt).toEqual(hottest.landAt);
     expect(decodeCustomPalette(encodeCustomPalette(copy))).toEqual(copy);
-    for (const h of [0, 300, 700, 1000]) {
-      const a = tintColour(hottest, h, 0, 1000, false), b = tintColour(copy, h, 0, 1000, false);
-      a.forEach((v, i) => expect(Math.abs(v - b[i])).toBeLessThanOrEqual(2));
-    }
+    for (const h of [0, 300, 899, 900, 1000]) expect(tintColour(copy, h, 0, 1000, false)).toEqual(tintColour(hottest, h, 0, 1000, false));
+  });
+});
+
+describe('inverting a palette', () => {
+  const close = (a: number[], b: number[]) => a.forEach((v, i) => expect(Math.abs(v - b[i])).toBeLessThanOrEqual(1));
+
+  it('turns a palette without sea the other way up', () => {
+    const ironbow = getPalette('ironbow');
+    const inverted = invertPalette(ironbow);
+    for (const h of [0, 250, 500, 900, 1000]) close(tintColour(inverted, h, 0, 1000, false), tintColour(ironbow, 1000 - h, 0, 1000, false));
+  });
+
+  it('keeps hard edges in the right place', () => {
+    const hottest = getPalette('hottest');
+    const inverted = invertPalette(hottest);
+    for (const h of [0, 50, 150, 600, 1000]) close(tintColour(inverted, h, 0, 1000, false), tintColour(hottest, 1000 - h, 0, 1000, false));
+  });
+
+  it('flips sea and land separately, keeping the switch at 0 m', () => {
+    const globe = getPalette('globe');
+    const inverted = invertPalette(globe);
+    close(tintColour(inverted, -1000, -1000, 3000, false), hexToRgb(globe.sea![globe.sea!.length - 1]));
+    close(tintColour(inverted, 3000, -1000, 3000, false), hexToRgb(globe.land[0]));
+    expect(globe.land[0]).not.toBe(inverted.land[0]);
+  });
+});
+
+describe('colour stops', () => {
+  it('keeps evenly spaced stops short in links, and old links still read', () => {
+    expect(encodeCustomPalette({land: ['#112233', '#445566', '#778899']})).toBe('_112233-445566-778899');
+    expect(decodeCustomPalette('1d5aa6_4f8f4a-ffffff')).toEqual({id: CUSTOM_ID, label: 'Custom', sea: ['#1d5aa6'], land: ['#4f8f4a', '#ffffff']});
+  });
+
+  it('stores moved stops as percentages and reads them back', () => {
+    const p = {sea: ['#000080', '#3399ff'], seaAt: [0, 0.25], land: ['#112233', '#445566', '#778899'], landAt: [0, 0.125, 1]};
+    const text = encodeCustomPalette(p);
+    expect(text).toBe('000080@0-3399ff@25_112233@0-445566@12.5-778899@100');
+    expect(decodeCustomPalette(text)).toEqual({id: CUSTOM_ID, label: 'Custom', ...p});
+  });
+
+  it('rejects positions that are out of order, missing or out of range', () => {
+    expect(decodeCustomPalette('_112233@50-445566@20')).toBeUndefined();
+    expect(decodeCustomPalette('_112233@0-445566')).toBeUndefined();
+    expect(decodeCustomPalette('_112233@0-445566@120')).toBeUndefined();
+  });
+
+  it('sorts dragged stops, keeps the order of stops in the same place, and drops even positions', () => {
+    expect(fromStops([{colour: '#FF0000', at: 0.8}, {colour: '#00ff00', at: 0.2}])).toEqual({colours: ['#00ff00', '#ff0000'], at: [0.2, 0.8]});
+    expect(fromStops([{colour: '#000000', at: 0.5}, {colour: '#ffffff', at: 0.5}, {colour: '#ff0000', at: 0}]))
+      .toEqual({colours: ['#ff0000', '#000000', '#ffffff'], at: [0, 0.5, 0.5]});
+    expect(fromStops(toStops(['#000000', '#808080', '#ffffff']))).toEqual({colours: ['#000000', '#808080', '#ffffff']});
+  });
+
+  it('gives a new stop the colour already at that place', () => {
+    const stops = [{colour: '#000000', at: 0}, {colour: '#ffffff', at: 1}];
+    expect(stopsColour(stops, 0)).toBe('#000000');
+    expect(stopsColour(stops, 1)).toBe('#ffffff');
+    const mid = parseInt(stopsColour(stops, 0.5).slice(1, 3), 16);
+    expect(mid).toBeGreaterThan(80);
+    expect(mid).toBeLessThan(180);
+  });
+
+  it('moves sea stops too', () => {
+    const p = {id: CUSTOM_ID, label: 'Custom', sea: ['#000080', '#3399ff'], seaAt: [0, 0.25], land: ['#00ff00']};
+    expect(tintColour(p, -500, -1000, 1000, false)).toEqual(tintColour({...p, seaAt: undefined, sea: ['#3399ff']}, -500, -1000, 1000, false));
   });
 });

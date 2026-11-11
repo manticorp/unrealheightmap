@@ -13,6 +13,8 @@ export type Palette = {
   label: string;
   /** Colours from the sea floor up to sea level. Without it the land ramp spans the whole range. */
   sea?: string[];
+  /** Where each sea colour sits, from 0 to 1, as for `landAt`. */
+  seaAt?: number[];
   /** Colours from sea level (or the lowest height) up to the highest. */
   land: string[];
   /**
@@ -157,7 +159,7 @@ export const BAND_COUNT = 10;
 export const tintColour = (palette: Palette, height: number, min: number, max: number, bands: boolean): RGB => {
   const snap = (t: number) => bands ? (Math.min(BAND_COUNT - 1, Math.floor(t * BAND_COUNT)) + 0.5) / BAND_COUNT : t;
   if (palette.sea && height < 0 && min < 0) {
-    return rampColour(palette.sea, snap((height - min) / (0 - min)));
+    return rampColour(palette.sea, snap((height - min) / (0 - min)), palette.seaAt);
   }
   const lo = palette.sea && min < 0 ? 0 : min;
   return rampColour(palette.land, snap((height - lo) / ((max - lo) || 1)), palette.landAt);
@@ -178,24 +180,77 @@ export const buildTintLut = (palette: Palette, min: number, max: number, bands: 
   return lut;
 };
 
+export const rgbToHex = ([r, g, b]: RGB): string =>
+  '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+
+/** One colour of a ramp and where it sits along it, from 0 to 1. */
+export type ColourStop = {colour: string, at: number};
+
+/** A ramp's colours as stops, evenly spaced unless `at` places them. */
+export const toStops = (colours: string[], at?: number[]): ColourStop[] =>
+  colours.map((colour, i) => ({colour, at: at && at.length === colours.length ? at[i] : colours.length > 1 ? i / (colours.length - 1) : 0}));
+
+/** Positions are kept to 0.1% (what a link can carry). */
+const roundAt = (t: number) => Math.round(Math.max(0, Math.min(1, t)) * 1000) / 1000;
+
+/**
+ * Stops back to a ramp: sorted by position (stops at the same place keep their order, making a hard edge),
+ * with `at` left out when they are evenly spaced.
+ */
+export const fromStops = (stops: ColourStop[]): {colours: string[], at?: number[]} => {
+  const sorted = stops.map((s, i) => ({...s, i})).sort((x, y) => x.at - y.at || x.i - y.i);
+  const colours = sorted.map(s => s.colour.toLowerCase());
+  const at = sorted.map(s => roundAt(s.at));
+  const n = at.length;
+  const even = n < 2 || at.every((t, i) => Math.abs(t - i / (n - 1)) < 0.0006);
+  return even ? {colours} : {colours, at};
+};
+
+/** The colour a ramp of stops has at t, as hex: what a new stop dropped there starts as. */
+export const stopsColour = (stops: ColourStop[], t: number): string => {
+  const {colours, at} = fromStops(stops);
+  return rgbToHex(rampColour(colours, t, at ?? toStops(colours).map(s => s.at)));
+};
+
 export const CUSTOM_ID = 'custom';
 
-const HEX = /^[0-9a-f]{6}$/i;
+const STOP = /^([0-9a-f]{6})(?:@(\d{1,3}(?:\.\d)?))?$/i;
 
-/** A custom palette as it is stored and shared: "sea colours_land colours", hex without #, joined by "-". */
-export const encodeCustomPalette = (p: {sea?: string[], land: string[]}): string => {
-  const strip = (list: string[]) => list.map(c => c.replace('#', '').toLowerCase()).join('-');
-  return `${strip(p.sea ?? [])}_${strip(p.land)}`;
+/**
+ * A custom palette as it is stored and shared: "sea_land", each a list of hex colours without # joined by "-",
+ * lowest first. A colour can carry its position as a percentage ("ff0000@12.5"); without them the colours are evenly spaced.
+ */
+export const encodeCustomPalette = (p: {sea?: string[], seaAt?: number[], land: string[], landAt?: number[]}): string => {
+  const part = (list: string[], at?: number[]) => {
+    const placed = at && at.length === list.length ? fromStops(toStops(list, at)) : {colours: list.map(c => c.toLowerCase())};
+    return placed.colours.map((c, i) => c.replace('#', '') + (placed.at ? '@' + +(placed.at[i] * 100).toFixed(1) : '')).join('-');
+  };
+  return `${part(p.sea ?? [], p.seaAt)}_${part(p.land, p.landAt)}`;
 };
 
 /** Read a stored custom palette. Anything invalid, or without land colours, gives undefined. */
 export const decodeCustomPalette = (text: string): Palette | undefined => {
   const [seaText, landText, ...rest] = text.split('_');
   if (rest.length || landText === undefined) return undefined;
-  const parse = (part: string) => part === '' ? [] : part.split('-');
+  const parse = (part: string): {colours: string[], at?: number[]} | undefined => {
+    if (part === '') return {colours: []};
+    const items = part.split('-').map(item => STOP.exec(item));
+    if (items.some(m => !m)) return undefined;
+    const colours = items.map(m => '#' + m![1].toLowerCase());
+    const placed = items.filter(m => m![2] !== undefined).length;
+    if (placed === 0) return {colours};
+    if (placed !== items.length) return undefined;
+    const at = items.map(m => parseFloat(m![2]) / 100);
+    if (at.some((t, i) => t > 1 || (i > 0 && t < at[i - 1]))) return undefined;
+    return fromStops(toStops(colours, at));
+  };
   const sea = parse(seaText), land = parse(landText);
-  if (!land.length || ![...sea, ...land].every(c => HEX.test(c))) return undefined;
-  return {id: CUSTOM_ID, label: 'Custom', sea: sea.length ? sea.map(c => '#' + c.toLowerCase()) : undefined, land: land.map(c => '#' + c.toLowerCase())};
+  if (!sea || !land || !land.colours.length) return undefined;
+  return {
+    id: CUSTOM_ID, label: 'Custom',
+    sea: sea.colours.length ? sea.colours : undefined, seaAt: sea.colours.length ? sea.at : undefined,
+    land: land.colours, landAt: land.at,
+  };
 };
 
 /** What "Custom" starts as: a copy of Globe. */
@@ -204,20 +259,26 @@ export const defaultCustomPalette = (): Palette => {
   return {id: CUSTOM_ID, label: 'Custom', sea: [...globe.sea!], land: [...globe.land]};
 };
 
-/** Steps used when a palette with hard edges ("landAt") is copied into Custom, which only has evenly spaced colours. */
-const EDIT_STEPS = 21;
-
 /**
- * A built-in palette as a Custom one, for the "Edit" button. Evenly spaced palettes copy across exactly;
- * ones with hard edges are resampled every 5%, so each edge softens into a short blend.
+ * The palette with its colours the other way up. Sea and land are each reversed in place,
+ * so the sea ramp still covers the sea floor and the switch stays at 0 m.
  */
-export const editablePalette = (palette: Palette): Palette => {
-  const hex = ([r, g, b]: RGB) => '#' + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
-  const land = palette.landAt
-    ? Array.from({length: EDIT_STEPS}, (_, i) => hex(rampColour(palette.land, i / (EDIT_STEPS - 1), palette.landAt)))
-    : palette.land.map(c => c.toLowerCase());
-  return {id: CUSTOM_ID, label: 'Custom', sea: palette.sea ? palette.sea.map(c => c.toLowerCase()) : undefined, land};
-};
+export const invertPalette = (palette: Palette): Palette => ({
+  ...palette,
+  sea: palette.sea ? [...palette.sea].reverse() : undefined,
+  seaAt: palette.seaAt ? palette.seaAt.map(t => 1 - t).reverse() : undefined,
+  land: [...palette.land].reverse(),
+  landAt: palette.landAt ? palette.landAt.map(t => 1 - t).reverse() : undefined,
+});
+
+/** A built-in palette as a Custom one, for the "Edit" button: the same colours in the same places. */
+export const editablePalette = (palette: Palette): Palette => ({
+  id: CUSTOM_ID, label: 'Custom',
+  sea: palette.sea ? palette.sea.map(c => c.toLowerCase()) : undefined,
+  seaAt: palette.sea && palette.seaAt ? [...palette.seaAt] : undefined,
+  land: palette.land.map(c => c.toLowerCase()),
+  landAt: palette.landAt ? [...palette.landAt] : undefined,
+});
 
 export type TintKeyTick = {value: number, fraction: number, label: string};
 
