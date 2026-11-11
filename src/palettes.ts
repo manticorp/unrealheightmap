@@ -15,6 +15,11 @@ export type Palette = {
   sea?: string[];
   /** Colours from sea level (or the lowest height) up to the highest. */
   land: string[];
+  /**
+   * Where each land colour sits, from 0 to 1, rising (evenly spaced when left out).
+   * Two stops at the same place make a hard edge, as in "Coldest" and "Hottest".
+   */
+  landAt?: number[];
 };
 
 export type TintMode = 'hillshade' | 'continuous' | 'bands';
@@ -49,6 +54,36 @@ export const PALETTES: Palette[] = [
     land: ['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725']},
   {id: 'grey', label: 'Greyscale',
     land: ['#101010', '#ffffff']},
+  {id: 'greyinv', label: 'Greyscale (inverted)',
+    land: ['#ffffff', '#101010']},
+  // Thermal-camera styles
+  {id: 'ironbow', label: 'Ironbow',
+    land: ['#000000', '#1b0c5c', '#6a1590', '#b8287a', '#e8501e', '#f99a1c', '#fde26a', '#ffffff']},
+  {id: 'rainbow', label: 'Rainbow',
+    land: ['#1a1a8c', '#2060ff', '#00c8ff', '#2ed85a', '#f5ee20', '#ff8a00', '#e8102a']},
+  {id: 'contrast', label: 'Contrast',
+    land: ['#0a0010', '#5a0a8c', '#d02ad8', '#1fb5e0', '#30d050', '#f2f030', '#d23a10', '#6e0a0a']},
+  {id: 'arctic', label: 'Arctic',
+    land: ['#08062e', '#10208c', '#1f5ce8', '#4fd8f5', '#f08a1a', '#f8b030', '#fff07a']},
+  {id: 'lava', label: 'Lava',
+    land: ['#05051a', '#23207a', '#1e88b8', '#7a3a6a', '#e83a12', '#ff8c1a', '#ffe680']},
+  {id: 'coldest', label: 'Coldest (lowest in blue)',
+    land: ['#1030ff', '#4a7bff', '#2a2a2a', '#f4f4f4'], landAt: [0, 0.1, 0.1, 1]},
+  {id: 'hottest', label: 'Hottest (highest in red)',
+    land: ['#1a1a1a', '#d8d8d8', '#ff5a3a', '#e8101a'], landAt: [0, 0.9, 0.9, 1]},
+  {id: 'lowhigh', label: 'Lowest and highest',
+    land: ['#1030ff', '#4a7bff', '#2a2a2a', '#d8d8d8', '#ff5a3a', '#e8101a'], landAt: [0, 0.1, 0.1, 0.9, 0.9, 1]},
+  // Other scales
+  {id: 'redwhitegreen', label: 'Red-White-Green',
+    land: ['#c8102e', '#f08080', '#ffffff', '#86d07a', '#1a8a2e']},
+  {id: 'mocha', label: 'Mocha',
+    land: ['#2b1a12', '#5c3a24', '#8f6442', '#c49a6c', '#e8d4bc', '#ffffff']},
+  {id: 'snow', label: 'Snow',
+    land: ['#0b1e4a', '#24508f', '#5f96cf', '#a8cde8', '#e2f0fa', '#ffffff']},
+  {id: 'neon', label: 'Neon',
+    land: ['#0d0221', '#7b00ff', '#ff00d4', '#00e5ff', '#39ff14', '#fff700']},
+  {id: 'nighttime', label: 'Nighttime',
+    land: ['#05050f', '#141a40', '#33507a', '#8f9468', '#c8ad8c', '#f2d2d2']},
 ];
 
 export const DEFAULT_PALETTE = 'globe';
@@ -92,12 +127,25 @@ export const oklabToRgb = ([L, a, b]: RGB): RGB => {
   ];
 };
 
-/** Colour at position t (0 to 1) along evenly spaced hex stops, blended in Oklab. */
-export const rampColour = (stops: string[], t: number): RGB => {
+/**
+ * Colour at position t (0 to 1) along hex stops, blended in Oklab. Stops are
+ * evenly spaced unless `at` gives each one's position.
+ */
+export const rampColour = (stops: string[], t: number, at?: number[]): RGB => {
   if (stops.length === 1) return hexToRgb(stops[0]);
-  const x = Math.max(0, Math.min(1, t)) * (stops.length - 1);
-  const i = Math.min(stops.length - 2, Math.floor(x));
-  const f = x - i;
+  const u = Math.max(0, Math.min(1, t));
+  let i: number, f: number;
+  if (at && at.length === stops.length) {
+    // The last segment that starts at or before u, so a hard edge belongs to the colour above it
+    i = 0;
+    while (i < stops.length - 2 && at[i + 1] <= u) i++;
+    const span = at[i + 1] - at[i];
+    f = span > 0 ? Math.max(0, Math.min(1, (u - at[i]) / span)) : 1;
+  } else {
+    const x = u * (stops.length - 1);
+    i = Math.min(stops.length - 2, Math.floor(x));
+    f = x - i;
+  }
   const a = rgbToOklab(hexToRgb(stops[i])), b = rgbToOklab(hexToRgb(stops[i + 1]));
   return oklabToRgb([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f]);
 };
@@ -112,7 +160,7 @@ export const tintColour = (palette: Palette, height: number, min: number, max: n
     return rampColour(palette.sea, snap((height - min) / (0 - min)));
   }
   const lo = palette.sea && min < 0 ? 0 : min;
-  return rampColour(palette.land, snap((height - lo) / ((max - lo) || 1)));
+  return rampColour(palette.land, snap((height - lo) / ((max - lo) || 1)), palette.landAt);
 };
 
 export const LUT_SIZE = 1024;
@@ -154,6 +202,21 @@ export const decodeCustomPalette = (text: string): Palette | undefined => {
 export const defaultCustomPalette = (): Palette => {
   const globe = getPalette('globe');
   return {id: CUSTOM_ID, label: 'Custom', sea: [...globe.sea!], land: [...globe.land]};
+};
+
+/** Steps used when a palette with hard edges ("landAt") is copied into Custom, which only has evenly spaced colours. */
+const EDIT_STEPS = 21;
+
+/**
+ * A built-in palette as a Custom one, for the "Edit" button. Evenly spaced palettes copy across exactly;
+ * ones with hard edges are resampled every 5%, so each edge softens into a short blend.
+ */
+export const editablePalette = (palette: Palette): Palette => {
+  const hex = ([r, g, b]: RGB) => '#' + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+  const land = palette.landAt
+    ? Array.from({length: EDIT_STEPS}, (_, i) => hex(rampColour(palette.land, i / (EDIT_STEPS - 1), palette.landAt)))
+    : palette.land.map(c => c.toLowerCase());
+  return {id: CUSTOM_ID, label: 'Custom', sea: palette.sea ? palette.sea.map(c => c.toLowerCase()) : undefined, land};
 };
 
 export type TintKeyTick = {value: number, fraction: number, label: string};

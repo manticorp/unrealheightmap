@@ -40,7 +40,7 @@ import {AreaPlan, ExtendedProcessOptions, MeshExtras, PipelineExtras, TerrainOps
 import {LandSeaSource, SOURCE_HOME} from "./extra-sources";
 import {HillshadeLayer} from "./hillshade-layer";
 import {TintLayer, TintParams} from "./tint-layer";
-import {PALETTES, DEFAULT_PALETTE, TINT_MODES, TintMode, CUSTOM_ID, Palette, getPalette, tintColour, tintKeyTicks, encodeCustomPalette, decodeCustomPalette, defaultCustomPalette} from "./palettes";
+import {PALETTES, DEFAULT_PALETTE, TINT_MODES, TintMode, CUSTOM_ID, Palette, getPalette, editablePalette, tintColour, tintKeyTicks, encodeCustomPalette, decodeCustomPalette, defaultCustomPalette} from "./palettes";
 
 import * as Comlink from 'comlink';
 import {
@@ -575,6 +575,7 @@ export default class App {
   }
   /** Bring the palette editor, preview and visibility in line with the settings. */
   renderTint() {
+    this.els.tintEdit.toggle(this.inputs.tintPalette.val() !== CUSTOM_ID);
     this.renderTintEditor();
     this.renderTintPreview();
   }
@@ -607,6 +608,13 @@ export default class App {
       this.inputs.tintMax.val(hi > lo ? hi : lo + 1);
       note.text(`Set to this area's range: ${lo} to ${hi > lo ? hi : lo + 1} m.`);
       this.inputs.tintMin.trigger('change');
+    });
+    this.els.tintEdit.on('click', () => {
+      const id = this.inputs.tintPalette.val()?.toString() ?? DEFAULT_PALETTE;
+      if (id === CUSTOM_ID) return;
+      this.setCustomPalette(editablePalette(getPalette(id)), false);
+      this.inputs.tintPalette.val(CUSTOM_ID);
+      this.inputs.tintPalette.trigger('change');
     });
     this.inputs.elevSource.on('change', redraw);
   }
@@ -1220,6 +1228,7 @@ export default class App {
     this.inputs.tintMin = numberInput('tintmin', {step: 'any', value: '0'});
     this.inputs.tintMax = numberInput('tintmax', {step: 'any', value: '3000'});
     this.els.tintFit = button('Fit to area', 'is-small is-info is-light');
+    this.els.tintEdit = button('Edit', 'is-small is-light').attr('title', 'Copy this palette into Custom so you can change its colours');
     this.els.tintRow = $('<div class="tint-options">').hide().append(
       grid(
         field('Tint style', selectControl(this.inputs.tintMode), {tip: '<b>Hillshade</b>: colours plus lighting from the slope. <b>Continuous</b>: a smooth colour gradient by height. <b>Bands</b>: ten flat colour zones. The albedo export matches what you see.'}),
@@ -1229,7 +1238,7 @@ export default class App {
       ),
       $('<div class="tint-preview">').append(this.els.tintPreview, this.els.tintKey),
       this.inputs.tintCustom, this.els.tintCustomEditor,
-      $('<div class="buttons are-small">').append(this.els.tintFit), $('<p class="ui-note tint-note">'));
+      $('<div class="buttons are-small">').append(this.els.tintFit, this.els.tintEdit), $('<p class="ui-note tint-note">'));
     this.els.columnsLatLngZoom = $('<div class="columns">');
     this.els.columnLat = $('<div class="column field">');
     this.els.columnLng = $('<div class="column field">');
