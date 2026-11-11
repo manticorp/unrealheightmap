@@ -15,3 +15,6 @@ node_modules
 
 # Promo assets and renders (large, generated)
 promo/
+
+# Local Claude app config (preview server)
+.claude/
