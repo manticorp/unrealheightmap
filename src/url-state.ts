@@ -12,6 +12,7 @@
 export type SettingKey =
   | 'latitude' | 'longitude' | 'zoom' | 'outputzoom'
   | 'width' | 'height' | 'outputformat' | 'maptype'
+  | 'tintmode' | 'tintpalette' | 'tintcustom' | 'tintmin' | 'tintmax'
   | 'normmode' | 'normfrom' | 'normto'
   | 'tilemode' | 'tilewidth' | 'tileheight' | 'tilecountx' | 'tilecounty'
   | 'tilezip' | 'tilepad' | 'tileunrealname'
@@ -51,6 +52,11 @@ export const SETTINGS: Record<SettingKey, SettingDef> = {
   height:         {param: 'h',     default: null},
   outputformat:   {param: 'fmt',   default: 'png16'},
   maptype:        {param: 'map',   default: 'topo'},
+  tintmode:       {param: 'tmode', default: 'hillshade'},
+  tintpalette:    {param: 'tpal',  default: 'globe'},
+  tintcustom:     {param: 'tcol',  default: ''},
+  tintmin:        {param: 'tmin',  default: '0'},
+  tintmax:        {param: 'tmax',  default: '3000'},
   normmode:       {param: 'norm',  default: '3'}, // internal value; written as "smart"
   normfrom:       {param: 'nfrom', default: ''},
   normto:         {param: 'nto',   default: ''},

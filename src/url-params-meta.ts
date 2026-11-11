@@ -6,6 +6,9 @@
  * `npm test` fails if the two drift apart.
  */
 import {SETTINGS, SettingKey} from './url-state';
+import {PALETTES} from './palettes';
+
+const PALETTE_IDS = PALETTES.map(p => p.id);
 
 export type ParamType = 'number' | 'integer' | 'boolean' | 'enum' | 'string';
 
@@ -23,7 +26,7 @@ export type ParamMeta = {
 const ZERO_ONE = 'Boolean written as 1 (on) or 0 (off).';
 
 const MAP_TYPES = [
-  'topo', 'imagery', 'relief', 'natgeo', 'osm', 'osmhot', 'otm', 'opnvkarte', 'usgsusimagery',
+  'topo', 'imagery', 'relief', 'tint', 'natgeo', 'osm', 'osmhot', 'otm', 'opnvkarte', 'usgsusimagery',
   'watercolor', 'nextzen', 'stadiaalidadesatellite', 'stadiasmooth', 'stadiasmoothdark',
   'stadiastamentoner', 'stadiastamentonerbg', 'stadiastamentonerlite',
 ];
@@ -40,6 +43,11 @@ export const PARAM_META: Record<SettingKey, ParamMeta> = {
   zoom:      {group: 'location', type: 'integer', min: 0, description: 'Zoom level of the map preview only. It does not change the export.'},
   outputzoom: {group: 'location', type: 'integer', min: 0, max: 18, description: 'Web-map zoom level the heightmap is generated at. Together with width and height it sets the real-world size of the export. Maximum depends on the elevation source: 15 for aws, 18 for mapterhorn, 12 for etopo.'},
   maptype:   {group: 'location', type: 'enum', values: MAP_TYPES, description: 'Map preview style. It is also the imagery used for the albedo export and for textured 3D models.'},
+  tintmode:  {group: 'location', type: 'enum', values: ['hillshade', 'continuous', 'bands'], description: 'Only used when map=tint. Hillshade = palette colours with slope lighting; continuous = smooth gradient by height; bands = ten flat colour zones.'},
+  tintpalette: {group: 'location', type: 'enum', values: [...PALETTE_IDS, 'custom'], description: 'Only used when map=tint. Colour palette applied by height.'},
+  tintcustom: {group: 'location', type: 'string', description: 'Only used when map=tint and tpal=custom. The custom palette as "sea_land": each part is hex colours without # joined by "-", lowest first (sea runs from the lowest height to 0 m and may be empty, land from 0 m up), e.g. 1d5aa6-6bb4dc_4f8f4a-e3d58c-ffffff.'},
+  tintmin:   {group: 'location', type: 'number', unit: 'metres', description: 'Only used when map=tint. Height shown with the first colour of the palette.'},
+  tintmax:   {group: 'location', type: 'number', unit: 'metres', description: 'Only used when map=tint. Height shown with the last colour of the palette.'},
   elevsource: {group: 'elevation', type: 'enum', values: ['aws', 'mapterhorn', 'etopo', 'landsea', 'upload', 'mars', 'gale', 'moon', 'mercury'], description: 'Elevation dataset. aws = AWS Terrain Tiles (Mapzen); mapterhorn = Copernicus 30 m plus lidar where available; etopo = NOAA ETOPO 2022 land and sea floor (~450 m); landsea = Mapterhorn land with ETOPO sea floor; upload = a GeoTIFF or SRTM .hgt file the user supplies in the browser (cannot be set from a link); mars, gale, moon, mercury = planetary data.'},
   width:     {group: 'size', type: 'integer', min: 1, max: 8129, unit: 'pixels', description: 'Output width in pixels.'},
   height:    {group: 'size', type: 'integer', min: 1, max: 8129, unit: 'pixels', description: 'Output height in pixels.'},

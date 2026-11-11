@@ -39,6 +39,8 @@ import {LengthUnit, MM_PER_UNIT, POSTER_MAX_PIXELS, POSTER_MAX_SIDE, POSTER_THEM
 import {AreaPlan, ExtendedProcessOptions, MeshExtras, PipelineExtras, TerrainOps, TextFile} from "./processor";
 import {LandSeaSource, SOURCE_HOME} from "./extra-sources";
 import {HillshadeLayer} from "./hillshade-layer";
+import {TintLayer, TintParams} from "./tint-layer";
+import {PALETTES, DEFAULT_PALETTE, TINT_MODES, TintMode, CUSTOM_ID, Palette, getPalette, tintColour, tintKeyTicks, encodeCustomPalette, decodeCustomPalette, defaultCustomPalette} from "./palettes";
 
 import * as Comlink from 'comlink';
 import {
@@ -234,6 +236,8 @@ export default class App {
   viewshedMarker : L.Marker | null = null;
   previewView : 'map' | '3d' | 'split' = 'map';
   lastExtras : PipelineExtras | null = null;
+  /** Height range of the area on screen, from the last estimate (used by the tint's "Fit to area"). */
+  lastHeightRange : {min : number, max : number} | null = null;
   constructor({container} : AppArgs) {
     this.container = container;
     this.elevationSources.gale = new PlanetSource(PLANETS[3], this.elevationSources.mars);
@@ -335,13 +339,48 @@ export default class App {
       content: 'Copies a link to this exact location and export settings. The address bar also stays up to date, so you can bookmark it.',
     });
     this.els.copyLink.on('click', () => this.copyShareLink());
+    this.els.resetSettings = $('<button class="button is-small" type="button">Reset</button>');
+    tippy(this.els.resetSettings[0], {
+      ...deafultTippyOptions,
+      content: 'Puts every setting back to its default (map type, elevation source, palette, exports and so on). Your location, zoom and image size stay as they are.',
+    });
+    this.els.resetSettings.on('click', () => this.confirmResetSettings());
     const copyColumn = $('<div class="column is-narrow field">')
       .append($('<label class="label">&nbsp;</label>'))
-      .append($('<div class="control">').append(this.els.copyLink));
+      .append($('<div class="control buttons are-small has-addons-gap">').append(this.els.copyLink, this.els.resetSettings));
 
     this.els.searchRow.append(searchColumn).append(copyColumn);
     this.els.sidebarHead.append(this.els.searchRow);
   }
+  /** Reset needs a second click, so a stray click can't wipe settings. */
+  confirmResetSettings() {
+    const button = this.els.resetSettings as JQuery<HTMLElement>;
+    if (!button.hasClass('is-danger')) {
+      button.addClass('is-danger').text('Click to confirm');
+      window.setTimeout(() => button.removeClass('is-danger').text('Reset'), 4000);
+      return;
+    }
+    trackEvent('settings/reset');
+    this.resetSettings();
+  }
+  /** Settings that describe where and how big, rather than how things look or export. */
+  static readonly KEPT_ON_RESET : SettingKey[] = ['latitude', 'longitude', 'zoom', 'outputzoom', 'width', 'height'];
+  resetSettings() {
+    const kept : SettingValues = {};
+    for (const key of App.KEPT_ON_RESET) kept[key] = this.readSetting(key);
+    this.resetting = true;
+    try {
+      for (const key of Object.keys(SETTINGS) as SettingKey[]) {
+        if (!App.KEPT_ON_RESET.includes(key)) localStorage.removeItem(key);
+      }
+    } catch (e) {
+      // Blocked storage has nothing to clear; the link below still resets everything
+    }
+    // A link only lists settings that differ from the default, so this one resets all the rest
+    history.replaceState(null, '', buildHash(kept));
+    location.reload();
+  }
+  resetting : boolean = false;
   async copyShareLink() {
     this.writeHash();
     trackEvent('share/copy-link');
@@ -430,6 +469,146 @@ export default class App {
     this.inputs.outputzoom.prop('max', mz);
     this.inputs.zoom.val(Math.min(parseInt(this.inputs.zoom.val().toString()), mz));
     this.inputs.outputzoom.val(Math.min(parseInt(this.inputs.outputzoom.val().toString()), mz));
+    this.toggleTintInputs();
+  }
+  /** Palette and range controls only matter while the elevation tint is the map. */
+  toggleTintInputs() {
+    this.els.tintRow?.toggle(this.activeLayerKey() === 'tint');
+  }
+  getTintParams() : TintParams {
+    const mode = (this.inputs.tintMode?.val()?.toString() ?? 'hillshade') as TintMode;
+    const min = parseFloat(this.inputs.tintMin?.val()?.toString() ?? '');
+    const max = parseFloat(this.inputs.tintMax?.val()?.toString() ?? '');
+    const lo = Number.isFinite(min) ? min : 0;
+    const hi = Number.isFinite(max) && max > lo ? max : lo + 1;
+    return {
+      mode: TINT_MODES.includes(mode) ? mode : 'hillshade',
+      palette: this.inputs.tintPalette?.val()?.toString() ?? DEFAULT_PALETTE,
+      custom: this.getCustomPalette(),
+      min: lo,
+      max: hi,
+    };
+  }
+  /** Identifies the tint settings, so textures and caches know when to refresh. */
+  tintKey() : string {
+    const p = this.getTintParams();
+    return `${p.mode}|${p.palette}|${p.palette === CUSTOM_ID ? encodeCustomPalette(p.custom!) : ''}|${p.min}|${p.max}|${this.getElevationSource().id}`;
+  }
+  /** Redraw the live tint (after its settings or the elevation data changed). */
+  refreshTint() {
+    if (this.activeLayerKey() !== 'tint') return;
+    (this.layers.tint.layer as L.GridLayer).redraw();
+    this.updatePreviewTexture();
+  }
+  /** The user's own palette: what is stored, or a copy of Globe until they change it. */
+  getCustomPalette() : Palette {
+    return decodeCustomPalette(this.inputs.tintCustom?.val()?.toString() ?? '') ?? defaultCustomPalette();
+  }
+  setCustomPalette(palette : Palette, rebuildEditor : boolean) {
+    this.inputs.tintCustom.val(encodeCustomPalette(palette));
+    this.storeValue('tintcustom', this.readSetting('tintcustom') ?? '');
+    trackControl('tintcustom');
+    if (rebuildEditor) this.renderTintEditor();
+    this.renderTintPreview();
+    this.refreshTintSoon();
+  }
+  refreshTintSoon = debounce(120, () => this.refreshTint());
+  /** The small colour bar and height labels under the range boxes. */
+  renderTintPreview() {
+    const params = this.getTintParams();
+    const palette = params.palette === CUSTOM_ID ? params.custom! : getPalette(params.palette);
+    const canvas = this.els.tintPreview[0] as HTMLCanvasElement;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const image = ctx.createImageData(canvas.width, 1);
+      for (let x = 0; x < canvas.width; x++) {
+        const h = params.min + (params.max - params.min) * x / (canvas.width - 1);
+        const c = tintColour(palette, h, params.min, params.max, params.mode === 'bands');
+        image.data.set([c[0], c[1], c[2], 255], x * 4);
+      }
+      ctx.putImageData(image, 0, 0);
+    }
+    this.els.tintKey.empty();
+    for (const tick of tintKeyTicks(palette, params.min, params.max)) {
+      const edge = tick.fraction === 0 ? ' is-first' : tick.fraction === 1 ? ' is-last' : '';
+      this.els.tintKey.append($(`<span class="tint-preview__tick${edge}">`).css('left', `${tick.fraction * 100}%`).text(tick.label));
+    }
+  }
+  /** One row of colour swatches per ramp, lowest colour first, each removable, plus an add button. */
+  renderTintEditor() {
+    const editor = this.els.tintCustomEditor as JQuery<HTMLElement>;
+    editor.toggle(this.inputs.tintPalette.val() === CUSTOM_ID);
+    editor.empty();
+    if (this.inputs.tintPalette.val() !== CUSTOM_ID) return;
+    const palette = this.getCustomPalette();
+    const ramp = (title : string, help : string, colours : string[], minimum : number, update : (list : string[]) => void) => {
+      const row = $('<div class="tint-custom__row">');
+      row.append($('<span class="tint-custom__title">').text(title).attr('title', help));
+      colours.forEach((colour, i) => {
+        const swatch = $('<span class="tint-custom__swatch">');
+        const input = $('<input type="color">').val(colour).attr('aria-label', `${title} colour ${i + 1}`);
+        input.on('input change', () => {
+          const next = [...colours];
+          next[i] = input.val().toString();
+          colours = next;
+          update(next);
+        });
+        const remove = $('<button type="button" class="tint-custom__remove" title="Remove this colour">×</button>')
+          .prop('disabled', colours.length <= minimum)
+          .on('click', () => update(colours.filter((_, j) => j !== i)));
+        row.append(swatch.append(input, remove));
+      });
+      row.append($('<button type="button" class="button is-small tint-custom__add" title="Add a colour at the top of this ramp">+</button>')
+        .on('click', () => update([...colours, colours[colours.length - 1] ?? '#3b78b0'])));
+      return row;
+    };
+    const commit = (sea : string[], land : string[], rebuild : boolean) =>
+      this.setCustomPalette({id: CUSTOM_ID, label: 'Custom', sea: sea.length ? sea : undefined, land}, rebuild);
+    const current = () => this.getCustomPalette();
+    editor.append(
+      ramp('Sea', 'Colours from the lowest height up to 0 m. Remove them all for a palette with no separate sea ramp.', palette.sea ?? [], 0,
+        list => commit(list, current().land, list.length !== (current().sea ?? []).length)),
+      ramp('Land', 'Colours from 0 m (or the lowest height, if there is no sea ramp) up to the highest.', palette.land, 1,
+        list => commit(current().sea ?? [], list, list.length !== current().land.length)),
+      $('<p class="ui-note">').text('Colours run from low to high. Sea is used below 0 m.'),
+    );
+  }
+  /** Bring the palette editor, preview and visibility in line with the settings. */
+  renderTint() {
+    this.renderTintEditor();
+    this.renderTintPreview();
+  }
+  hookTintControls() {
+    const redraw = debounce(120, () => this.refreshTint());
+    const keys : [SettingKey, JQuery<HTMLElement>][] = [
+      ['tintmode', this.inputs.tintMode],
+      ['tintpalette', this.inputs.tintPalette],
+      ['tintmin', this.inputs.tintMin],
+      ['tintmax', this.inputs.tintMax],
+    ];
+    for (const [key, input] of keys) {
+      input.on('change input', debounce(30, () => {
+        this.storeValue(key, this.readSetting(key) ?? '');
+        trackControl(key, input.is('select') ? this.readSetting(key) : undefined);
+        this.renderTint();
+        redraw();
+      }));
+    }
+    this.renderTint();
+    this.els.tintFit.on('click', () => {
+      const range = this.lastHeightRange;
+      const note = this.els.tintRow.find('.tint-note');
+      if (!range) {
+        note.text('The height range of the area is still loading. Try again in a moment.');
+        return;
+      }
+      const lo = Math.floor(range.min), hi = Math.ceil(range.max);
+      this.inputs.tintMin.val(lo);
+      this.inputs.tintMax.val(hi > lo ? hi : lo + 1);
+      note.text(`Set to this area's range: ${lo} to ${hi > lo ? hi : lo + 1} m.`);
+      this.inputs.tintMin.trigger('change');
+    });
+    this.inputs.elevSource.on('change', redraw);
   }
   createMapLayers() {
     this.layers.topo = {
@@ -443,6 +622,16 @@ export default class App {
     this.layers.relief = {
       layer: L.tileLayer.provider('Esri.WorldShadedRelief'),
       label: 'Esri World Shaded Relief'
+    };
+    // Drawn live from the chosen elevation data, so it always matches the heightmap
+    this.layers.tint = {
+      layer: new TintLayer({
+        getSource: () => this.getElevationSource(),
+        getParams: () => this.getTintParams(),
+        maxZoom: 18,
+        attribution: 'Elevation tint drawn from the selected elevation data',
+      }),
+      label: 'Elevation tint (live from heightmap)'
     };
     this.layers.natgeo = {
       layer: L.tileLayer.provider('Esri.NatGeoWorldMap'),
@@ -1022,6 +1211,25 @@ export default class App {
       this.inputs.maptype.append(`<option value="${type}">${layer.label}</option>`);
     }
 
+    this.inputs.tintMode = selectInput('tintmode', [['hillshade', 'Hillshade'], ['continuous', 'Continuous'], ['bands', 'Bands']], 'hillshade');
+    this.inputs.tintPalette = selectInput('tintpalette', [...PALETTES.map(p => [p.id, p.label] as [string, string]), [CUSTOM_ID, 'Custom…']], DEFAULT_PALETTE);
+    this.inputs.tintCustom = $('<input type="hidden" name="tintcustom">') as JQuery<HTMLInputElement>;
+    this.els.tintPreview = $('<canvas class="tint-preview__bar" width="256" height="1" aria-label="Palette preview">');
+    this.els.tintKey = $('<div class="tint-preview__key">');
+    this.els.tintCustomEditor = $('<div class="tint-custom">').hide();
+    this.inputs.tintMin = numberInput('tintmin', {step: 'any', value: '0'});
+    this.inputs.tintMax = numberInput('tintmax', {step: 'any', value: '3000'});
+    this.els.tintFit = button('Fit to area', 'is-small is-info is-light');
+    this.els.tintRow = $('<div class="tint-options">').hide().append(
+      grid(
+        field('Tint style', selectControl(this.inputs.tintMode), {tip: '<b>Hillshade</b>: colours plus lighting from the slope. <b>Continuous</b>: a smooth colour gradient by height. <b>Bands</b>: ten flat colour zones. The albedo export matches what you see.'}),
+        field('Palette', selectControl(this.inputs.tintPalette), {tip: 'Colours by height. Palettes with a blue ramp colour the sea floor separately, switching at 0 m.'}),
+        field('Lowest (m)', $('<div class="control">').append(this.inputs.tintMin), {tip: 'Height shown with the first colour of the palette.'}),
+        field('Highest (m)', $('<div class="control">').append(this.inputs.tintMax), {tip: 'Height shown with the last colour of the palette.'}),
+      ),
+      $('<div class="tint-preview">').append(this.els.tintPreview, this.els.tintKey),
+      this.inputs.tintCustom, this.els.tintCustomEditor,
+      $('<div class="buttons are-small">').append(this.els.tintFit), $('<p class="ui-note tint-note">'));
     this.els.columnsLatLngZoom = $('<div class="columns">');
     this.els.columnLat = $('<div class="column field">');
     this.els.columnLng = $('<div class="column field">');
@@ -1062,7 +1270,7 @@ export default class App {
       .append(this.els.demUpload)
       .append(this.els.elevSourceNote);
 
-    this.sections.location.append(grid(this.els.columnLat, this.els.columnLng, this.els.columnOutputZoom, this.els.columnMaptype));
+    this.sections.location.append(grid(this.els.columnLat, this.els.columnLng, this.els.columnOutputZoom, this.els.columnMaptype), this.els.tintRow);
     this.sections.elevation.append(this.els.columnElevSource);
 
     const outputZoomLabelInfo = $('<span class="info-icon"> ℹ️ </span>');
@@ -2126,7 +2334,7 @@ export default class App {
       this.preview.setTexture(null);
       return;
     }
-    const key = `${this.getPreviewKey()}|${this.activeLayerKey()}`;
+    const key = `${this.getPreviewKey()}|${this.activeLayerKey()}${this.activeLayerKey() === 'tint' ? '|' + this.tintKey() : ''}`;
     if (key === this.previewTextureKey) return;
     this.previewTextureKey = key;
     try {
@@ -3686,6 +3894,11 @@ export default class App {
       height: this.inputs.height,
       outputformat: this.inputs.outputformat,
       maptype: this.inputs.maptype,
+      tintmode: this.inputs.tintMode,
+      tintpalette: this.inputs.tintPalette,
+      tintcustom: this.inputs.tintCustom,
+      tintmin: this.inputs.tintMin,
+      tintmax: this.inputs.tintMax,
       normmode: this.inputs.smartNormalisationControl,
       normfrom: this.inputs.normFrom,
       normto: this.inputs.normTo,
@@ -3840,6 +4053,7 @@ export default class App {
     const rot = this.getRotation();
     this.els.rotationRange?.val(rot > 180 ? rot - 360 : rot);
     this.renderBandSwatches();
+    this.renderTint();
     this.drawShape();
     this.updateAreaStatus();
     this.updateSeamlessNote();
@@ -3873,6 +4087,7 @@ export default class App {
   }
   /** Mirror the current settings into the address bar without adding history entries. */
   writeHash() {
+    if (this.resetting) return;
     const hash = buildHash(this.readSettings());
     if (hash !== location.hash) {
       history.replaceState(null, '', hash);
@@ -3880,6 +4095,7 @@ export default class App {
     this.lastWrittenHash = location.hash;
   }
   storeValue(key : string, data : string, expires : number = null) {
+    if (this.resetting) return;
     expires = expires || ((new Date()).getTime())+(1000*60*60*24*30);
     let storedItem : StoredItemValue = {key, data, expires};
     try {
@@ -4095,6 +4311,7 @@ export default class App {
     this.hookExtraOutputControls(doHeightsDebounced);
     this.hookMeshControls();
     this.hookContourControls();
+    this.hookTintControls();
 
     window.addEventListener('paste', (event : ClipboardEvent) => {
       // @ts-ignore
@@ -4505,6 +4722,7 @@ export default class App {
       .then((output : NormaliseResult<Float32Array>) => {
         if (seamOn && output.extras?.edges) this.updateSeamlessNote(output.extras.edges);
         const fmt = this.meterFormatter;
+        this.lastHeightRange = {min: output.minBefore, max: output.maxBefore};
         const txt = `, Height range: ${fmt.format(output.minBefore)} to ${fmt.format(output.maxBefore)}`;
         this.els.generatorInfo.find('.heights').text(txt);
         const range = output.maxBefore - output.minBefore;
@@ -4855,7 +5073,7 @@ export default class App {
     const state = this.getCurrentState();
     this.resetOutput();
     this.showProcessingProgress('Preparing albedo tiles…', 0);
-    if (this.getRotation() || this.activeLayerKey() === 'mercury' || this.activeLayerKey() === 'gale') {
+    if (this.getRotation() || ['mercury', 'gale', 'tint'].includes(this.activeLayerKey())) {
       // Rotated areas (and drawn relief layers) go through the canvas renderer
       return this.fetchMapImage(Math.max(state.width, state.height), (msg, pct) => this.showProcessingProgress(msg, pct))
         .then(canvas => {

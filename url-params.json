@@ -119,6 +119,7 @@
         "topo",
         "imagery",
         "relief",
+        "tint",
         "natgeo",
         "osm",
         "osmhot",
@@ -135,6 +136,71 @@
         "stadiastamentonerlite"
       ],
       "description": "Map preview style. It is also the imagery used for the albedo export and for textured 3D models."
+    },
+    {
+      "param": "tmode",
+      "legacyName": "tintmode",
+      "group": "location",
+      "type": "enum",
+      "required": false,
+      "default": "hillshade",
+      "values": [
+        "hillshade",
+        "continuous",
+        "bands"
+      ],
+      "description": "Only used when map=tint. Hillshade = palette colours with slope lighting; continuous = smooth gradient by height; bands = ten flat colour zones."
+    },
+    {
+      "param": "tpal",
+      "legacyName": "tintpalette",
+      "group": "location",
+      "type": "enum",
+      "required": false,
+      "default": "globe",
+      "values": [
+        "globe",
+        "earth",
+        "naturalearth",
+        "topo",
+        "highland",
+        "desert",
+        "dune",
+        "pastel",
+        "viridis",
+        "grey",
+        "custom"
+      ],
+      "description": "Only used when map=tint. Colour palette applied by height."
+    },
+    {
+      "param": "tcol",
+      "legacyName": "tintcustom",
+      "group": "location",
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Only used when map=tint and tpal=custom. The custom palette as \"sea_land\": each part is hex colours without # joined by \"-\", lowest first (sea runs from the lowest height to 0 m and may be empty, land from 0 m up), e.g. 1d5aa6-6bb4dc_4f8f4a-e3d58c-ffffff."
+    },
+    {
+      "param": "tmin",
+      "legacyName": "tintmin",
+      "group": "location",
+      "type": "number",
+      "required": false,
+      "default": "0",
+      "unit": "metres",
+      "description": "Only used when map=tint. Height shown with the first colour of the palette."
+    },
+    {
+      "param": "tmax",
+      "legacyName": "tintmax",
+      "group": "location",
+      "type": "number",
+      "required": false,
+      "default": "3000",
+      "unit": "metres",
+      "description": "Only used when map=tint. Height shown with the last colour of the palette."
     },
     {
       "param": "norm",
